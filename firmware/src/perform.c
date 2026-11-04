@@ -98,6 +98,17 @@ static volatile uint32_t perf_held;   /* ISR: the effects held (PF_*) */
 static volatile uint8_t perf_latch_on;   /* main: MENU > FX LATCH ON (#40): a key with FX toggles its effect */
 static volatile uint32_t perf_latched;   /* ISR: the effects latched (FX LATCH; main clears it: OCT-, the menu) */
 static volatile uint32_t perf_act;    /* ISR: .. running (a 1/16 one from its start on) */
+/* BLAZE (blaze_home.c): each track's gain, Q15 (32768: as it is), the target of the mutes' ramp (perf_mute): LOOPS'
+ * fades and DUCK move it; anything below full keeps the FX layer's stage running */
+static volatile int32_t bz_gain[NTRK] = {32768, 32768, 32768, 32768};
+static int bz_gain_busy(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (bz_gain[k] != 32768)
+            return 1;
+    return 0;
+}
 static uint32_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
 
 /* the ZDF state-variable filter at cutoff index i (30 Hz * 2^(i / 7), 0..63: up to 15.4 kHz), k = 1:
@@ -301,7 +312,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     uint32_t held = perf_kill ? 0u : (perf_held | perf_latched | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail();
     uint32_t q, k, ph0, bnd;
     int32_t m;
-    if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */
+    if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2]) && !bz_gain_busy()) {   /* idle: the clock only */
         pf.ph += n;
         pf.sync = 0;
         perf_act = 0;
@@ -362,7 +373,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     }
     pf.mute = 0;
     for (k = 0; k < NTRK; k++)
-        if (((held >> (PF_M1 + k)) & 1u) || pf.mg[k] != 32768)
+        if (((held >> (PF_M1 + k)) & 1u) || pf.mg[k] != 32768 || bz_gain[k] != 32768)
             pf.mute |= (uint8_t)(1u << k);
     pf.busy = 1;
     return 1;
@@ -372,7 +383,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
 static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t n)
 {
     uint32_t i;
-    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
+    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : bz_gain[k];
     for (i = 0; i < n; i++) {
         g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
         b[i] = mulq16(b[i], (uint32_t)g << 1);
@@ -383,7 +394,7 @@ static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t
 static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t i;
-    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
+    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : bz_gain[k];
     for (i = 0; i < n; i++) {
         g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
         b[i] = mulq16(b[i], (uint32_t)g << 1);

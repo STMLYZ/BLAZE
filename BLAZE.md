@@ -125,3 +125,40 @@ The BLAZE map now shows the key in the header and the phrase as a thin bar acros
 | KNOB 1–4 | FILTER, LENGTH (of each stab / gate step), SPACE, LEVEL |
 
 RELEASE (in BLAZE) also ends the chord.
+
+## 0.5 — LOOPS, DUCK, RAMP, blends, the lights by fours, the battery in %
+
+### LOOPS (OCT- three times: BLAZE → KEYS → CHORD → LOOPS → BLAZE)
+
+The four tracks are the set's layers, brought in and out on the beat.
+
+| Keys | |
+|---|---|
+| White 1–4 | TRACK 1–4 in / out at the next QUANTIZE point |
+| White 5–8 | FADE 1–4 in / out over the FADE bars from that point (a fade out ends muted) |
+| White 9–12 | FILL 1–4: one bar the other way round (a layer out plays a bar; a layer in drops a bar) |
+| White 13–16 | ALL IN, DRUMS (only the drums), BREAK (the drums out), RESTART (every sequence from its step 1) |
+| Black 1–4 | QUANTIZE: NOW, the next BAR, the next 4 BARS, the next PHRASE |
+| Black 5–7 | FADE over 2, 4, 8 bars |
+| Black 8 | DUCK on / off: the other tracks dip under the FM-1's kick |
+| Black 9 | RAMP: the FM-1's own tempo glides to RAMP TO over BARS (with Link, rekordbox sets the tempo) |
+| Black 10 / 11 | CANCEL (every change waiting), THE ONE |
+| KNOB 1–4 | DUCK amount, RELEASE, RAMP TO, BARS |
+
+A change waiting is tinted on screen and its key breathes; press it again before its point to take it back.
+
+### Blends (RAIL v5)
+
+RAIL has a NEXT TRACK row: tap the incoming track's key while you blend. The FM-1 then plays only the notes both keys
+share: KEYS skips the others, CHORD dims and refuses chords that would clash. "Blend done" in RAIL makes the next key
+the key; Clear ends the blend. RAIL sends it on channel 16, CC 23 24 25 (CC 23 = 0: none).
+
+### The lights by fours
+
+In ROLL and BLAZE the keys that do something glow by fours: the 1st and 3rd four of the white keys (and of the black
+keys) a low glow, the 2nd and 4th a little brighter. Lit: on. Breathing: a change waiting (LOOPS).
+
+### The battery
+
+On the battery the header shows an estimated percentage in 10 % steps (on USB: the plug). It is calibrated from the
+stock three-bar thresholds; run it from full to shutdown once and note what it showed to calibrate it.

@@ -88,7 +88,8 @@ static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS
 static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
 static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "CHORD"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
-static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
+static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "LOOPS"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
+static const khint_t BZ_LOOPS_FOOT[3] = {{KC_KEYS, "LAYERS"}, {KC_OCTDN, "BLAZE"}, {0, 0}};   /* (BLAZE LOOPS) */
 static const khint_t EU_FOOT[3] = {{KC_OCTUP, "APPLY"}, {KC_OCTDN, "CANCEL"}, {0, 0}};   /* (SEQ TOOLS' EUCLID open) */
 /* the FX layer's key map (perform.c perf_map_of / perf_map_put: 16 x 5 bits; all 0, every older setting: the default
  * map) in 10 bytes no engine uses, kept with the settings */
@@ -1338,7 +1339,7 @@ static void draw_layer(void)
         cv_begin(240, H_FOOT, T_BG);
         const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : l == LAYER_SEQ && eu.on ? EU_FOOT :
-                            l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT :
+                            l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT :
                             LAYERS[l].foot;
         int h = help_on() && help_row(l == LAYER_SEQ && eu.on ? H_EUCLID : HELP_LAYER[l], 21);   /* 1.5, HELP ON: a
                                                          * second row, what this one does not say */

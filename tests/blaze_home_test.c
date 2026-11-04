@@ -46,6 +46,24 @@ static void home_reset(void)
     bz_chord = 0;
     bz_ch_sel = 0;
     bz_eo = 0;
+    bz_loops = 0;
+    bz_blend = 0;
+    bz_duck = 0;
+    bz_lp_q = 1;
+    bz_lp_fbars = 4;
+    {
+        uint32_t t;
+        for (t = 0; t < NTRK; t++) {
+            bz_lp_op[t] = 0;
+            bz_fd_len[t] = 0;
+            bz_fd_gain[t] = 32768;
+            bz_fill_left[t] = 0;
+            bz_gain[t] = 32768;
+            trk[t].p[P_MUTE] = 0;
+        }
+        bz_fd_out = 0;
+        bz_lp_restart = 0;
+    }
     bz_pads = 0;
     bz_tapfx = bz_offfx = 0;
     song.g[G_BPM] = 120;
@@ -62,6 +80,8 @@ static uint32_t run(uint32_t blocks, uint32_t *at, uint32_t nat)
         v0 = vage;
         roll_block(CTL, CTL);
         home_block(CTL, CTL);
+        chord_block(CTL);
+        loops_block(CTL, CTL);
         for (; v0 < vage; v0++, n++)
             if (at && n < nat)
                 at[n] = b * CTL;
@@ -337,7 +357,9 @@ int main(void)
     press(B_OCTDN);
     ok = !bz_keys && bz_chord;
     press(B_OCTDN);
-    bad += check("  OCT- again: CHORD; again: back to BLAZE", ok && !bz_keys && !bz_chord);
+    ok &= bz_loops;
+    press(B_OCTDN);
+    bad += check("  OCT- again: CHORD, LOOPS, then back to BLAZE", ok && !bz_keys && !bz_chord && !bz_loops);
     btn_up(B_ENV);
     frame();
 
@@ -482,8 +504,10 @@ int main(void)
     press(B_OCTDN);
     ok &= !bz_keys && bz_chord && !strcmp(bz_head(), "[ENV] CHORD");
     press(B_OCTDN);
-    ok &= !bz_keys && !bz_chord;
-    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> BLAZE", ok);
+    ok &= !bz_keys && !bz_chord && bz_loops && !strcmp(bz_head(), "[ENV] LOOPS");
+    press(B_OCTDN);
+    ok &= !bz_keys && !bz_chord && !bz_loops;
+    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> BLAZE", ok);
     bz_cfg[BZC_MAGIC_I] = 0;
     bz_cfg_apply();
     key_down(wk(BZ_RISER));
@@ -499,6 +523,121 @@ int main(void)
     bad += check("UI: RISER held: KNOB 1 its TYPE, KNOB 3 its LEVEL, kept in the settings", ok);
     btn_up(B_ENV);
     frame();
+
+    /* 0.5: LOOPS: IN / OUT on the next bar; FADE over its bars; FILL a bar; ALL IN, DRUMS ONLY, BREAK; taken back */
+    home_reset();
+    bz_loops = 1;
+    seq_start();
+    song.playing = 1;
+    click_tick(0);
+    for (i = 0; i < 5u; i++)
+        click_tick(div_samples(2));
+    key_down(wk(1)); key_up(wk(1));                 /* T2 OUT, on the next bar */
+    ok = bz_lp_op[1] == BZL_OUT && !trk[1].p[P_MUTE];
+    run(10u * div_samples(2) / CTL, 0, 0);
+    ok &= !trk[1].p[P_MUTE];                        /* (not yet) */
+    run(2u * div_samples(2) / CTL + 2u, 0, 0);
+    ok &= trk[1].p[P_MUTE] && !bz_lp_op[1];
+    bad += check("LOOPS: T2 OUT waits for the next bar, then muted", ok);
+    key_down(wk(1)); key_up(wk(1));                 /* T2 IN ... */
+    key_down(wk(1)); key_up(wk(1));                 /* ... taken back */
+    ok = !bz_lp_op[1];
+    bad += check("  pressed again before its point: taken back", ok);
+    song.playing = 0;
+    bz_lp_fbars = 2;
+    key_down(wk(4)); key_up(wk(4));                 /* FADE T1 out (stopped: at once) */
+    run(4u * beat_samples() / CTL, 0, 0);          /* (a bar in: half way) */
+    ok = bz_fd_gain[0] > 12000 && bz_fd_gain[0] < 20000 && bz_gain[0] == bz_fd_gain[0] && !trk[0].p[P_MUTE];
+    run(4u * beat_samples() / CTL + 4u, 0, 0);
+    ok &= trk[0].p[P_MUTE] && bz_gain[0] == 0;
+    key_down(wk(4)); key_up(wk(4));                 /* FADE T1 in */
+    run(2, 0, 0);
+    ok &= !trk[0].p[P_MUTE] && bz_gain[0] < 2000;
+    run(8u * beat_samples() / CTL + 4u, 0, 0);
+    ok &= bz_gain[0] == 32768;
+    bad += check("  FADE (2 bars): out halfway after a bar, then muted at 0; in again from 0 to full", ok);
+    key_down(wk(8 + 2)); key_up(wk(8 + 2));         /* FILL T3: drops a bar */
+    ok = trk[2].p[P_MUTE] && bz_fill_left[2];
+    run(4u * beat_samples() / CTL + 4u, 0, 0);
+    ok &= !trk[2].p[P_MUTE] && !bz_fill_left[2];
+    bad += check("  FILL: a layer in drops for one bar, then back", ok);
+    key_down(wk(13)); key_up(wk(13));               /* DRUMS ONLY */
+    ok = trk[0].p[P_MUTE] && trk[1].p[P_MUTE] && trk[2].p[P_MUTE] && !trk[3].p[P_MUTE];
+    key_down(wk(14)); key_up(wk(14));               /* BREAK */
+    ok &= trk[3].p[P_MUTE];
+    key_down(wk(12)); key_up(wk(12));               /* ALL IN */
+    ok &= !trk[0].p[P_MUTE] && !trk[1].p[P_MUTE] && !trk[2].p[P_MUTE] && !trk[3].p[P_MUTE];
+    bad += check("  DRUMS ONLY, BREAK, ALL IN", ok);
+
+    /* 0.5: DUCK: a kick dips the tracks that are not DRUM, back over RELEASE */
+    home_reset();
+    bz_duck = 100;
+    bz_duck_ms = 100;
+    v0 = vage;
+    rl_hit(0u, 120u);                               /* (KICK) */
+    run(1, 0, 0);
+    ok = bz_kick == 0 && bz_gain[0] < 12000 && bz_gain[3] == 32768;
+    run(150u * 44u / CTL, 0, 0);                    /* (150 ms) */
+    ok &= bz_gain[0] == 32768;
+    bz_duck = 0;
+    bad += check("DUCK: a kick dips the other tracks (not DRUM) ~12 dB, back within RELEASE", ok);
+
+    /* 0.5: a blend (the next key 9A, E minor): KEYS skips F; CHORD refuses Dm (F) and plays Am */
+    home_reset();
+    trk[0].p[P_ROOT] = 9; trk[0].p[P_SCALE] = 2;
+    trk[2].p[P_ROOT] = 9; trk[2].p[P_SCALE] = 2;
+    bz_ktrk = 0;
+    bz_koct = 0;
+    bz_cc_seq++;
+    bz_cc[0] = 8; bz_cc[1] = 0; bz_cc[2] = 9; bz_cc[3] = 9; bz_cc[4] = 0; bz_cc[5] = 4;
+    bz_ui_pass();
+    ok = bz_blend == 0x0AD5u;
+    ok &= bz_key_note(&trk[0], 5) == 67u && bz_key_note(&trk[0], 6) == 69u;   /* (A B C D E G A: no F) */
+    bz_chord = 1;
+    bz_ctrk = 2;
+    bz_ch_style = BZC_HOLD;
+    key_down(wk(3)); key_up(wk(3));                 /* Dm: refused */
+    ok &= !bz_ch_sel;
+    key_down(wk(0)); key_up(wk(0));                 /* Am */
+    ok &= bz_ch_sel == 1u;
+    bz_chord_stop();
+    bz_cc_seq++;
+    bz_cc[3] = 0;
+    bz_ui_pass();
+    ok &= !bz_blend && bz_key_note(&trk[0], 5) == 65u;
+    bad += check("BLEND: 8A + 9A: KEYS A B C D E G (no F), CHORD refuses Dm, plays Am; cleared: F back", ok);
+
+    /* 0.5: RAMP: 120 -> 128 over 4 bars on the internal clock */
+    home_reset();
+    song.g[G_BPM] = 120;
+    seq_start();
+    song.playing = 1;
+    click_tick(0);
+    bzl.to = 128;
+    bzl.bars = 4;
+    bz_loops_black(8);
+    for (i = 0; i < 32u; i++)
+        click_tick(div_samples(2));
+    bz_ui_pass();
+    ok = song.g[G_BPM] == 124 && bzl.on;
+    for (i = 0; i < 32u; i++)
+        click_tick(div_samples(2));
+    bz_ui_pass();
+    ok &= song.g[G_BPM] == 128 && !bzl.on;
+    song.playing = 0;
+    bad += check("RAMP: 120 -> 128 over 4 bars: 124 half way, 128 at the end", ok);
+
+    /* 0.5: the key lights by fours; the battery in 10 % steps */
+    {
+        uint32_t lo, hi;
+        bz_groups(0x7FFFFFFu, &lo, &hi);
+        ok = ((lo >> wk(0)) & 1u) && ((hi >> wk(4)) & 1u) && ((lo >> wk(8)) & 1u) && ((hi >> wk(12)) & 1u) &&
+             ((lo >> bk(0)) & 1u) && ((hi >> bk(4)) & 1u) && !(lo & hi);
+        song.batt_raw = 501; ok &= batt_pct() == 0;
+        song.batt_raw = 561; ok &= batt_pct() == 50;
+        song.batt_raw = 640; ok &= batt_pct() == 100;
+        bad += check("lights by fours (1st / 3rd low, 2nd / 4th brighter); battery 501 0 %, 561 50 %, full 100 %", ok);
+    }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;

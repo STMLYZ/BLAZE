@@ -42,6 +42,8 @@ static volatile uint32_t home_mask;            /* main: the ENV button's bit whi
 static volatile uint8_t bz_chord;              /* main: the layer is CHORD (blaze_chord.c) */
 static void bz_chord_key(uint32_t p);
 static void bz_chord_stop(void);
+static volatile uint8_t bz_loops;              /* main: the layer is LOOPS (blaze_loops.c) */
+static void bz_loops_key(uint32_t p);
 static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-) */
 static volatile uint8_t bz_ktrk;               /* main: the KEYS track */
 static volatile int8_t bz_koct;                /* main: KEYS' octave, -2..2 (0: the root at C3 .. B3) */
@@ -57,7 +59,10 @@ static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
 static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
 static uint32_t bz_eo_left;                    /* .. samples left of the state */
 static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
-static volatile uint8_t bz_cc_seq, bz_cc[3];   /* ISR: CC 20 21 22 on channel 16 (seq bumped on each) */
+static volatile uint8_t bz_cc_seq, bz_cc[6];   /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
+                                                * 0: none) on channel 16 (seq bumped on each) */
+static volatile uint16_t bz_blend;             /* main: the next track's scale (bit pc, 0 = C), 0: no blend (KEYS and
+                                                * CHORD keep to the notes both keys share) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
 static uint8_t bz_tapfx;                       /* ISR: the effects pressed down as a tap could be (bit i of BZ_FX) */
@@ -82,14 +87,19 @@ static uint32_t bz_pad_of(uint32_t i)
     return 16u;
 }
 
-/* KEYS: the note white key i (0..15) plays on track t: up the scale from the root (CHR: every semitone) */
+/* KEYS: the note white key i (0..15) plays on track t: up the scale from the root (CHR: every semitone); in a blend
+ * (bz_blend) only the notes both keys share */
 static uint32_t bz_key_note(const track_t *t, uint32_t i)
 {
-    uint32_t mask = scale_mask(t), deg[12], n = 0, pc;
+    uint32_t mask = scale_mask(t), deg[12], n = 0, pc, r = (uint32_t)t->p[P_ROOT] % 12u, bl = bz_blend;
     int32_t note;
     for (pc = 0; pc < 12u; pc++)
-        if ((mask >> pc) & 1u)
+        if ((mask >> pc) & 1u && (!bl || ((bl >> ((r + pc) % 12u)) & 1u)))
             deg[n++] = pc;
+    if (!n)
+        for (pc = 0; pc < 12u; pc++)
+            if ((mask >> pc) & 1u)
+                deg[n++] = pc;
     if (!n)
         return 60u;
     note = 48 + t->p[P_ROOT] % 12 + 12 * bz_koct + 12 * (int32_t)(i / n) + (int32_t)deg[i % n];
@@ -224,6 +234,14 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
         if (!key_black(k) && down)
             bz_chord_key(p);
+        return;
+    }
+    if (bz_loops) {                              /* LOOPS: a white key a layer's change (the black ones: the main loop's,
+                                                  * but THE ONE, as in BLAZE) */
+        if (!key_black(k) && down && p < 16u)
+            bz_loops_key(p);
+        else if (key_black(k) && down && p == BZK_ONE)
+            bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
         return;
     }
     if (key_black(k)) {

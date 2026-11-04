@@ -121,6 +121,7 @@ static uint32_t drum_swaps(const track_t *t)
  * DIGITAL's operator envelopes held (P_FM1_ATK .. P_FM4_DEC: inert since 1.0, on no page, never automation, read only
  * when an old DIGITAL sound converts, which sets them again); valid while P_FM4_LEVEL holds BZ_LANE_MAGIC (a sound or
  * project from before: 127 there, so its lanes play as designed) */
+static volatile uint8_t bz_kick;                       /* BLAZE: a kick struck (blaze_home.c DUCK clears it) */
 #define BZ_LANE_TUNE P_FM1_ATK
 #define BZ_LANE_DECAY (P_FM1_ATK + 8)
 #define BZ_LANE_MARK P_FM4_LEVEL
@@ -245,6 +246,8 @@ static void drum_note_on(track_t *t, voice_t *v)
                                                           * a key-off before the first block (zero-length MIDI
                                                           * notes) would end a fresh voice at env 0 in env_tick */
     dv_trigger(&L->v);
+    if (lane == DV_KICK)
+        bz_kick = 1;                                     /* BLAZE: DUCK (blaze_home.c) */
     if (lane == DV_HATC && K[DV_HATO].v.live)            /* a closed hat chokes the open one */
         dv_choke(&K[DV_HATO].v);
 }

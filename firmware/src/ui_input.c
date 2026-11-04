@@ -298,6 +298,9 @@ static uint32_t step_leds(void)
     return m;
 }
 
+static int bz_groups_on(void);                        /* BLAZE (blaze_home_ui.c): the key lights by fours */
+static void bz_groups(uint32_t can, uint32_t *lo, uint32_t *hi);
+static uint32_t bz_waiting_keys(void);
 /* 1: the keys show a map of their own (NAME, a layer's map: SCL's scale, FX; the DRUM grid, SLICES), lit or
  * dark; 0: the keys held and the notes playing, over the idle glow */
 static int keys_own(void)
@@ -432,6 +435,10 @@ static void ui_leds(void)
     c = key_leds(&br);
     g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
     beat = g ? grid_beats() & ~c : 0u;                  /* (the grid's empty beat starts: brighter than the glow) */
+    if (bz_groups_on()) {                               /* BLAZE, ROLL: the keys by fours, a glow and the mid level in */
+        bz_groups(br, &g, &beat);                       /* turn; breathing only for a change waiting */
+        br = bz_waiting_keys();
+    }
     sc = keys_map ? 0u : scale_leds(&sr);               /* SCALE LEDS: the scale's keys glow, the root's brighter */
     for (k = 0; k < 27u; k++) {
         uint32_t in = (sc >> k) & 1u, rt = (sr >> k) & 1u, idle = !((c >> k) & 1u);

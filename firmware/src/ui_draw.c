@@ -49,10 +49,31 @@ static uint32_t batt_icon(int32_t lvl)
     static const uint8_t I[5] = {ICON_X_BAT0, ICON_X_BAT1, ICON_X_BAT3, ICON_X_BAT4, ICON_X_BAT_CHG};
     return I[clamp(lvl, 0, 4)];
 }
+/* BLAZE: the battery as a percentage in 10 % steps, an estimate from the voltage reading: the stock thresholds 531
+ * 561 591 (1 2 3 bars) taken as about 25 50 75 %, a straight line from 501 (0 %) to 621 (100 %). Calibrate BZ_BATT_*
+ * against a full charge and the shutdown. USB power: the charging glyph as before */
+#define BZ_BATT_EMPTY 501
+#define BZ_BATT_FULL 621
+static int32_t batt_pct(void)
+{
+    int32_t p = (song.batt_raw - BZ_BATT_EMPTY) * 100 / (BZ_BATT_FULL - BZ_BATT_EMPTY);
+    p = clamp(p, 0, 100);
+    return (p + 5) / 10 * 10;
+}
 static void draw_battery(int32_t bx)
 {
-    int32_t lvl = batt_shown();
-    cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), lvl == 4 ? T_OK : lvl == 1 ? T_WARN : lvl == 0 ? T_MID : T_THEME, T_BG);   /* 24 px: the glyph is wide and short */
+    int32_t lvl = batt_shown(), p, w;
+    char t[6];
+    if (lvl == 4) {
+        cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), T_OK, T_BG);   /* 24 px: the glyph is wide and short */
+        return;
+    }
+    p = batt_pct();
+    fmt_int(t, p);
+    str_cpy(t + str_len(t), "%", sizeof t - str_len(t));
+    w = text_w(&AF_S, t);
+    GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
+    cv_text_on(237 - w, CAP_IN(S, H_HEAD), &AF_S, t, lvl == 1 ? T_WARN : lvl == 0 ? T_REC : T_THEME, T_BG);
 }
 
 /* ---------------------------------------------------- rolling digits --- */

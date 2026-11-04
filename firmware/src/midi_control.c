@@ -397,7 +397,7 @@ static volatile uint8_t *const mpc_io;
  * channel aftertouch, Program Change, so they stay free for other instruments. */
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
-    if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 22u) {   /* BLAZE: RAIL's key (blaze_home.c), any ROUT */
+    if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 25u) {   /* BLAZE: RAIL's key, the next one (23..25), any ROUT */
         bz_cc[d1 - 20u] = (uint8_t)d2;
         bz_cc_seq++;
         return;

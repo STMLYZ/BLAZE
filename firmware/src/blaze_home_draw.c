@@ -20,10 +20,11 @@
 #define BZD_Y7 6                                         /* BLAZE's 7 rows: the first (the phrase bar above it) */
 static const uint8_t BZD_H[7] = {14, 14, 14, 16, 16, 14, 14};   /* rows with a rate: room for the "/" */
 
-/* the Camelot wheel's colour of number n (1 teal, 2 green .. 4 orange, 5 pink .. 8 violet, 10 blue, 12 cyan) */
+/* the Camelot number n's colour, RAIL's and PHOSPHOR's (hue 140 + 30 (n - 1): 1 green, 4 blue, 7 magenta, 8 rose,
+ * 9 orange, 11 yellow-green) */
 static uint16_t bz_cam_col(uint32_t n)
 {
-    int32_t h = (170 - 30 * ((int32_t)n - 1) + 720) % 360, f = h % 60, hi = ux.light ? 150 : 255, lo = ux.light ? 20 : 110;
+    int32_t h = (140 + 30 * ((int32_t)n - 1)) % 360, f = h % 60, hi = ux.light ? 150 : 255, lo = ux.light ? 20 : 110;
     int32_t up = lo + (hi - lo) * f / 60, dn = hi - (hi - lo) * f / 60, r, g, b;
     if (ux.mono || (ux.raise == UI_BW_GREY && ux.dim == UI_BW_GREY))
         return T_TEXT;
@@ -48,7 +49,14 @@ static void bz_strip(void)
         str_cpy(n + str_len(n), b ? "B" : "A", sizeof n - str_len(n));
         x = 8 + text_w(&AF_M, n);
         cv_text_on(8, 2 + CAP_IN(M, 18), &AF_M, n, bz_cam_col(cam), T_SURF);
-        cv_text_on(x + 6, 2 + CAP_IN(S, 18), &AF_S, nm, T_TEXT, T_SURF);
+        if (bz_blend && bz_cc[3] >= 1u && bz_cc[3] <= 12u) {   /* a blend: the next key, the shared notes only */
+            fmt_int(nm, bz_cc[3]);
+            str_cpy(nm + str_len(nm), bz_cc[4] >= 64u ? "B SHARED" : "A SHARED", sizeof nm - str_len(nm));
+            x = cv_text_on(x + 6, 2 + CAP_IN(S, 18), &AF_S, "+", T_MID, T_SURF);
+            cv_text_on(x + 4, 2 + CAP_IN(S, 18), &AF_S, nm, bz_cam_col(bz_cc[3]), T_SURF);
+        } else {
+            cv_text_on(x + 6, 2 + CAP_IN(S, 18), &AF_S, nm, T_TEXT, T_SURF);
+        }
     } else {
         cv_text_on(8, 2 + CAP_IN(S, 18), &AF_S, nm[0] ? nm : "NO KEY", nm[0] ? T_TEXT : T_DIM, T_SURF);
     }
@@ -84,6 +92,42 @@ static void bz_phrase_bar(void)
     }
 }
 
+/* LOOPS: the phrase bar; the white keys as 4 rows of 4: TRACK 1..4 (playing: filled), FADE 1..4 (fading: filled),
+ * FILL 1..4 (its bar: filled), ALL IN DRUMS BREAK RESTART; a change waiting: tinted (its key breathes). Black keys:
+ * NOW BAR 4 BARS PHRASE (QUANTIZE), FADE 2 4 8, DUCK RAMP CANCEL THE ONE. Cards: DUCK RELEASE RAMP TO BARS */
+static void layer_loops_map(void)
+{
+    uint32_t i;
+    int32_t y = BZD_Y7;
+    bz_phrase_bar();
+    for (i = 0; i < 16u; i++) {
+        uint32_t t = i % 4u, op = bz_lp_op[t], how;
+        char nm[10];
+        uint16_t c = i < 4u ? T_THEME : i < 12u ? T_ACCENT : T_MID;
+        if (i < 12u) {
+            str_cpy(nm, i < 4u ? "TRACK " : i < 8u ? "FADE " : "FILL ", sizeof nm);
+            nm[str_len(nm) + 1u] = 0;
+            nm[str_len(nm)] = (char)('1' + t);
+        } else {
+            str_cpy(nm, BZ_LOOPS_WHITE[i - 12u], sizeof nm);
+        }
+        how = i < 4u ? (op == BZL_IN || op == BZL_OUT ? RLC_TINT : !trk[t].p[P_MUTE] ? RLC_FILL : RLC_IDLE)
+            : i < 8u ? (op == BZL_FIN || op == BZL_FOUT ? RLC_TINT : bz_fd_len[t] ? RLC_FILL : RLC_IDLE)
+            : i < 12u ? (op == BZL_FILL ? RLC_TINT : bz_fill_left[t] ? RLC_FILL : RLC_IDLE)
+            : i == 15u && bz_lp_restart ? RLC_TINT : RLC_IDLE;   /* (waiting: tinted, its key breathing) */
+        rl_cell(LC_X(i % 4u), y + 16 * (int32_t)(i / 4u), LC_W, 14, nm, c, how);
+    }
+    y += 4 * 16;
+    for (i = 0; i < 11u; i++) {                      /* the black keys: 3 rows of 4 */
+        uint32_t how = i < 4u ? (bz_lp_q == i ? RLC_FILL : RLC_IDLE) : i < 7u ? (bz_lp_fbars == (2u << (i - 4u)) ? RLC_FILL
+                     : RLC_IDLE) : i == 7u ? (bz_duck ? RLC_FILL : RLC_IDLE) : i == 8u ? (bzl.on ? RLC_FILL
+                     : song.g[G_CLOCK] ? RLC_DIM : RLC_IDLE) : i == 9u ? (bz_waiting() ? RLC_IDLE : RLC_DIM)
+                     : song.playing ? RLC_IDLE : RLC_DIM;
+        rl_cell(LC_X(i % 4u), y + 18 * (int32_t)(i / 4u), LC_W, i < 8u ? 16 : 14, BZ_LOOPS_BLACK[i],
+                i < 4u ? T_THEME : i < 7u ? T_ACCENT : T_MID, how);
+    }
+}
+
 static void layer_chord_map(void)
 {
     const track_t *t = &trk[bz_ctrk % NTRK];
@@ -95,7 +139,8 @@ static void layer_chord_map(void)
         if (i < 7u)
             bz_chord_name(t, i, nm, sizeof nm);
         rl_cell(LC_X(i % 4u), y + 20 * (int32_t)(i / 4u), LC_W, 18, i < 7u ? nm : "OFF", i < 7u ? T_THEME : T_MID,
-                i < 7u && bz_ch_sel == i + 1u ? RLC_FILL : i == 7u && !bz_ch_sel ? RLC_DIM : RLC_IDLE);
+                i < 7u && bz_ch_sel == i + 1u ? RLC_FILL : (i == 7u && !bz_ch_sel) || (i < 7u && !bzc_fits(t, i)) ? RLC_DIM
+                : RLC_IDLE);
     }
     y += 2 * 20;                                     /* (18 px: "maj7"'s j) */
     for (i = 0; i < 11u; i++) {                      /* the black keys: 3 rows of 4 (16 px: the rates' "/") */
@@ -159,6 +204,10 @@ static void layer_blaze(void)
     }
     if (bz_chord) {
         layer_chord_map();
+        return;
+    }
+    if (bz_loops) {
+        layer_loops_map();
         return;
     }
     y = BZD_Y7;
@@ -235,6 +284,19 @@ static void bz_cards(void)
         draw_column(1, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "", "", "", T_DIM, -1, ICON_NONE);
+        return;
+    }
+    if (bz_loops) {                                     /* LOOPS: DUCK RELEASE RAMP TO BARS */
+        fmt_int(val, bz_duck);
+        draw_column(0, "DUCK", bz_duck ? val : "OFF", bz_duck ? "%" : "", bz_duck ? VAL(0u) : T_DIM, bz_duck * 10,
+                    ICON_LEVEL);
+        fmt_int(val, bz_duck_ms);
+        draw_column(1, "RELEASE", val, "MS", VAL(1u), (bz_duck_ms - 40) * 1000 / 360, ICON_RELEASE);
+        fmt_int(val, bzl.to);
+        draw_column(2, "RAMP TO", val, "BPM", song.g[G_CLOCK] ? T_DIM : VAL(2u),
+                    (bzl.to - GP[G_BPM].min) * 1000 / (GP[G_BPM].max - GP[G_BPM].min), ICON_TEMPO);
+        fmt_int(val, bzl.bars);
+        draw_column(3, "BARS", val, "", VAL(3u), bzl.bars * 1000 / 32, ICON_LENGTH);
         return;
     }
     if (bz_chord) {                                     /* CHORD: FILTER LENGTH SPACE LEVEL of the CHORD track */

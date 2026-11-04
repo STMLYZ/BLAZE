@@ -103,9 +103,26 @@ static void bz_chord_stop(void)
     bzc_sound(0);
 }
 
-/* a white key of CHORD down (p: its place): a chord latched, again: off; white 8: off */
+/* chord degree d on track t keeps to the blend's notes (no blend: every chord does) */
+static int bzc_fits(const track_t *t, uint32_t d)
+{
+    uint8_t v[BZC_N];
+    uint32_t n, i, bl = bz_blend;
+    if (!bl)
+        return 1;
+    n = bzc_build(t, d, v, bz_ch_7th, 0, 0);
+    for (i = 0; i < n; i++)
+        if (!((bl >> (v[i] % 12u)) & 1u))
+            return 0;
+    return 1;
+}
+
+/* a white key of CHORD down (p: its place): a chord latched, again: off; white 8: off. In a blend a chord with a note
+ * the next key has not is refused */
 static void bz_chord_key(uint32_t p)
 {
+    if (p < 7u && !bzc_fits(&trk[bz_ctrk % NTRK], p))
+        return;
     if (p < 7u && bz_ch_sel != p + 1u) {
         bz_ch_sel = (uint8_t)(p + 1u);
         bzc_vel = (uint8_t)kb_vel;
