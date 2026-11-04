@@ -806,10 +806,13 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 }
 #endif
 
+#include "blaze_roll.c"                          /* BLAZE: the ROLL layer's sound side */
+static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
-    uint32_t lay, fx, mute;
+    uint32_t lay, fx, mute, roll;
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
     if (perf_remap)
         perf_key_remap();
@@ -824,6 +827,7 @@ static void keyboard_block(void)
     }
     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
+    roll = (fm1_in.buttons & roll_mask) || (kb_lock & 4u);   /* BLAZE: ARP held (or locked): ROLL */
     mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
@@ -837,7 +841,10 @@ static void keyboard_block(void)
             if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
                 kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
-                if (fx)
+                if (roll) {                       /* BLAZE ROLL: a pad, a rate, PADS (blaze_roll.c) */
+                    kb_roll |= 1u << k;
+                    roll_key_press(k, 1);
+                } else if (fx)
                     perf_key_press(k, 1);
                 continue;
             }
@@ -856,7 +863,11 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                perf_key_press(k, 0);
+                if ((kb_roll >> k) & 1u) {
+                    kb_roll &= ~(1u << k);
+                    roll_key_press(k, 0);
+                } else
+                    perf_key_press(k, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
@@ -1481,6 +1492,7 @@ static void events_block(uint32_t n)
     chain_tick(clock_mode && chain.running ? midi_seq_preview(&trk[chain.clk], seq_n) : seq_n);
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], seq_n);
+    roll_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE ROLL: on the sequencer's time */
     if (cin_flush)
         cin_record();
     if (song.playing)

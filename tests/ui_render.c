@@ -803,7 +803,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS, S_HELP_DETAIL,
        S_DETAIL_COND, S_DETAIL_FILL, S_AUTO_COND, S_GLO_FILL, S_SEQ_EUCLID, S_SEQ_EUCLID_DRUM, S_SEQ_EUCLID_64,
        S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
-       S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD, S_COUNT };
+       S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
+       S_BLAZE_ROLL, S_BLAZE_ROLL_GROOVE, S_BLAZE_ROLL_PADS1, S_BLAZE_ROLL_PICK, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -834,7 +835,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "detail_cond", "detail_fill", "auto_cond", "layer_glo_fill", "layer_seq_euclid", "layer_seq_euclid_drum",
     "layer_seq_euclid_64",
     "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
-    "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold"};
+    "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
+    "blaze_roll", "blaze_roll_groove", "blaze_roll_pads1", "blaze_roll_pick"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1256,6 +1258,16 @@ static void setup(int s)
     case S_EDIT_GRAIN: eng(8); go_title("EDIT 2"); break;
     case S_EDIT_PHYS: eng(9); go_title("EDIT 1"); break;
     case S_EDIT_PHASE_FOLD: eng(2); TSEL->p[P_E7] = 80; go_title("EDIT 2"); ui.hot_col = 3; ui.hot_t = 30; break;   /* 1.5.5 FOLD (#104) */
+    /* BLAZE ROLL (ARP held): idle; GROOVE rolling SNARE at 1/16 + 1/8 with BUILD; PADS 1, LAST, an external clock;
+     * PADS held picking the 4 */
+    case S_BLAZE_ROLL: go_home(); rl_padmode = RL_PADS16; rl_groove = 1; rl_held = 0; rl_rates = 0; rl_pick = 0; rl_build = 0;
+        ui.layer = LAYER_ROLL; break;
+    case S_BLAZE_ROLL_GROOVE: go_home(); rl_padmode = RL_PADS16; rl_groove = 1; rl_held = 1u << 1; rl_rates = 1u << 2 | 1u << 4;
+        rl_pick = 0; rl_build = 40; ui.layer = LAYER_ROLL; break;
+    case S_BLAZE_ROLL_PADS1: go_home(); rl_padmode = RL_PADS1; rl_live1 = 1u << 1; rl_groove = 0; rl_held = 0; rl_rates = 1u << 6;
+        rl_pick = 0; rl_build = 0; song.g[G_CLOCK] = 1; ui.layer = LAYER_ROLL; break;
+    case S_BLAZE_ROLL_PICK: go_home(); rl_padmode = RL_PADS4; rl_live4 = 0x001Eu; rl_groove = 1; rl_held = 0; rl_rates = 0;
+        rl_pick = 1; rl_build = 0; ui.layer = LAYER_ROLL; break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
         TSEL->p[P_E6] = (s - S_ALG1) & 1 ? 40 : 0; TSEL->p[P_E4] = (int16_t)((S_ALG8 - s) * 18);
