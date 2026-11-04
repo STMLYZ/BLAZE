@@ -47,8 +47,10 @@ int main(int argc, char **argv)
     static const uint8_t pd[] = {0x08, 0xf0};
     const aafont_t probe = {1, 1, 'A', 'A', 0, 0, pg, pd, 0, 0, 0};
     double worst = 100;
-    assert(NPALETTES == 10u && !strcmp(UI_PALETTES[0].name, "GREY") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
-           !strcmp(UI_PALETTES[8].name, "NIGHT") && !strcmp(UI_PALETTES[9].name, "MONO") && UI_BW_INDEX == 9u);
+    assert(NPALETTES == 13u && !strcmp(UI_PALETTES[0].name, "GREY") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
+           !strcmp(UI_PALETTES[8].name, "NIGHT") && !strcmp(UI_PALETTES[9].name, "MONO") && UI_BW_INDEX == 9u &&
+           !strcmp(UI_PALETTES[10].name, "BOOTH") && !strcmp(UI_PALETTES[11].name, "SUN") &&
+           !strcmp(UI_PALETTES[12].name, "CAMERA"));   /* (BLAZE: its three appended after MONO, the ids stay) */
     /* (#50, 1.0.2: appended, the ids stay; GREY is the MONO of 1.0.1, id 0) */
     for (unsigned st = ST_FLAT; st <= ST_LINE; st++) {   /* MONO: every token black or white (but its two colours), in FLAT and LINE */
         uint16_t *tok = &ux.bg;
@@ -92,7 +94,7 @@ int main(int argc, char **argv)
         if (min < worst) worst = min;
         printf("%-7s text %.1f:1, labels %.1f:1, values %.1f:1, selection %.1f:1\n", UI_PALETTES[p].name,
                contrast(T_TEXT, T_BG), contrast(T_MID, T_BG), contrast(T_THEME, T_BG), contrast(T_INK, T_SEL));
-        assert((p == 6u) == ux.light);                         /* PAPER is the light one */
+        assert((p == 6u || p == 11u) == ux.light);            /* PAPER and SUN (BLAZE) are the light ones */
         assert(T_REC == UI_PALETTES[p].primary && T_ACCENT == UI_PALETTES[p].secondary && T_WARN == T_REC);
         assert(T_BG == UI_PALETTES[p].c1 && T_THEME == UI_PALETTES[p].c2 && T_TEXT == UI_PALETTES[p].c3);
         /* the blend: transparent, solid and an edge between the two, on two backgrounds */

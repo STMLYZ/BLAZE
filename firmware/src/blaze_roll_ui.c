@@ -15,6 +15,22 @@ static struct {
 #define RL_FLASH_MS 70u
 static const char *const RL_PADS_NAME[RL_NPADMODE] = {"16", "4", "1"};
 
+/* NUDGE key k down (up: +): the tempo 1/32 off while it is held (rl_ui_pass puts it back); ROLL's and BLAZE's */
+static void rl_nudge(uint32_t k, int up)
+{
+    int32_t d;
+    if (song.g[G_CLOCK]) {
+        ui_message("EXTERNAL CLOCK: NO NUDGE");
+        return;
+    }
+    if (!rlu.nk)
+        rlu.bpm = song.g[G_BPM];
+    rlu.nk |= 1u << k;
+    d = rlu.bpm / 32 > 1 ? rlu.bpm / 32 : 1;
+    song.g[G_BPM] = (int16_t)clamp(rlu.bpm + (up ? d : -d), GP[G_BPM].min, GP[G_BPM].max);
+    ui_message(up ? "NUDGE +" : "NUDGE -");
+}
+
 /* a key of the ROLL layer pressed (the main loop: what the ISR does not) */
 static void rl_ui_key(uint32_t k)
 {
@@ -26,17 +42,7 @@ static void rl_ui_key(uint32_t k)
     } else if (p == RLK_TAP) {
         glo_tap();
     } else if (p == RLK_NDN || p == RLK_NUP) {
-        int32_t d;
-        if (song.g[G_CLOCK]) {
-            ui_message("NUDGE: CLK IS EXT");
-            return;
-        }
-        if (!rlu.nk)
-            rlu.bpm = song.g[G_BPM];
-        rlu.nk |= 1u << k;
-        d = rlu.bpm / 32 > 1 ? rlu.bpm / 32 : 1;
-        song.g[G_BPM] = (int16_t)clamp(rlu.bpm + (p == RLK_NUP ? d : -d), GP[G_BPM].min, GP[G_BPM].max);
-        ui_message(p == RLK_NUP ? "NUDGE +" : "NUDGE -");
+        rl_nudge(k, p == RLK_NUP);
     }
 }
 
@@ -77,7 +83,7 @@ static void rl_knob(uint32_t k, int32_t s)
     int16_t *vp;
     if (k == 0u) {
         if (song.g[G_CLOCK]) {
-            ui_message("BPM: CLK IS EXT");
+            ui_message("EXTERNAL CLOCK SETS BPM");
             return;
         }
         song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_K1, s, GP[G_BPM].max - GP[G_BPM].min), GP[G_BPM].min,
@@ -125,12 +131,13 @@ static void rl_led(uint32_t k, uint32_t *on, uint32_t *can)
     }
 }
 
-/* the map's header: "[ARP] GROOVE 16" */
+/* the map's header: "[ARP] GROOVE 16 PADS" */
 static const char *rl_head(void)
 {
-    static char h[20];
+    static char h[28];
     str_cpy(h, rl_groove ? "[ARP] GROOVE " : "[ARP] LAST ", sizeof h);
     str_cpy(h + str_len(h), RL_PADS_NAME[rl_padmode % RL_NPADMODE], sizeof h - str_len(h));
+    str_cpy(h + str_len(h), rl_padmode == RL_PADS1 ? " PAD" : " PADS", sizeof h - str_len(h));
     return h;
 }
 

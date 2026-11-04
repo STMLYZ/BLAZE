@@ -804,7 +804,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_DETAIL_COND, S_DETAIL_FILL, S_AUTO_COND, S_GLO_FILL, S_SEQ_EUCLID, S_SEQ_EUCLID_DRUM, S_SEQ_EUCLID_64,
        S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
        S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
-       S_BLAZE_ROLL, S_BLAZE_ROLL_GROOVE, S_BLAZE_ROLL_PADS1, S_BLAZE_ROLL_PICK, S_COUNT };   /* BLAZE */
+       S_BLAZE_ROLL, S_BLAZE_ROLL_GROOVE, S_BLAZE_ROLL_PADS1, S_BLAZE_ROLL_PICK,
+       S_BLAZE_HOME, S_BLAZE_HOME_LIVE, S_BLAZE_HOME_DROP, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -836,7 +837,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "layer_seq_euclid_64",
     "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
     "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
-    "blaze_roll", "blaze_roll_groove", "blaze_roll_pads1", "blaze_roll_pick"};
+    "blaze_roll", "blaze_roll_groove", "blaze_roll_pads1", "blaze_roll_pick",
+    "blaze_home", "blaze_home_live", "blaze_home_drop"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1268,6 +1270,17 @@ static void setup(int s)
         rl_pick = 0; rl_build = 0; song.g[G_CLOCK] = 1; ui.layer = LAYER_ROLL; break;
     case S_BLAZE_ROLL_PICK: go_home(); rl_padmode = RL_PADS4; rl_live4 = 0x001Eu; rl_groove = 1; rl_held = 0; rl_rates = 0;
         rl_pick = 1; rl_build = 0; ui.layer = LAYER_ROLL; break;
+    /* BLAZE (ENV held): stopped, no key (a CHR track); playing bar 6, 8A, ECHO latched, FREEZE held, KICK rolling 1/8,
+     * BUILD 4 at 1/16, COLOR LP 40; the last bar of the phrase on its 1st beat, 5B, an external clock */
+    case S_BLAZE_HOME: go_home(); song.sel = 0; TSEL->p[P_SCALE] = 0; song.playing = 0; perf_held = perf_latched = 0;
+        rl_extra = 0; rl_rates = 0; bz_build = 0; bz_thr = 0; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_HOME_LIVE: go_home(); song.sel = 0; TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = 2; song.playing = 1;
+        clk_pos = 0; bz_org = 0; bz_s16 = 5u * 16u + 9u; perf_latched = PF_BIT(PF_ETHR); perf_held = PF_BIT(PF_FRZ);
+        rl_live4 = 0x0003u | 1u << 3 | 1u << 9; rl_extra = 1u; rl_rates = 1u << 2; bz_build = 4; bz_build_rate = 4;
+        bz_thr = 0; perf_k[0] = -40; perf_k[3] = 20; ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_HOME_DROP: go_home(); song.sel = 0; TSEL->p[P_ROOT] = 3; TSEL->p[P_SCALE] = 1; song.playing = 1;
+        song.g[G_CLOCK] = 1; clk_pos = 0; bz_org = 16; bz_s16 = 16u + 15u * 16u + 1u; perf_latched = perf_held = 0;
+        rl_extra = 0; rl_rates = 0; bz_build = 0; bz_thr = 2000; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE; break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
         TSEL->p[P_E6] = (s - S_ALG1) & 1 ? 40 : 0; TSEL->p[P_E4] = (int16_t)((S_ALG8 - s) * 18);
@@ -2273,7 +2286,7 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
     char path[600];
     uint32_t p, s;
-    static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};   /* (NIGHT: #50, to review) */
+    static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT", "BOOTH", "SUN", "CAMERA"};   /* (BLAZE: its three) */
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }

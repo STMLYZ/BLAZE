@@ -1611,10 +1611,13 @@ static int test_display_preferences(void)
                  settings.palette == 6 && T_BG == UI_PALETTES[6].c1 && ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to HI-CON, NIGHT (#50: true black), MONO (1.0.2: black and white), then wraps to GREY",
+    bad += check("COLOR KNOB 1 steps on to HI-CON, NIGHT (#50), MONO (1.0.2), BLAZE's BOOTH SUN CAMERA, then wraps to GREY",
                  settings.palette == 7 && (turn(EN_K1, 1), settings.palette == 8u) && T_BG == 0u &&
                  str_eq(UI_PALETTES[8].name, "NIGHT") && (turn(EN_K1, 1), settings.palette == UI_BW_INDEX) &&
                  str_eq(UI_PALETTES[UI_BW_INDEX].name, "MONO") && T_BG == 0u && T_TEXT == 0xFFFFu &&
+                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "BOOTH")) &&   /* (BLAZE's three) */
+                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "SUN") && ux.light) &&
+                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "CAMERA") && !ux.light) &&
                  (turn(EN_K1, 1), settings.palette == UI_GREY_INDEX) && str_eq(UI_PALETTES[UI_GREY_INDEX].name, "GREY"));
     settings.lowcut = 2;
     ui.menu_sel = MI_LOWCUT;
@@ -3374,13 +3377,14 @@ static int test_layer(void)
             ok &= ui.home;
             btn_up(PB[i]); frame();
             ok &= !ui.home && cur_page()->fam == PF[i];
-            if (PB[i] == B_SCL || PB[i] == B_GLO || PB[i] == B_EDIT || PB[i] == B_ARP)
-                continue;                             /* (a layer of their own: held long is a peek; ARP: BLAZE's ROLL) */
+            if (PB[i] == B_SCL || PB[i] == B_GLO || PB[i] == B_EDIT || PB[i] == B_ARP || PB[i] == B_ENV)
+                continue;                             /* (a layer of their own: held long is a peek; ARP: BLAZE's ROLL,
+                                                       * ENV: BLAZE's home) */
             ui_power_on();
             hold(PB[i]);                              /* (no layer of their own: a long press is a tap too) */
             ok &= !ui.home && cur_page()->fam == PF[i];
         }
-        bad += check("ENV LFO SCL ARP GLO EDIT act when let go, not on press (ENV LFO held long: the same)", ok);
+        bad += check("ENV LFO SCL ARP GLO EDIT act when let go, not on press (LFO held long: the same)", ok);
     }
     ui_power_on();
     go_page(GR_ROLL); my_steps(TSEL); ui.cursor = 0;

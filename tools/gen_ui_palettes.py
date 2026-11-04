@@ -55,6 +55,11 @@ PALETTES = [
     # 1.0.2: black and white (the derived tokens are set, not blended: bw()); the old MONO is GREY (id 0)
     # 1.8: its primary and secondary GREY's red and blue (were white)
     ("MONO",   (0, 0, 0),       (255, 255, 255), (255, 255, 255), RED,       (72, 140, 255)),
+    # BLAZE: BOOTH (a dark booth: true black, hot orange, cyan for the one active thing), SUN (daylight / glare:
+    # white, deep blue, black text), CAMERA (on stream: near-black, violet, gold; nothing pure white to clip)
+    ("BOOTH",  (0, 0, 0),       (255, 120, 40),  (255, 255, 255), RED,       (0, 230, 255)),
+    ("SUN",    (255, 255, 255), (0, 70, 160),    (0, 0, 0),       RED_LIGHT, (120, 30, 160)),
+    ("CAMERA", (10, 10, 16),    (200, 130, 255),  (240, 240, 250), RED,       (255, 200, 60)),
 ]
 BW = "MONO"
 BW_GREY = (82, 82, 82)             # MONO's one mid grey (RGB565 10/20/10): DIM LINE RAISE LANE

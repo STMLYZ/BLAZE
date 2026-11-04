@@ -807,12 +807,14 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 #endif
 
 #include "blaze_roll.c"                          /* BLAZE: the ROLL layer's sound side */
+#include "blaze_home.c"                          /* BLAZE: the home layer's (ENV held) */
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
+static uint32_t kb_bz;                           /* .. in the BLAZE layer */
 
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
-    uint32_t lay, fx, mute, roll;
+    uint32_t lay, fx, mute, roll, home;
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
     if (perf_remap)
         perf_key_remap();
@@ -828,6 +830,7 @@ static void keyboard_block(void)
     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
     roll = (fm1_in.buttons & roll_mask) || (kb_lock & 4u);   /* BLAZE: ARP held (or locked): ROLL */
+    home = (fm1_in.buttons & home_mask) || (kb_lock & 8u);   /* BLAZE: ENV held (or locked): BLAZE */
     mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
@@ -844,6 +847,9 @@ static void keyboard_block(void)
                 if (roll) {                       /* BLAZE ROLL: a pad, a rate, PADS (blaze_roll.c) */
                     kb_roll |= 1u << k;
                     roll_key_press(k, 1);
+                } else if (home) {                /* BLAZE: pads, rates, effects, BUILD (blaze_home.c) */
+                    kb_bz |= 1u << k;
+                    home_key_press(k, 1);
                 } else if (fx)
                     perf_key_press(k, 1);
                 continue;
@@ -866,6 +872,9 @@ static void keyboard_block(void)
                 if ((kb_roll >> k) & 1u) {
                     kb_roll &= ~(1u << k);
                     roll_key_press(k, 0);
+                } else if ((kb_bz >> k) & 1u) {
+                    kb_bz &= ~(1u << k);
+                    home_key_press(k, 0);
                 } else
                     perf_key_press(k, 0);
                 continue;
@@ -1355,12 +1364,14 @@ static void click_tick(uint32_t adv)
     if (clk_pos == CLK_START) {
         clk_pos = 0;
         clk_step = 0;
+        bz_s16 = bz_org = 0;                     /* (BLAZE: the phrase from the start) */
         beat = 2;
     } else {
         clk_pos += adv;
         while (clk_pos >= p) {                      /* (as seq_tick: the remainder kept) */
             clk_pos -= p;
             clk_step = (clk_step + 1u) & 15u;
+            bz_s16++;
             if (!(clk_step & 3u))
                 beat = clk_step ? 1u : 2u;
         }
@@ -1493,6 +1504,7 @@ static void events_block(uint32_t n)
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], seq_n);
     roll_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE ROLL: on the sequencer's time */
+    home_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE: BUILD, IMPACT's throw */
     if (cin_flush)
         cin_record();
     if (song.playing)

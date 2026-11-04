@@ -341,6 +341,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray, MONO neutral" "$OUT/ui_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_roll_test" tests/blaze_roll_test.c -lm
     run "BLAZE ROLL: pads, rates on their grid, GROOVE / LAST, the 16 / 4 / 1 lockout, PADS, ARP's layer, NUDGE" "$OUT/blaze_roll_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_home_test" tests/blaze_home_test.c -lm
+    run "BLAZE home: ENV's layer, the 4 pads, effects tap / hold, BUILD 4 / 8, IMPACT, RELEASE, THE ONE, RAIL's key" "$OUT/blaze_home_test"
     $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_c1" tests/ui_test.c -lm
     run "UI, a FELUCCA_CPU2=0 build: MENU > SYSTEM without 2ND CORE, the rest as the default build" "$OUT/ui_test_c1"
     $CC -DPREEMPT -g -fwrapv -fsanitize=address,undefined -fno-sanitize=shift -fno-sanitize-recover=all -w \

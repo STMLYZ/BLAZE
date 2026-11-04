@@ -66,8 +66,9 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_SEQ, LK_SET, FAM_SEQ, "[SEQ] TOOLS", {{KC_KEYS, "TOOLS"}, {KC_OCTDN, "UNDO"}, {KC_SEQ, "DONE"}}},
     {B_REC, LK_SET, FAM_HOME, "[REC] SET", {{KC_KEYS, "RECORDING"}, {KC_OCTDN, "UNDO"}, {KC_REC, "DONE"}}},
     {B_ARP, LK_HOLD, FAM_HOME, "[ARP] ROLL", {{KC_KEYS, "ROLL"}, {KC_OCTUP, "GROOVE/LAST"}, {0, 0}}},   /* BLAZE */
+    {B_ENV, LK_HOLD, FAM_HOME, "[ENV] BLAZE", {{KC_KEYS, "PADS FX BUILD"}, {KC_K14, "COLOR PITCH"}, {0, 0}}},   /* BLAZE */
 };
-static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_REC, KC_ARP};
+static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_REC, KC_ARP, KC_ENV};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
 /* SEQ TOOLS' knobs: LEN DIV SWING GATE (the length the tools work in; up to 1.1.5 the PATTERN page's) */
@@ -128,15 +129,17 @@ static uint32_t layer_bits(void)
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
 static const char *rl_head(void);
+static const char *bz_head(void);
 static const char *layer_head(void)
 {
-    return ui.layer == LAYER_FX && perf_latch_on ? "[FX] LATCH" : ui.layer == LAYER_ROLL ? rl_head() : LAYERS[ui.layer % LAYER_N].head;
+    return ui.layer == LAYER_FX && perf_latch_on ? "[FX] LATCH" : ui.layer == LAYER_ROLL ? rl_head() : ui.layer == LAYER_BLAZE ? bz_head() : LAYERS[ui.layer % LAYER_N].head;
 }
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
 static int layer_set_open(void)                 /* (FX LATCH: FX is one too, OCT- turns all off) */
 {
     return layer_open() && (LAYERS[layer_open()].kind == LK_SET || (layer_open() == LAYER_FX && perf_latch_on) ||
-                            layer_open() == LAYER_ROLL);   /* (BLAZE ROLL: OCT+ GROOVE / LAST, no octave) */
+                            layer_open() == LAYER_ROLL || layer_open() == LAYER_BLAZE);   /* (BLAZE ROLL: OCT+
+                                                         * GROOVE / LAST, no octave; BLAZE: OCT inert) */
 }
 static uint32_t layer_held(void) { return ui.ly && ly_down(ui.ly) && layer_allowed(); }
 
@@ -151,7 +154,9 @@ static void layer_masks(void)
     kb_mask = m;
     perf_mask = m & ly_bit(LAYER_FX);
     roll_mask = m & ly_bit(LAYER_ROLL);                 /* BLAZE: ARP's keys are ROLL's (blaze_roll.c) */
-    kb_lock = (uint8_t)(m && ui.lock ? 1u | (ui.lock == LAYER_FX ? 2u : 0u) | (ui.lock == LAYER_ROLL ? 4u : 0u) : 0u);   /* (no button held: the ISR's) */
+    home_mask = m & ly_bit(LAYER_BLAZE);                /* BLAZE: ENV's keys are BLAZE's (blaze_home.c) */
+    kb_lock = (uint8_t)(m && ui.lock ? 1u | (ui.lock == LAYER_FX ? 2u : 0u) | (ui.lock == LAYER_ROLL ? 4u : 0u) |
+                                           (ui.lock == LAYER_BLAZE ? 8u : 0u) : 0u);   /* (no button held: the ISR's) */
 }
 
 /* a layer button pressed (its edge) while none is armed: it is now, a dead one where no layer opens */
@@ -639,6 +644,7 @@ static uint32_t eqa_sig(void)
 }
 
 #include "blaze_roll_ui.c"                         /* BLAZE: ROLL's TAP NUDGE knobs LEDs */
+#include "blaze_home_ui.c"                         /* BLAZE: the home layer's, the key from RAIL */
 
 /* a key pressed in layer l (k: 0 = F3 .. 26 = G5) */
 static void layer_key(uint32_t l, uint32_t k)
@@ -646,6 +652,8 @@ static void layer_key(uint32_t l, uint32_t k)
     uint32_t p = key_place(k), i;
     if (l == LAYER_ROLL) {
         rl_ui_key(k);
+    } else if (l == LAYER_BLAZE) {
+        bz_ui_key(k);
     } else if (l == LAYER_FX) {
         if (!key_black(k) && p < PF_KEYS)
             lys.fxk = (uint8_t)(k + 1u);                /* (PRESETS assigns it while held) */
@@ -700,6 +708,7 @@ static void layer_keys(uint32_t keys)
         if ((keys >> k) & 1u)
             layer_key(l, k);
     rl_ui_pass();                                       /* (BLAZE ROLL: NUDGE let go, the mode said) */
+    bz_ui_pass();                                       /* (BLAZE: RELEASE's knobs, RAIL's key) */
     if (lys.eqh)
         eqa_release();
     lys.solo &= kb_layer;
@@ -720,6 +729,8 @@ static void layer_knob(uint32_t k, int32_t s)
     uint32_t l = layer_open();
     if (l == LAYER_ROLL) {                              /* BLAZE: BPM BUILD DECAY LEVEL */
         rl_knob(k, s);
+    } else if (l == LAYER_BLAZE) {                      /* BLAZE: COLOR PITCH DECAY FX DEPTH */
+        bz_knob(k, s);
     } else if (l == LAYER_FX) {                         /* perform.c perf_k, not recorded */
         if (k == 3u && !perf_harm_on())
             s = -s;                                     /* DEPTH (100 - perf_k[3]) rises to the right (#40: it fell) */
@@ -787,6 +798,10 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
     if (layer_open() == LAYER_ROLL) {                   /* BLAZE ROLL: OCT+ GROOVE / LAST, OCT- nothing */
         if (oct & 2u)
             rl_groove_toggle();
+        lys.oct = 0;
+        return 0;
+    }
+    if (layer_open() == LAYER_BLAZE) {                  /* BLAZE: OCT- / OCT+ nothing */
         lys.oct = 0;
         return 0;
     }
@@ -867,6 +882,8 @@ static uint32_t layer_leds(uint32_t *br)
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, can = 0, e;
         if (l == LAYER_ROLL) {                          /* BLAZE: pads, rates, TAP NUDGE PADS */
             rl_led(k, &on, &can);
+        } else if (l == LAYER_BLAZE) {                  /* BLAZE: pads, effects, builds, rates */
+            bz_led(k, &on, &can);
         } else if (l == LAYER_FX) {                     /* effects breathe, held lit, a too-long REPEAT dark */
             e = perf_key(k);
             can = e < PF_N && ((ok >> e) & 1u);
@@ -1188,6 +1205,7 @@ static void layer_rec(void)
 }
 
 #include "blaze_roll_draw.c"                       /* BLAZE: ROLL's map and cards */
+#include "blaze_home_draw.c"                       /* BLAZE: the home map and cards */
 
 static void layer_cards(uint32_t l)
 {
@@ -1196,6 +1214,8 @@ static void layer_cards(uint32_t l)
     uint32_t c;
     if (l == LAYER_ROLL) {                              /* BLAZE: BPM BUILD DECAY LEVEL */
         rl_cards();
+    } else if (l == LAYER_BLAZE) {                      /* BLAZE: COLOR PITCH DECAY FX DEPTH */
+        bz_cards();
     } else if (l == LAYER_FX) {                         /* FILTER CRUSH THROW DEPTH */
         int32_t m = perf_k[0];
         fmt_int(val, m < 0 ? -m : m);
@@ -1264,6 +1284,8 @@ static void draw_layer(void)
     layer_cards(l);
     if (l == LAYER_ROLL)
         sig += rl_sig() * 2654435761u + (uint32_t)song.g[G_BPM] * 37u + rl_build * 41u;
+    else if (l == LAYER_BLAZE)
+        sig += bz_sig() * 2654435761u + (uint32_t)perf_k[0] * 37u + (uint32_t)perf_k[3] * 41u + perf_kill * 3u;
     else if (l == LAYER_FX)
     {
         uint32_t p;
@@ -1292,6 +1314,8 @@ static void draw_layer(void)
         cv_bg = T_SURF;
         if (l == LAYER_ROLL)
             layer_roll();
+        else if (l == LAYER_BLAZE)
+            layer_blaze();
         else if (l == LAYER_FX)
             layer_fx();
         else if (l == LAYER_GLO)

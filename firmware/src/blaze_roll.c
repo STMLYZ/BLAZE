@@ -19,7 +19,7 @@
 #define RL_NRATE 7u
 static const uint8_t RL_DIV[RL_NRATE] = {7u, 0u, 1u, 4u, 2u, 5u, 3u};   /* 1/1 1/4 1/8 8T 1/16 16T 1/32 */
 static const char *const RL_RATE_NAME[RL_NRATE] = {"1 BAR", "1/4", "1/8", "1/8 TRIP", "1/16", "1/16 TRIP", "1/32"};
-static const char *const RL_RATE_CELL[RL_NRATE] = {"BAR", "1/4", "1/8", "8T", "16", "16T", "32"};
+static const char *const RL_RATE_CELL[RL_NRATE] = {"1 BAR", "1/4", "1/8", "1/8 T", "1/16", "1/16 T", "1/32"};
 enum { RLK_TAP = RL_NRATE, RLK_NDN, RLK_NUP, RLK_PADS };   /* black places 7..10 */
 enum { RL_PADS16, RL_PADS4, RL_PADS1, RL_NPADMODE };
 #define RL_OFF_SAMPLES 441u                     /* a hit's note-off 10 ms after it (a one-shot lane plays on) */
@@ -32,9 +32,11 @@ static volatile uint16_t rl_live4 = 0x001Eu;   /* the 4 mode's live pads: SNARE 
 static volatile uint16_t rl_live1 = 0x0002u;   /* the 1 mode's: SNARE */
 static volatile uint8_t rl_build;              /* main: KNOB 2, 0..100 */
 static volatile uint16_t rl_held;              /* ISR: the pads held (playing) */
+static volatile uint16_t rl_extra;             /* ISR: pads the BLAZE layer holds (blaze_home.c: live whatever PADS is) */
 static volatile uint8_t rl_rates;              /* ISR: the rates held (bit r) */
 static volatile uint16_t rl_flash;             /* ISR sets, the main loop clears: pads hit since it looked */
 static volatile uint8_t rl_rolling;            /* ISR: a roll sounds (the main loop's LEDs, screen) */
+static uint8_t rl_vel_last;                    /* ISR: the last hit's velocity (the tests) */
 static uint8_t rl_pick, rl_picked;             /* ISR: PADS held; a pad picked while it was */
 static uint8_t rl_ord[RL_NRATE], rl_nr;        /* ISR: the rates held, in the order pressed */
 static uint8_t rl_runs;                        /* ISR: the rates running now (bit r) */
@@ -84,6 +86,7 @@ static void rl_hit(uint32_t p, uint32_t vel)
     if (p >= NLANE)
         vel = 127u;
     vel = vel < 1u ? 1u : vel > 127u ? 127u : vel;
+    rl_vel_last = (uint8_t)vel;
     if (rl_offt[l])
         rl_note_off(l);                          /* (the lane's last hit ends first) */
     trk_note_on(t, note, vel);
@@ -115,7 +118,7 @@ static uint32_t rl_wait(uint32_t r)
 static void rl_rerun(void)
 {
     uint32_t want = 0, r, i;
-    if (rl_held & rl_live()) {
+    if ((rl_held & rl_live()) | rl_extra) {
         if (rl_groove)
             for (i = 0; i < rl_nr; i++)
                 want |= 1u << rl_ord[i];
@@ -232,7 +235,7 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
     rl_age += adv;
     if (!hits)
         return;
-    held = rl_held & rl_live();
+    held = (rl_held & rl_live()) | rl_extra;
     {
         uint32_t bar = 4u * beat_samples(), age = rl_age < bar ? rl_age : bar;
         uint32_t swell = (100u - rl_build) + rl_build * age / (bar ? bar : 1u);   /* 100 - BUILD .. 100 % */
