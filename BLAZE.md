@@ -92,3 +92,36 @@ In BLAZE (hold ENV):
 
 Each drum's TUNE and DECAY live in parameters DIGITAL's operator envelopes held (inert since 1.0), marked as BLAZE's;
 a sound or project from before plays as designed.
+
+## 0.4 — the riser's sound, EXIT (echo out), CHORD
+
+### RISER: hold it and turn the knobs (kept with the FM-1's settings)
+
+| Knob | |
+|---|---|
+| 1 TYPE | NOISE, AIR (thin, bright hiss), SIREN (a resonant whistle), TONE (two saws climbing two octaves from the key's root), SYNTH (one of your tracks: its note bent up) |
+| 2 TOP / BEND | How bright it ends (SYNTH: how far it bends, up to 2 octaves) |
+| 3 LEVEL | How loud it peaks |
+| 4 SPACE / TRACK | How much goes into the reverb (SYNTH: which track plays it) |
+
+### EXIT (white 14): the echo out
+
+From the next bar the FM-1 goes into the echo for a beat, then every track is cut while the echo rings on for BARS
+(hold EXIT + KNOB 1: 1, 2 or 4). On its own clock the FM-1 then stops, ready for PLAY; following rekordbox (Link) it
+stays silent (OUT) until EXIT again. EXIT while it runs, or RELEASE: back at once.
+
+The BLAZE map now shows the key in the header and the phrase as a thin bar across the top.
+
+### CHORD (OCT- twice: BLAZE → KEYS → CHORD → BLAZE)
+
+| Keys | |
+|---|---|
+| White 1–7 | The key's seven chords (A minor: Am Bdim C Dm Em F G). Tap: latched (it plays on after you let go of ENV); another chord takes over; the same one again ends it |
+| White 8 | OFF |
+| Black 1–5 | How it plays: HOLD, stabs on 1/4 1/8 1/16, GATE (a 1/16 pattern: ALGO picks STRAIGHT SKIP SHUFFLE TRESILLO) |
+| Black 6 / 7 | 7TH (four-note chords: Am7 Cmaj7 G7), INVERT (the low notes moved up) |
+| Black 8 / 9 | Octave − / + |
+| Black 10 / 11 | TRACK (which track plays the chords), ARP (the chord arpeggiated) |
+| KNOB 1–4 | FILTER, LENGTH (of each stab / gate step), SPACE, LEVEL |
+
+RELEASE (in BLAZE) also ends the chord.

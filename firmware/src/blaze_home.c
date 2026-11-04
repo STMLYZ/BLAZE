@@ -7,8 +7,12 @@
  *                latches it on (a tap again: off), a hold plays it while held (BZ_TAP_MS tells them apart)
  *   white 11, 12 BUILD 4, BUILD 8: the one pad (ROLL's PADS 1: rl_live1, SNARE) from the next bar, 1/4 -> 1/8 ->
  *                1/16 -> 1/32 over 4 or 8 bars, swelling, so it ends on the next phrase's 1. Again: stops it
- *   white 13     RISER: noise swept up and swelling from the next bar over 8 bars (tapped twice quickly: 16), cut on
- *                the 1 after it (bz_riser_mix, fx.c mix_block: on the master, no voice). Again: stops it
+ *   white 13     RISER: swept up and swelling from the next bar over 8 bars (tapped twice quickly: 16), cut on the 1
+ *                after it. Again: stops it. Its sound (held + knobs, blaze_home_ui.c): TYPE NOISE AIR SIREN TONE
+ *                (bz_riser_mix, fx.c mix_block: on the master, no voice) or SYNTH (a track's note bent up TOP semitones)
+ *   white 14     ECHO OUT: from the next bar the FM-1 into the echo (ECHO THROW) for a beat, then every track muted
+ *                while the echo rings on for BARS (1 2 4), then: the internal clock stops (the tracks back), an
+ *                external one keeps them muted until ECHO OUT again. Pressed while it runs: back at once
  *   black 1..6   the rates 1/4 1/8 1/8 T 1/16 1/16 T 1/32 (ROLL's 2..7)
  *   black 7..9   TAP, NUDGE -, NUDGE + (the main loop's: blaze_home_ui.c)
  *   black 10     RELEASE: every latched effect, the build, the riser, the rolls off (the main loop: COLOR and DEPTH)
@@ -26,12 +30,18 @@ static const uint8_t BZ_FX[BZ_NFX] = {PF_ETHR, PF_RTHR, PF_REV, PF_TAPE, PF_FRZ,
 #define BZ_B4 10u
 #define BZ_B8 11u
 #define BZ_RISER 12u
+#define BZ_EOUT 13u
+enum { BZR_NOISE, BZR_AIR, BZR_SIREN, BZR_TONE, BZR_SYNTH, BZR_NTYPE };
+enum { BZE_IDLE, BZE_ARMED, BZE_ECHO, BZE_TAIL, BZE_OUT };
 enum { BZK_TAP = 6u, BZK_NDN, BZK_NUP, BZK_REL, BZK_ONE };   /* black places 6..10 (0..5: the rates) */
 #define BZ_TAP_MS 250u
 #define BZ_RS_TAP_MS 400u                       /* RISER: a second tap within this: 16 bars */
 #define BZ_PHRASE 16u                           /* bars in a phrase */
 
 static volatile uint32_t home_mask;            /* main: the ENV button's bit while BLAZE may own the keys */
+static volatile uint8_t bz_chord;              /* main: the layer is CHORD (blaze_chord.c) */
+static void bz_chord_key(uint32_t p);
+static void bz_chord_stop(void);
 static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-) */
 static volatile uint8_t bz_ktrk;               /* main: the KEYS track */
 static volatile int8_t bz_koct;                /* main: KEYS' octave, -2..2 (0: the root at C3 .. B3) */
@@ -41,6 +51,12 @@ static volatile uint8_t bz_build;              /* ISR: a build running: its bars
 static volatile uint8_t bz_build_rate;         /* ISR: its rate now (RL index), the main loop shows it */
 static volatile uint8_t bz_riser;              /* ISR: a riser armed or running: its bars (8, 16), 0 none */
 static volatile uint8_t bz_rel;                /* ISR sets: RELEASE pressed (the main loop homes the knobs) */
+static volatile uint8_t bz_rs_type, bz_rs_top = 100, bz_rs_lvl = 100, bz_rs_space = 32, bz_rs_trk = 1;   /* main: the
+                                                * riser's sound (from the settings: blaze_home_ui.c bz_cfg) */
+static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
+static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
+static uint32_t bz_eo_left;                    /* .. samples left of the state */
+static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
 static volatile uint8_t bz_cc_seq, bz_cc[3];   /* ISR: CC 20 21 22 on channel 16 (seq bumped on each) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
@@ -53,7 +69,8 @@ static uint32_t bz_rs_wait, bz_rs_age, bz_rs_t;   /* the riser: samples to its s
 static struct {
     int32_t lp[2], bp[2];                      /* the riser's two filters (left, right) */
     uint32_t s[2];                             /* .. their noise */
-} bzr = {{0, 0}, {0, 0}, {0x2545F491u, 0x9E3779B9u}};
+    uint32_t ph[2];                            /* TONE: its two saws' phases */
+} bzr = {{0, 0}, {0, 0}, {0x2545F491u, 0x9E3779B9u}, {0, 0x40000000u}};
 
 /* white key i (0..3): the pad of ROLL's 4 it plays (in key order), 16 none */
 static uint32_t bz_pad_of(uint32_t i)
@@ -97,6 +114,33 @@ static uint32_t bz_to_bar(void)
     return in || clk_pos ? (16u - in) * s16 - clk_pos : 0u;
 }
 
+/* ECHO OUT's mutes: every track (perform.c PF_M1..) */
+#define BZ_MUTES (((1u << NTRK) - 1u) << PF_M1)
+static void bz_eo_back(void)
+{
+    perf_held &= ~(PF_BIT(PF_ETHR) | BZ_MUTES);
+    bz_eo = BZE_IDLE;
+}
+static void bz_eo_tap(void)
+{
+    if (bz_eo != BZE_IDLE) {
+        bz_eo_back();                            /* (running or out: back at once) */
+        return;
+    }
+    bz_eo_left = bz_to_bar();
+    bz_eo = BZE_ARMED;
+}
+
+/* SYNTH riser: its note ends, its bend back */
+static void bz_rs_synth_off(void)
+{
+    if (bz_rs_on) {
+        trk_note_off(&trk[(bz_rs_on - 1u) % NTRK], bz_rs_note);
+        midi_bend_target[(bz_rs_on - 1u) % NTRK] = 0;
+        bz_rs_on = 0;
+    }
+}
+
 static void bz_build_start(uint32_t bars)
 {
     if (bz_build == bars) {
@@ -119,6 +163,7 @@ static void bz_riser_tap(void)
     }
     if (bz_riser) {
         bz_riser = 0;
+        bz_rs_synth_off();
         return;
     }
     bz_rs_wait = bz_to_bar();
@@ -137,6 +182,9 @@ static void bz_release_all(void)
     bz_tapfx = bz_offfx = 0;
     bz_build = 0;
     bz_riser = 0;
+    bz_rs_synth_off();
+    bz_eo_back();
+    bz_chord_stop();
     bz_pads = 0;
     rl_extra = 0;
     rl_rerun();
@@ -173,6 +221,11 @@ static void bz_fx_key(uint32_t i, int down)
 static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
 {
     uint32_t p = key_place(k), pad;
+    if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
+        if (!key_black(k) && down)
+            bz_chord_key(p);
+        return;
+    }
     if (key_black(k)) {
         if (bz_keys)
             return;                              /* (KEYS: the main loop's) */
@@ -209,6 +262,8 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         bz_build_start(p == BZ_B4 ? 4u : 8u);
     } else if (p == BZ_RISER) {
         bz_riser_tap();
+    } else if (p == BZ_EOUT) {
+        bz_eo_tap();
     }
 }
 
@@ -217,6 +272,32 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
 {
     uint32_t pad, total, r, a;
     bz_now += n;
+    if (bz_eo != BZE_IDLE && bz_eo != BZE_OUT) { /* ECHO OUT: its states on the sequencer's time */
+        a = adv;
+        while (bz_eo != BZE_IDLE && bz_eo != BZE_OUT && bz_eo_left <= a) {
+            a -= bz_eo_left;
+            if (bz_eo == BZE_ARMED) {            /* the bar: into the echo for a beat */
+                perf_held |= PF_BIT(PF_ETHR);
+                perf_ord[PF_ETHR] = ++perf_seq;
+                bz_eo = BZE_ECHO;
+                bz_eo_left = beat_samples();
+            } else if (bz_eo == BZE_ECHO) {      /* the dry cut: the echo rings on */
+                perf_held |= BZ_MUTES;
+                bz_eo = BZE_TAIL;
+                bz_eo_left = (uint32_t)bz_eo_bars * 4u * beat_samples();
+            } else {                             /* the tail over */
+                perf_held &= ~PF_BIT(PF_ETHR);
+                if (!song.g[G_CLOCK]) {
+                    transport_req = 2;           /* (the internal clock: stopped, the tracks back for the next PLAY) */
+                    perf_held &= ~BZ_MUTES;
+                    bz_eo = BZE_IDLE;
+                } else
+                    bz_eo = BZE_OUT;
+            }
+        }
+        if (bz_eo != BZE_IDLE && bz_eo != BZE_OUT)
+            bz_eo_left -= a;
+    }
     if (bz_riser) {                              /* the riser: waits for its bar, ends on the 1 after its bars */
         a = adv;
         if (bz_rs_wait) {
@@ -224,9 +305,25 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
             bz_rs_wait -= r;
             a -= r;
         }
+        total = (uint32_t)bz_riser * 4u * beat_samples();
+        if (!bz_rs_wait && bz_rs_type == BZR_SYNTH) {   /* SYNTH: the track's note, bent up as it goes */
+            if (!bz_rs_on) {
+                track_t *t = &trk[bz_rs_trk % NTRK];
+                bz_rs_note = (uint8_t)(48 + t->p[P_ROOT] % 12);
+                trk_note_on(t, bz_rs_note, 40u + bz_rs_lvl * 87u / 127u);
+                bz_rs_on = (uint8_t)(bz_rs_trk % NTRK + 1u);
+            }
+            {   /* Q8 semitones: TOP 0..127 -> 0..24 semitones, x^2 */
+                uint32_t x = total ? (uint32_t)((uint64_t)bz_rs_age * 4096u / total) : 4096u;
+                x = x > 4096u ? 4096u : x;
+                midi_bend_target[bz_rs_on - 1u] = (int32_t)((uint64_t)bz_rs_top * 24u * 256u / 127u * x * x >> 24);
+            }
+        }
         bz_rs_age += a;
-        if (bz_rs_age >= (uint32_t)bz_riser * 4u * beat_samples())
+        if (bz_rs_age >= total) {
             bz_riser = 0;
+            bz_rs_synth_off();
+        }
     }
     if (!bz_build)
         return;
@@ -262,42 +359,66 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
         bz_build = 0;                            /* (its last bar over: the drop) */
 }
 
-/* the riser into the mix (fx.c mix_block, before the FX layer and the buses: COLOR filters it, a quarter of it goes
- * to the reverb): white noise, left and right their own, through a resonant band + high pass whose cutoff rises
- * 150 Hz -> 6 kHz (x^3: slow, then fast) as the level rises (x^2) to about -11 dBFS, cut at the end */
+/* the riser into the mix (fx.c mix_block, before the FX layer and the buses: COLOR filters it, SPACE of it goes to
+ * the reverb). NOISE: white noise (left and right their own) through a band + high pass; AIR: the high pass only, from
+ * higher up; SIREN: a narrow resonant band (a whistle); TONE: two detuned saws from the key's root up two octaves
+ * through an opening low pass. The cutoff rises 150 Hz (AIR 600, TONE 300) -> 1.5 .. 6 kHz (TOP) as x^3 (slow, then
+ * fast) while the level rises as x^2 to LEVEL (127: about -11 dBFS); cut at the end. SYNTH: none here (home_block) */
 #define BZR_PEAK 9000
+static const uint16_t BZR_SEMI[13] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386,
+                                      61858, 65535};   /* 2^(i/12), Q15 (the last: 2, clipped) */
 static __attribute__((noinline)) void bz_riser_mix(int32_t *l, int32_t *r, int32_t *rev, uint32_t n)
 {
-    uint32_t i, c, total;
-    int32_t x, fc, f, amp, q = 23000;           /* q: the damping, Q15 (0.7) */
-    if (!bz_riser || bz_rs_wait)
+    uint32_t i, c, total, type = bz_rs_type, inc[2] = {0, 0};
+    int32_t x, fc, f, amp, q, f0, top, peak = BZR_PEAK * bz_rs_lvl / 127, sp = bz_rs_space;
+    if (!bz_riser || bz_rs_wait || type >= BZR_SYNTH)
         return;
     total = (uint32_t)bz_riser * 4u * beat_samples();
     x = total ? (int32_t)((uint64_t)bz_rs_age * 32768u / total) : 32767;
     x = x > 32767 ? 32767 : x;
-    fc = 150 + (int32_t)(((((int64_t)5850 * x) >> 15) * x >> 15) * x >> 15);   /* 150 + 5850 x^3 */
+    f0 = type == BZR_AIR ? 600 : type == BZR_TONE ? 300 : type == BZR_SIREN ? 200 : 150;
+    top = 1500 + bz_rs_top * 4500 / 127;
+    fc = f0 + (int32_t)(((((int64_t)(top - f0) * x) >> 15) * x >> 15) * x >> 15);   /* f0 + (top - f0) x^3 */
     f = (int32_t)((int64_t)fc * 205887 / FS);    /* 2 pi fc / FS, Q15 */
+    q = type == BZR_SIREN ? 6000 : type == BZR_AIR ? 30000 : type == BZR_TONE ? 16000 : 23000;   /* damping, Q15 */
     amp = (int32_t)((int64_t)x * x >> 15);
+    if (type == BZR_TONE) {                      /* the saws: the root at C2 .. B2, up 24 semitones as x */
+        const track_t *t = &trk[bz_ktrk % NTRK];  /* (the KEYS track's root: RAIL sets every note track's) */
+        int32_t st = (int32_t)((int64_t)x * 24 >> 15), oct = st / 12, hz;
+        int32_t note = 36 + t->p[P_ROOT] % 12;
+        hz = 16744;                              /* C2, 65.406 Hz, in Q8 Hz */
+        hz = (int32_t)((int64_t)hz * BZR_SEMI[(note - 36) % 12] >> 15);
+        hz = (int32_t)((int64_t)hz * BZR_SEMI[st % 12] >> 15) << oct;
+        inc[0] = (uint32_t)((uint64_t)hz * 16777216u / FS);   /* (Q8 Hz: 2^32 / 256 = 2^24) */
+        inc[1] = inc[0] + inc[0] / 200u;          /* (+ ~9 cents) */
+    }
     for (c = 0; c < 2u; c++) {
         int32_t lp = bzr.lp[c], bp = bzr.bp[c];
-        uint32_t s = bzr.s[c];
+        uint32_t s = bzr.s[c], ph = bzr.ph[c];
         int32_t *o = c ? r : l;
         for (i = 0; i < n; i++) {
             int32_t in, hp, y;
-            s ^= s << 13;
-            s ^= s >> 17;
-            s ^= s << 5;
-            in = (int32_t)s >> 19;               /* +-4096 */
+            if (type == BZR_TONE) {
+                ph += inc[c];
+                in = (int32_t)(ph >> 19) - 4096;  /* a saw, +-4096 */
+            } else {
+                s ^= s << 13;
+                s ^= s >> 17;
+                s ^= s << 5;
+                in = (int32_t)s >> 19;           /* +-4096 */
+            }
             lp += (f * bp) >> 15;
             hp = in - lp - ((q * bp) >> 15);
             bp += (f * hp) >> 15;
-            y = (int32_t)(((int64_t)(bp + (hp >> 1)) * amp) >> 14);
-            y = clamp(y, -BZR_PEAK, BZR_PEAK);
+            y = type == BZR_AIR ? hp >> 1 : type == BZR_SIREN ? bp >> 1 : type == BZR_TONE ? lp : bp + (hp >> 1);
+            y = (int32_t)(((int64_t)y * amp) >> 14);
+            y = clamp(y, -peak, peak);
             o[i] += y;
-            rev[i] += y >> 3;
+            rev[i] += (y * sp) >> 9;
         }
         bzr.lp[c] = lp;
         bzr.bp[c] = bp;
         bzr.s[c] = s;
+        bzr.ph[c] = ph;
     }
 }

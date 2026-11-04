@@ -809,6 +809,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 
 #include "blaze_roll.c"                          /* BLAZE: the ROLL layer's sound side */
 #include "blaze_home.c"                          /* BLAZE: the home layer's (ENV held) */
+#include "blaze_chord.c"                         /* BLAZE: its CHORD */
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
 static uint32_t kb_bz;                           /* .. in the BLAZE layer */
 static uint32_t kb_bzn;                          /* .. BLAZE KEYS' white keys playing notes */
@@ -1520,7 +1521,8 @@ static void events_block(uint32_t n)
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], seq_n);
     roll_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE ROLL: on the sequencer's time */
-    home_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE: BUILD, IMPACT's throw */
+    home_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE: BUILD, RISER, ECHO OUT */
+    chord_block(clock_mode && song.playing ? seq_n : n);     /* BLAZE: CHORD's stabs and gate */
     if (cin_flush)
         cin_record();
     if (song.playing)

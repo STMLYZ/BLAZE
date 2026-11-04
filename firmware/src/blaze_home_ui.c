@@ -120,11 +120,122 @@ static uint32_t bz_keys_track(void)
 }
 
 /* OCT- in the layer: BLAZE <-> KEYS */
-static void bz_keys_toggle(void)
+static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> BLAZE) */
 {
-    bz_ktrk = (uint8_t)bz_keys_track();
-    bz_keys = (uint8_t)!bz_keys;
-    ui_message(bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : "BLAZE: PADS AND EFFECTS");
+    if (!bz_keys && !bz_chord) {
+        bz_ktrk = (uint8_t)bz_keys_track();
+        bz_keys = 1;
+    } else if (bz_keys) {
+        bz_keys = 0;
+        if (!bz_notes_track(&trk[bz_ctrk % NTRK]))
+            bz_ctrk = (uint8_t)bz_keys_track();
+        bz_chord = 1;
+    } else {
+        bz_chord = 0;
+    }
+    ui_message(bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
+                                                                 : "BLAZE: PADS AND EFFECTS");
+    ui.force = 1;
+}
+
+/* ---- the settings BLAZE keeps (the RISER's sound, ECHO OUT's bars): 8 bytes of the DRUM row of the favourites that
+ * no DRUM preset uses (its presets are far fewer than 192), marked; kept with the settings */
+#define bz_cfg (&favorites.factory[ENGI_DRUM][24])
+#define BZ_CFG_MAGIC 0xB7u
+enum { BZC_MAGIC_I, BZC_TYPE, BZC_TOP, BZC_LVL, BZC_SPACE, BZC_TRK, BZC_EOB };
+_Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] <= 192u, "BLAZE settings bytes in the DRUM favourites");
+static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
+static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
+/* the settings into the ISR's copies (an unmarked or old setting: the defaults first) */
+static void bz_cfg_apply(void)
+{
+    uint8_t *c = bz_cfg;
+    if (c[BZC_MAGIC_I] != BZ_CFG_MAGIC) {
+        c[BZC_TYPE] = BZR_NOISE;
+        c[BZC_TOP] = 100;
+        c[BZC_LVL] = 100;
+        c[BZC_SPACE] = 32;
+        c[BZC_TRK] = 1;
+        c[BZC_EOB] = 1;
+        c[BZC_MAGIC_I] = BZ_CFG_MAGIC;
+    }
+    bz_rs_type = (uint8_t)(c[BZC_TYPE] % BZR_NTYPE);
+    bz_rs_top = (uint8_t)(c[BZC_TOP] & 127u);
+    bz_rs_lvl = (uint8_t)(c[BZC_LVL] & 127u);
+    bz_rs_space = (uint8_t)(c[BZC_SPACE] & 127u);
+    bz_rs_trk = (uint8_t)(c[BZC_TRK] % NTRK);
+    bz_eo_bars = BZ_EO_BARS[c[BZC_EOB] % 3u];
+}
+/* white key at place p (0..15) held now */
+static int bz_white_held(uint32_t p)
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++)
+        if (!key_black(k) && key_place(k) == p)
+            return (int)((fm1_in.notes >> k) & 1u);
+    return 0;
+}
+static int bz_riser_held(void) { return !bz_keys && !bz_chord && bz_white_held(BZ_RISER); }
+static int bz_eo_held(void) { return !bz_keys && !bz_chord && bz_white_held(BZ_EOUT); }
+
+/* CHORD: chord degree d's name on track t ("Am", "G7", "Bdim", "Cmaj7"; root position) */
+static void bz_chord_name(const track_t *t, uint32_t d, char *out, uint32_t len)
+{
+    uint8_t v[BZC_N];
+    uint32_t n = bzc_build(t, d, v, bz_ch_7th, 0, 0), a, b, c = 0;
+    const char *q;
+    out[0] = 0;
+    if (n < 3u)
+        return;
+    a = (uint32_t)(v[1] - v[0]);
+    b = (uint32_t)(v[2] - v[0]);
+    if (n > 3u)
+        c = (uint32_t)(v[3] - v[0]);
+    q = a == 4u && b == 7u ? (c == 11u ? "maj7" : c == 10u ? "7" : "")
+      : a == 3u && b == 7u ? (c == 10u ? "m7" : c == 11u ? "mM7" : "m")
+      : a == 3u && b == 6u ? (c == 10u ? "m7b5" : c == 9u ? "dim7" : "dim")
+      : a == 4u && b == 8u ? "aug" : a == 5u && b == 7u ? "sus4" : a == 2u && b == 7u ? "sus2" : "?";
+    str_cpy(out, (t->p[P_SCALE] == 1 ? BZ_MAJ : BZ_MIN)[v[0] % 12u], len);
+    str_cpy(out + str_len(out), q, len - str_len(out));
+}
+static const char *const BZ_CHORD_BLACK[11] = {"HOLD", "1/4", "1/8", "1/16", "GATE", "7TH", "INVERT", "OCT-", "OCT+",
+                                               "TRACK", "ARP"};
+static const char *const BZ_GATE_NAME[4] = {"STRAIGHT", "SKIP", "SHUFFLE", "TRESILLO"};
+
+/* CHORD: a black key (place p) */
+static void bz_chord_black(uint32_t p)
+{
+    track_t *t = &trk[bz_ctrk % NTRK];
+    uint32_t i;
+    if (p <= 4u) {
+        bz_ch_style = (uint8_t)p;
+        ui_message(p == 4u ? "CHORD GATE" : p ? "CHORD STABS" : "CHORD HELD");
+    } else if (p == 5u) {
+        bz_ch_7th = (uint8_t)!bz_ch_7th;
+        ui_message(bz_ch_7th ? "SEVENTH CHORDS" : "THREE-NOTE CHORDS");
+    } else if (p == 6u) {
+        bz_ch_inv = (uint8_t)((bz_ch_inv + 1u) % (bz_ch_7th ? 4u : 3u));
+        ui_message(!bz_ch_inv ? "ROOT POSITION" : bz_ch_inv == 1u ? "1ST INVERSION" : bz_ch_inv == 2u ? "2ND INVERSION"
+                                                                                    : "3RD INVERSION");
+    } else if (p == 7u || p == 8u) {
+        bz_ch_oct = (int8_t)clamp(bz_ch_oct + (p == 8u ? 1 : -1), -2, 2);
+        ui_message(p == 8u ? "CHORDS OCTAVE UP" : "CHORDS OCTAVE DOWN");
+    } else if (p == 9u) {                           /* the next track whose keys play notes */
+        for (i = 1; i <= NTRK; i++)
+            if (bz_notes_track(&trk[(bz_ctrk + i) % NTRK])) {
+                bz_ctrk = (uint8_t)((bz_ctrk + i) % NTRK);
+                break;
+            }
+        {
+            char m[16] = "CHORDS ON T1";
+            m[11] = (char)('1' + bz_ctrk % NTRK);
+            ui_message(m);
+        }
+    } else if (p == 10u) {
+        t->p[P_AMODE] = (int16_t)(t->p[P_AMODE] ? 0 : 1);
+        ui_message(t->p[P_AMODE] ? "CHORD ARP ON" : "CHORD ARP OFF");
+    }
+    bz_ch_dirty = 1;
     ui.force = 1;
 }
 
@@ -133,6 +244,13 @@ static void bz_ui_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     track_t *t;
+    if (bz_chord) {                                 /* CHORD: the black keys (the white ones: the ISR's) */
+        if (key_black(k))
+            bz_chord_black(p);
+        else
+            ui.force = 1;
+        return;
+    }
     if (bz_keys) {                                  /* KEYS: the black keys (the white ones play: seq.c) */
         if (!key_black(k))
             return;
@@ -178,15 +296,22 @@ static void bz_ui_key(uint32_t k)
                                                            : "BUILD 8 BARS FROM THE NEXT BAR");
     else if (p == BZ_RISER)
         ui_message(!bz_riser ? "RISER STOPPED" : bz_riser == 16u ? "RISER 16 BARS" : "RISER 8 BARS FROM THE NEXT BAR");
+    else if (p == BZ_EOUT)
+        ui_message(bz_eo == BZE_IDLE ? "BACK IN" : "ECHO OUT FROM THE NEXT BAR");
 }
 
 /* each pass: RELEASE's knobs, RAIL's key, RISER's 16 said */
 static void bz_ui_pass(void)
 {
-    static uint8_t rs;
+    static uint8_t rs, cfg;
+    if (!cfg) {
+        cfg = 1;
+        bz_cfg_apply();
+    }
     if (bz_rel) {
         bz_rel = 0;
         perf_k[0] = perf_k[2] = perf_k[3] = 0;    /* (COLOR to the middle, THROW off, DEPTH full) */
+        ui.force = 1;
         ui_message("RELEASE: ALL OFF");
         ui.force = 1;
     }
@@ -207,6 +332,39 @@ static void bz_knob(uint32_t k, int32_t s)
     track_t *t = rl_track(), *kt = &trk[bz_ktrk % NTRK];
     uint32_t l = bz_held_lane();
     int16_t *vp;
+    if (bz_riser_held()) {                          /* RISER held: TYPE TOP LEVEL SPACE (SYNTH: TRACK), kept */
+        uint8_t *c = bz_cfg;
+        bz_cfg_apply();
+        if (k == 0u)
+            c[BZC_TYPE] = (uint8_t)clamp((int32_t)c[BZC_TYPE] + (s > 0 ? 1 : -1), 0, BZR_NTYPE - 1);
+        else if (k == 3u && c[BZC_TYPE] == BZR_SYNTH)
+            c[BZC_TRK] = (uint8_t)clamp((int32_t)c[BZC_TRK] + (s > 0 ? 1 : -1), 0, NTRK - 1);
+        else
+            c[k == 1u ? BZC_TOP : k == 2u ? BZC_LVL : BZC_SPACE] = (uint8_t)clamp(
+                (int32_t)c[k == 1u ? BZC_TOP : k == 2u ? BZC_LVL : BZC_SPACE] + accel(EN_K1 + k, s, 127), 0, 127);
+        bz_cfg_apply();
+        lys.rp_dirty = 1;                           /* (kept when the layer lets go: ui_layer.c layer_let_go) */
+        return;
+    }
+    if (bz_eo_held()) {                             /* ECHO OUT held: KNOB 1 its BARS (1 2 4), kept */
+        if (k == 0u) {
+            bz_cfg[BZC_EOB] = (uint8_t)clamp((int32_t)bz_cfg[BZC_EOB] % 3 + (s > 0 ? 1 : -1), 0, 2);
+            bz_cfg_apply();
+            lys.rp_dirty = 1;
+        }
+        return;
+    }
+    if (bz_chord) {                                 /* CHORD: FILTER LENGTH SPACE LEVEL of the CHORD track */
+        track_t *ct = &trk[bz_ctrk % NTRK];
+        static const uint8_t ID[4] = {P_ED_FLT, 0, P_REV, P_LEVEL};
+        if (k == 1u) {
+            bz_ch_len = (uint8_t)clamp(bz_ch_len + accel(EN_K2, s, 95), 5, 100);
+            return;
+        }
+        vp = &ct->p[ID[k]];
+        *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[ID[k]].max - TP[ID[k]].min), TP[ID[k]].min, TP[ID[k]].max);
+        return;
+    }
     if (bz_keys) {                                  /* KEYS: FILTER GATE RANGE SPACE of the KEYS track */
         static const uint8_t ID[4] = {P_ED_FLT, P_AGATE, P_AOCT, P_REV};
         vp = &kt->p[ID[k]];
@@ -253,6 +411,12 @@ static void bz_algo(int32_t s)
     track_t *t = bz_keys ? &trk[bz_ktrk % NTRK] : rl_track();
     const param_desc_t *d;
     int32_t v;
+    if (bz_chord) {                                 /* CHORD: the gate's pattern */
+        bz_ch_gate = (uint8_t)clamp((int32_t)bz_ch_gate + (s > 0 ? 1 : -1), 0, 3);
+        ui_say("GATE ", BZ_GATE_NAME[bz_ch_gate]);
+        ui.force = 1;
+        return;
+    }
     if (bz_keys) {
         d = &TP[P_AMODE];
         v = clamp(t->p[P_AMODE] + (s > 0 ? 1 : -1), 1, d->max);
@@ -276,6 +440,18 @@ static void bz_algo(int32_t s)
 static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
 {
     uint32_t p = key_place(k), fx = perf_held | perf_latched;
+    if (bz_chord) {
+        const track_t *t = &trk[bz_ctrk % NTRK];
+        if (!key_black(k)) {
+            *can = p < 8u;
+            *on = p < 7u && bz_ch_sel == p + 1u;
+            return;
+        }
+        *can = p < 11u;
+        *on = p <= 4u ? bz_ch_style == p : p == 5u ? bz_ch_7th != 0u : p == 6u ? bz_ch_inv != 0u : p == 7u ? bz_ch_oct < 0
+              : p == 8u ? bz_ch_oct > 0 : p == 10u && t->p[P_AMODE] != 0;
+        return;
+    }
     if (bz_keys) {
         const track_t *t = &trk[bz_ktrk % NTRK];
         if (!key_black(k)) {                        /* the scale's notes breathe, the root's lit, a key held lit */
@@ -317,6 +493,9 @@ static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
     } else if (p == BZ_RISER) {
         *on = bz_riser != 0u;
         *can = 1;
+    } else if (p == BZ_EOUT) {
+        *on = bz_eo != BZE_IDLE;
+        *can = 1;
     }
 }
 
@@ -331,8 +510,19 @@ static int32_t bz_phrase(uint32_t *beat)
 /* the map's header: "[ENV] BLAZE", "[ENV] BLAZE SHIFT", "[ENV] KEYS" */
 static const char *bz_head(void)
 {
-    return bz_keys ? "[ENV] KEYS" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM" : bz_shift() ? "[ENV] BLAZE SHIFT"
-                                                                                               : "[ENV] BLAZE";
+    static char h[28];
+    uint32_t b, cam;
+    char nm[16];
+    str_cpy(h, bz_keys ? "[ENV] KEYS" : bz_chord ? "[ENV] CHORD" : bz_riser_held() ? "[ENV] RISER SOUND"
+               : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
+               : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
+    if (!bz_keys && !bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {
+        str_cpy(h + str_len(h), "  ", sizeof h - str_len(h));   /* (BLAZE: the key in the header, the strip is the phrase) */
+        fmt_int(nm, (int32_t)cam);
+        str_cpy(nm + str_len(nm), b ? "B" : "A", sizeof nm - str_len(nm));
+        str_cpy(h + str_len(h), nm, sizeof h - str_len(h));
+    }
+    return h;
 }
 
 /* the map's signature: what it shows */
@@ -346,7 +536,16 @@ static uint32_t bz_sig(void)
         (perf_held | perf_latched) * 13u + bz_build * 5u + bz_build_rate * 11u + bz_riser * 3u +
         rlu.nk * 17u + (uint32_t)song.g[G_CLOCK] * 19u + (uint32_t)drum_track(t) * 23u + (uint32_t)t->p[P_E0] * 29u +
         (uint32_t)(bar + 1) * 37u + beat * 41u + perf_avail() * 43u + bz_keys * 59u + (uint32_t)bz_shift() * 61u +
-        bz_held_lane() * 67u + bz_ktrk * 71u + (uint32_t)(bz_koct + 2) * 73u + (bz_keys ? fm1_in.notes * 79u : 0u);
+        bz_held_lane() * 67u + bz_ktrk * 71u + (uint32_t)(bz_koct + 2) * 73u + (bz_keys ? fm1_in.notes * 79u : 0u) +
+        bz_chord * 83u + bz_ch_sel * 89u + bz_ch_style * 97u + bz_ch_7th * 101u + bz_ch_inv * 103u +
+        (uint32_t)(bz_ch_oct + 2) * 107u + bz_ctrk * 109u + bz_ch_len * 113u + bz_ch_gate * 127u + bz_eo * 131u +
+        (uint32_t)bz_riser_held() * 137u + (uint32_t)bz_eo_held() * 139u + bz_rs_type * 149u + bz_rs_top * 151u +
+        bz_rs_lvl * 157u + bz_rs_space * 163u + bz_rs_trk * 167u + bz_eo_bars * 173u;
+    {
+        const track_t *ct = &trk[bz_ctrk % NTRK];
+        h = h * 33u + (uint32_t)ct->p[P_ED_FLT] + (uint32_t)ct->p[P_REV] * 131u + (uint32_t)ct->p[P_LEVEL] * 977u +
+            (uint32_t)ct->p[P_AMODE] * 7u + (uint32_t)ct->p[P_ROOT] * 11u + (uint32_t)ct->p[P_SCALE] * 13u;
+    }
     for (i = 0; i < 8u; i++)
         h = h * 33u + (uint32_t)t->p[P_E0 + i];
     for (i = P_AMODE; i <= P_AHOLD; i++)

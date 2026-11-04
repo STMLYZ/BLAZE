@@ -43,6 +43,9 @@ static void home_reset(void)
     bz_build = 0;
     bz_riser = 0;
     bz_keys = 0;
+    bz_chord = 0;
+    bz_ch_sel = 0;
+    bz_eo = 0;
     bz_pads = 0;
     bz_tapfx = bz_offfx = 0;
     song.g[G_BPM] = 120;
@@ -332,7 +335,168 @@ int main(void)
     ok = trk[0].p[P_AMODE] == 1 && trk[0].p[P_AHOLD] == 1 && trk[0].p[P_ARATE] == 3 && bz_ktrk == 0u;
     bad += check("  black keys: ARP on, LATCH on, 1/32; T4 (DRUM) refused", ok);
     press(B_OCTDN);
-    bad += check("  OCT- again: back to BLAZE", !bz_keys);
+    ok = !bz_keys && bz_chord;
+    press(B_OCTDN);
+    bad += check("  OCT- again: CHORD; again: back to BLAZE", ok && !bz_keys && !bz_chord);
+    btn_up(B_ENV);
+    frame();
+
+    /* 0.4: the riser's types; SYNTH plays a track's note bent up and lets it go */
+    {
+        static int32_t L[CTL], R[CTL], V[CTL];
+        uint32_t ty;
+        ok = 1;
+        for (ty = 0; ty < BZR_SYNTH; ty++) {
+            int32_t mx = 0;
+            home_reset();
+            bz_rs_type = (uint8_t)ty;
+            bz_rs_lvl = 127;
+            bz_riser_tap();
+            bz_rs_age = 6u * 4u * beat_samples();       /* (three quarters in) */
+            for (b = 0; b < 200u; b++) {
+                memset(L, 0, sizeof L); memset(R, 0, sizeof R); memset(V, 0, sizeof V);
+                bz_riser_mix(L, R, V, CTL);
+                for (i = 0; i < CTL; i++)
+                    mx = L[i] > mx ? L[i] : -L[i] > mx ? -L[i] : mx;
+            }
+            printf("    riser %s: peak %d\n", BZR_NAME[ty], mx);
+            ok &= mx > 500 && mx <= BZR_PEAK;
+        }
+        bad += check("RISER types NOISE AIR SIREN TONE: each sounds, within the peak", ok);
+        home_reset();
+        bz_rs_type = BZR_SYNTH;
+        bz_rs_trk = 0;
+        bz_rs_top = 127;
+        v0 = vage;
+        bz_riser_tap();
+        run(10, 0, 0);
+        ok = vage > v0 && bz_rs_on == 1u;
+        bz_rs_age = 7u * 4u * beat_samples();
+        run(2, 0, 0);
+        ok &= midi_bend_target[0] > 12 * 256;              /* (7/8 in: more than 12 of its 24 semitones) */
+        run(4u * beat_samples() / CTL + 4u, 0, 0);
+        ok &= !bz_riser && !bz_rs_on && midi_bend_target[0] == 0;
+        bad += check("RISER SYNTH: track 1's note bent up to 24 semitones, then let go and the bend back", ok);
+    }
+
+    /* 0.4: ECHO OUT (stopped, the internal clock): the echo a beat, then the tracks muted for its bars, then stopped */
+    home_reset();
+    bz_eo_bars = 2;
+    transport_req = 0;
+    key_down(wk(BZ_EOUT)); key_up(wk(BZ_EOUT));
+    run(2, 0, 0);
+    ok = bz_eo == BZE_ECHO && (perf_held & PF_BIT(PF_ETHR)) && !(perf_held & BZ_MUTES);
+    run(beat_samples() / CTL + 2u, 0, 0);
+    ok &= bz_eo == BZE_TAIL && (perf_held & BZ_MUTES) == BZ_MUTES;
+    run(8u * beat_samples() / CTL + 4u, 0, 0);
+    ok &= bz_eo == BZE_IDLE && transport_req == 2u && !(perf_held & (BZ_MUTES | PF_BIT(PF_ETHR)));
+    bad += check("ECHO OUT: a beat into the echo, the tracks cut while it rings 2 bars, then stopped and back", ok);
+    home_reset();
+    song.g[G_CLOCK] = 1;
+    key_down(wk(BZ_EOUT)); key_up(wk(BZ_EOUT));
+    run(12u * beat_samples() / CTL, 0, 0);
+    ok = bz_eo == BZE_OUT && (perf_held & BZ_MUTES) == BZ_MUTES;
+    key_down(wk(BZ_EOUT)); key_up(wk(BZ_EOUT));
+    ok &= bz_eo == BZE_IDLE && !(perf_held & BZ_MUTES);
+    song.g[G_CLOCK] = 0;
+    bad += check("  an external clock: muted after it until ECHO OUT again", ok);
+
+    /* 0.4: CHORD: A minor's chords; HOLD latches; stabs on the grid; OFF */
+    home_reset();
+    trk[2].p[P_ROOT] = 9;
+    trk[2].p[P_SCALE] = 2;
+    {
+        uint8_t v[4];
+        uint32_t n = bzc_build(&trk[2], 0, v, 0, 0, 0);
+        ok = n == 3u && v[0] == 57u && v[1] == 60u && v[2] == 64u;
+        n = bzc_build(&trk[2], 4, v, 1, 0, 0);          /* Em7: E G B D */
+        ok &= n == 4u && v[0] == 64u && v[1] == 67u && v[2] == 71u && v[3] == 74u;
+        n = bzc_build(&trk[2], 0, v, 0, 1, 0);          /* Am, 1st inversion: C E A */
+        ok &= v[0] == 60u && v[1] == 64u && v[2] == 69u;
+        bz_chord_name(&trk[2], 1, (char *)v, 4);
+    }
+    {
+        char nm[12];
+        bz_ch_7th = 0;
+        bz_chord_name(&trk[2], 1, nm, sizeof nm);
+        ok &= !strcmp(nm, "Bdim");
+        bz_ch_7th = 1;
+        bz_chord_name(&trk[2], 2, nm, sizeof nm);
+        ok &= !strcmp(nm, "Cmaj7");
+        bz_ch_7th = 0;
+    }
+    bad += check("CHORD: A minor: Am = A C E, Em7 = E G B D, inverted C E A; names Bdim Cmaj7", ok);
+    home_reset();
+    bz_chord = 1;
+    bz_ctrk = 2;
+    bz_ch_style = BZC_HOLD;
+    trk[2].p[P_ROOT] = 9;
+    trk[2].p[P_SCALE] = 2;
+    v0 = vage;
+    key_down(wk(0)); key_up(wk(0));
+    ok = bz_ch_sel == 1u && bzc_on && vage > v0;
+    run(200, 0, 0);
+    ok &= bzc_on;                                      /* (held: still sounding) */
+    key_down(wk(3)); key_up(wk(3));
+    ok &= bz_ch_sel == 4u && bzc_note[0] == 62u;       /* (Dm took over) */
+    key_down(wk(7)); key_up(wk(7));
+    ok &= !bz_ch_sel && !bzc_on;
+    bad += check("  HOLD: a tap latches it (it rings on), another chord takes over, OFF ends it", ok);
+    bz_ch_style = BZC_R8;
+    key_down(wk(0)); key_up(wk(0));
+    {
+        uint32_t ons = 0, was = 0;
+        for (b = 0; b < beat_samples() / CTL; b++) {
+            chord_block(CTL);
+            if (bzc_on && !was)
+                ons++;
+            was = bzc_on;
+        }
+        ok = ons == 2u;
+        printf("    1/8 stabs in a beat: %u\n", ons);
+    }
+    bz_ch_style = BZC_GATE;
+    bz_ch_gate = 3;                                    /* TRESILLO: x..x ..x. ..x. x... */
+    bz_ch_dirty = 1;
+    {
+        uint32_t ons = 0, was = 0;
+        for (b = 0; b < 4u * beat_samples() / CTL; b++) {
+            chord_block(CTL);
+            if (bzc_on && !was)
+                ons++;
+            was = bzc_on;
+        }
+        ok &= ons == 5u;
+        printf("    TRESILLO gate in a bar: %u\n", ons);
+    }
+    bz_chord_stop();
+    bad += check("  stabs: 1/8 twice a beat; GATE TRESILLO 5 steps a bar", ok);
+
+    /* 0.4 UI: OCT- BLAZE -> KEYS -> CHORD -> BLAZE; RISER held: its knobs, kept in the settings */
+    ui_power_on();
+    bz_keys = bz_chord = 0;
+    btn_down(B_ENV);
+    frames(800);
+    press(B_OCTDN);
+    ok = bz_keys && !bz_chord;
+    press(B_OCTDN);
+    ok &= !bz_keys && bz_chord && !strcmp(bz_head(), "[ENV] CHORD");
+    press(B_OCTDN);
+    ok &= !bz_keys && !bz_chord;
+    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> BLAZE", ok);
+    bz_cfg[BZC_MAGIC_I] = 0;
+    bz_cfg_apply();
+    key_down(wk(BZ_RISER));
+    frame();
+    turn(EN_K1, 3);
+    turn(EN_K3, -5);
+    ok = !strcmp(bz_head(), "[ENV] RISER SOUND") && bz_cfg[BZC_MAGIC_I] == BZ_CFG_MAGIC && bz_rs_type != BZR_NOISE &&
+         bz_rs_type == bz_cfg[BZC_TYPE] && bz_rs_lvl < 100u && lys.rp_dirty;
+    key_up(wk(BZ_RISER));
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));       /* (a tap toggles it: stop the one the hold started) */
+    bz_riser = 0;
+    frame();
+    bad += check("UI: RISER held: KNOB 1 its TYPE, KNOB 3 its LEVEL, kept in the settings", ok);
     btn_up(B_ENV);
     frame();
 
