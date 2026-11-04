@@ -17,8 +17,8 @@
  *   filled; 8: OFF), the black keys as 3 rows of 4: HOLD 1/4 1/8 1/16 GATE (how it plays: filled), 7TH INVERT
  *   OCT- OCT+ TRACK ARP. Cards: FILTER LENGTH SPACE LEVEL */
 #define BZD_Y0 23                                        /* the grid's first row (the strip above it) */
-#define BZD_Y7 6                                         /* BLAZE's 7 rows: the first (the phrase bar above it) */
-static const uint8_t BZD_H[7] = {14, 14, 14, 16, 16, 14, 14};   /* rows with a rate: room for the "/" */
+#define BZD_Y7 6                                         /* the white keys' first row (the phrase bar above it) */
+#define BZD_YB 70                                        /* the black keys' first row (BLAZE, KEYS, LOOPS) */
 
 /* the Camelot number n's colour, RAIL's and PHOSPHOR's (hue 140 + 30 (n - 1): 1 green, 4 blue, 7 magenta, 8 rose,
  * 9 orange, 11 yellow-green) */
@@ -98,9 +98,9 @@ static void bz_phrase_bar(void)
 static void layer_loops_map(void)
 {
     uint32_t i;
-    int32_t y = BZD_Y7;
+    bzk_held_update();
     bz_phrase_bar();
-    for (i = 0; i < 16u; i++) {
+    for (i = 0; i < 16u; i++) {                      /* white keys 1..16: 4 rows of 4 */
         uint32_t t = i % 4u, op = bz_lp_op[t], how;
         char nm[10];
         uint16_t c = i < 4u ? T_THEME : i < 12u ? T_ACCENT : T_MID;
@@ -115,16 +115,15 @@ static void layer_loops_map(void)
             : i < 8u ? (op == BZL_FIN || op == BZL_FOUT ? RLC_TINT : bz_fd_len[t] ? RLC_FILL : RLC_IDLE)
             : i < 12u ? (op == BZL_FILL ? RLC_TINT : bz_fill_left[t] ? RLC_FILL : RLC_IDLE)
             : i == 15u && bz_lp_restart ? RLC_TINT : RLC_IDLE;   /* (waiting: tinted, its key breathing) */
-        rl_cell(LC_X(i % 4u), y + 16 * (int32_t)(i / 4u), LC_W, 14, nm, c, how);
+        bzk_cell(BZX(i % 4u), BZD_Y7 + 16 * (int32_t)(i / 4u), 14, nm, c, how, BZK_W, i + 1u);
     }
-    y += 4 * 16;
-    for (i = 0; i < 11u; i++) {                      /* the black keys: 3 rows of 4 */
+    for (i = 0; i < 11u; i++) {                      /* black keys 1..11: 3 rows of 4 */
         uint32_t how = i < 4u ? (bz_lp_q == i ? RLC_FILL : RLC_IDLE) : i < 7u ? (bz_lp_fbars == (2u << (i - 4u)) ? RLC_FILL
                      : RLC_IDLE) : i == 7u ? (bz_duck ? RLC_FILL : RLC_IDLE) : i == 8u ? (bzl.on ? RLC_FILL
                      : song.g[G_CLOCK] ? RLC_DIM : RLC_IDLE) : i == 9u ? (bz_waiting() ? RLC_IDLE : RLC_DIM)
                      : song.playing ? RLC_IDLE : RLC_DIM;
-        rl_cell(LC_X(i % 4u), y + 18 * (int32_t)(i / 4u), LC_W, i < 8u ? 16 : 14, BZ_LOOPS_BLACK[i],
-                i < 4u ? T_THEME : i < 7u ? T_ACCENT : T_MID, how);
+        bzk_cell(BZX(i % 4u), BZD_YB + 18 * (int32_t)(i / 4u), i < 8u ? 16 : 14, BZ_LOOPS_BLACK[i],
+                 i < 4u ? T_THEME : i < 7u ? T_ACCENT : T_MID, how, BZK_B, i + 1u);
     }
 }
 
@@ -132,23 +131,23 @@ static void layer_chord_map(void)
 {
     const track_t *t = &trk[bz_ctrk % NTRK];
     uint32_t i;
-    int32_t y = BZD_Y0;
     char nm[12];
+    bzk_held_update();
     bz_strip();
-    for (i = 0; i < 8u; i++) {                       /* the white keys 1..8: 2 rows of 4 */
+    for (i = 0; i < 8u; i++) {                       /* white keys 1..8: 2 rows of 4 (18 px: "maj7"'s j) */
         if (i < 7u)
             bz_chord_name(t, i, nm, sizeof nm);
-        rl_cell(LC_X(i % 4u), y + 20 * (int32_t)(i / 4u), LC_W, 18, i < 7u ? nm : "OFF", i < 7u ? T_THEME : T_MID,
-                i < 7u && bz_ch_sel == i + 1u ? RLC_FILL : (i == 7u && !bz_ch_sel) || (i < 7u && !bzc_fits(t, i)) ? RLC_DIM
-                : RLC_IDLE);
+        bzk_cell(BZX(i % 4u), BZD_Y0 + 20 * (int32_t)(i / 4u), 18, i < 7u ? nm : "OFF", i < 7u ? T_THEME : T_MID,
+                 i < 7u && bz_ch_sel == i + 1u ? RLC_FILL : (i == 7u && !bz_ch_sel) || (i < 7u && !bzc_fits(t, i)) ? RLC_DIM
+                 : RLC_IDLE, BZK_W, i + 1u);
     }
-    y += 2 * 20;                                     /* (18 px: "maj7"'s j) */
-    for (i = 0; i < 11u; i++) {                      /* the black keys: 3 rows of 4 (16 px: the rates' "/") */
+    for (i = 0; i < 11u; i++) {                      /* black keys 1..11: 3 rows of 4 (16 px: the rates' "/") */
         uint32_t how = i <= 4u ? (bz_ch_style == i ? RLC_FILL : RLC_IDLE) : i == 5u ? (bz_ch_7th ? RLC_FILL : RLC_IDLE)
                      : i == 6u ? (bz_ch_inv ? RLC_FILL : RLC_IDLE) : i == 7u ? (bz_ch_oct < 0 ? RLC_FILL : RLC_IDLE)
                      : i == 8u ? (bz_ch_oct > 0 ? RLC_FILL : RLC_IDLE) : i == 10u ? (t->p[P_AMODE] ? RLC_FILL : RLC_IDLE)
                      : RLC_IDLE;
-        rl_cell(LC_X(i % 4u), y + 18 * (int32_t)(i / 4u), LC_W, 16, BZ_CHORD_BLACK[i], i <= 4u ? T_ACCENT : T_MID, how);
+        bzk_cell(BZX(i % 4u), BZD_Y0 + 41 + 18 * (int32_t)(i / 4u), 16, BZ_CHORD_BLACK[i], i <= 4u ? T_ACCENT : T_MID,
+                 how, BZK_B, i + 1u);
     }
 }
 
@@ -157,22 +156,18 @@ static void layer_keys_map(void)
     const track_t *t = &trk[bz_ktrk % NTRK];
     uint32_t i, n = 0, pc, b, cam = bz_camelot(&b, (char[16]){0}, 16);
     uint16_t rc = cam ? bz_cam_col(cam) : T_THEME;
-    int32_t y = BZD_Y0;
     for (pc = 0; pc < 12u; pc++)
         n += (scale_mask(t) >> pc) & 1u;
-    bz_strip();
-    for (i = 0; i < 16u; i++) {                     /* the white keys: 8 a row, 26 px, 2 apart (x 7 .. 233) */
-        uint32_t note = bz_key_note(t, i), k;
-        int held = 0;
-        for (k = 0; k < 27u; k++)
-            if (!key_black(k) && key_place(k) == i)
-                held = (int)((fm1_in.notes >> k) & 1u);
-        rl_cell(7 + 28 * (int32_t)(i % 8u), y + 16 * (int32_t)(i / 8u), 26, 14, N_NOTE[note % 12u],
-                n && i % n == 0u ? rc : T_THEME, held ? RLC_FILL : n && i % n == 0u ? RLC_TINT : RLC_IDLE);
+    bzk_held_update();
+    bz_phrase_bar();
+    for (i = 0; i < 16u; i++) {                     /* white keys 1..16: 4 rows of 4, the note each plays */
+        uint32_t note = bz_key_note(t, i);
+        int root = note % 12u == (uint32_t)t->p[P_ROOT] % 12u;
+        bzk_cell(BZX(i % 4u), BZD_Y7 + 16 * (int32_t)(i / 4u), 14, N_NOTE[note % 12u], root ? rc : T_THEME,
+                 ((bzk_held_w >> i) & 1u) ? RLC_FILL : root ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
     }
-    y += 2 * 16 + 1;
-    for (i = 0; i < 11u; i++) {                     /* the black keys: 3 rows of 4 */
-        int32_t x = LC_X(i % 4u), h = i < 4u ? 14 : 16, ry = y + (i < 4u ? 0 : i < 8u ? 16 : 34);   /* (the rates' "/") */
+    for (i = 0; i < 11u; i++) {                     /* black keys 1..11: 3 rows of 4 (rows 2 and 3: the rates' "/") */
+        int32_t h = i < 4u ? 14 : 16, ry = BZD_YB + (i < 4u ? 0 : i < 8u ? 16 : 34);
         uint32_t how;
         uint16_t c = T_MID;
         char nm[4] = {'T', (char)('1' + i), 0, 0};
@@ -188,7 +183,7 @@ static void layer_keys_map(void)
         } else {
             how = (i == BZK_ODN ? bz_koct < 0 : bz_koct > 0) ? RLC_FILL : RLC_IDLE;
         }
-        rl_cell(x, ry, LC_W, h, i < NTRK ? nm : BZ_KEYS_NAME[i - BZK_ARP], c, how);
+        bzk_cell(BZX(i % 4u), ry, h, i < NTRK ? nm : BZ_KEYS_NAME[i - BZK_ARP], c, how, BZK_B, i + 1u);
     }
 }
 
@@ -197,7 +192,6 @@ static void layer_blaze(void)
     track_t *t = rl_track();
     uint32_t i, fx = perf_kill ? 0u : perf_held | perf_latched, ok = perf_avail();
     int drum = drum_track(t), ext = song.g[G_CLOCK] != 0;
-    int32_t y = BZD_Y0;
     if (bz_keys) {
         layer_keys_map();
         return;
@@ -210,43 +204,43 @@ static void layer_blaze(void)
         layer_loops_map();
         return;
     }
-    y = BZD_Y7;
+    bzk_held_update();
     bz_phrase_bar();
-    for (i = 0; i < 25u; i++) {
-        int32_t x = LC_X(i % 4u), h = BZD_H[i / 4u];
-        if (i < 14u) {                                  /* the white keys 1..14 */
-            if (i < BZ_FX0) {
-                uint32_t pad = bz_pad_of(i);
-                rl_cell(x, y, LC_W, h, pad < 16u ? rl_lane_name(t, pad % NLANE) : "-", rl_lane_col(pad % NLANE),
-                        pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rlu.fl) >> pad) & 1u ? RLC_FILL
-                        : pad >= NLANE ? RLC_TINT : RLC_IDLE);
-            } else if (i < BZ_FX0 + BZ_NFX) {
-                uint32_t e = BZ_FX[i - BZ_FX0];
-                rl_cell(x, y, LC_W, h, BZ_FX_NAME[i - BZ_FX0], T_ACCENT, !((ok >> e) & 1u) ? RLC_DIM
-                        : (fx >> e) & 1u ? RLC_FILL : RLC_IDLE);
-            } else if (i == BZ_RISER) {
-                rl_cell(x, y, LC_W, h, bz_riser == 16u ? "RISER 16" : "RISER", T_REC, bz_riser ? RLC_FILL : RLC_IDLE);
-            } else if (i == BZ_EOUT) {
-                rl_cell(x, y, LC_W, h, bz_eo == BZE_OUT ? "OUT" : "EXIT", T_REC, bz_eo != BZE_IDLE ? RLC_FILL
-                        : RLC_IDLE);
-            } else {
-                rl_cell(x, y, LC_W, h, i == BZ_B4 ? "BUILD 4" : "BUILD 8", T_REC,
-                        !drum ? RLC_DIM : (i == BZ_B4 && bz_build == 4u) || (i == BZ_B8 && bz_build == 8u) ? RLC_FILL
-                        : RLC_IDLE);
-            }
-        } else {                                        /* the black keys 1..11 */
-            uint32_t p = i - 14u;
-            if (p < 6u)
-                rl_cell(x, y, LC_W, h, RL_RATE_CELL[p + 1u], T_THEME,
-                        (rl_rates >> (p + 1u)) & 1u || (bz_build && bz_build_rate == p + 1u) ? RLC_FILL : RLC_IDLE);
-            else
-                rl_cell(x, y, LC_W, h, BZ_BLACK_NAME[p - 6u], T_MID,
-                        (p == BZK_TAP || p == BZK_NDN || p == BZK_NUP) && ext ? RLC_DIM
-                        : (p == BZK_NDN || p == BZK_NUP) && rl_nudging(p) ? RLC_FILL
-                        : p == BZK_ONE && !song.playing ? RLC_DIM : RLC_IDLE);
+    for (i = 0; i < 16u; i++) {                         /* white keys 1..16: 4 rows of 4 (15, 16: SET) */
+        int32_t x = BZX(i % 4u), y = BZD_Y7 + 16 * (int32_t)(i / 4u);
+        if (i < BZ_FX0) {
+            uint32_t pad = bz_pad_of(i);
+            bzk_cell(x, y, 14, pad < 16u ? rl_lane_name(t, pad % NLANE) : "-", rl_lane_col(pad % NLANE),
+                     pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rlu.fl) >> pad) & 1u ? RLC_FILL
+                     : pad >= NLANE ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i < BZ_FX0 + BZ_NFX) {
+            uint32_t e = BZ_FX[i - BZ_FX0];
+            bzk_cell(x, y, 14, BZ_FX_NAME[i - BZ_FX0], T_ACCENT, !((ok >> e) & 1u) ? RLC_DIM : (fx >> e) & 1u ? RLC_FILL
+                     : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i == BZ_RISER) {
+            bzk_cell(x, y, 14, "RISER", T_REC, bz_riser ? RLC_FILL : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i == BZ_EOUT) {
+            bzk_cell(x, y, 14, bz_eo == BZE_OUT ? "OUT" : "EXIT", T_REC, bz_eo != BZE_IDLE ? RLC_FILL : RLC_IDLE, BZK_W,
+                     i + 1u);
+        } else if (i == BZ_B4 || i == BZ_B8) {
+            bzk_cell(x, y, 14, i == BZ_B4 ? "BUILD 4" : "BUILD 8", T_REC,
+                     !drum ? RLC_DIM : (i == BZ_B4 && bz_build == 4u) || (i == BZ_B8 && bz_build == 8u) ? RLC_FILL
+                     : RLC_IDLE, BZK_W, i + 1u);
+        } else {                                        /* 15 PREV, 16 NEXT: the SET from RAIL */
+            bzk_cell(x, y, 14, i == BZ_SPREV ? "PREV" : "NEXT", T_THEME, bz_set_n ? RLC_IDLE : RLC_DIM, BZK_W, i + 1u);
         }
-        if (i % 4u == 3u)
-            y += h + 2;
+    }
+    for (i = 0; i < 11u; i++) {                         /* black keys 1..11: 3 rows of 4 */
+        int32_t x = BZX(i % 4u), y = BZD_YB + 18 * (int32_t)(i / 4u), h = i < 8u ? 16 : 14;
+        if (i < 6u)
+            bzk_cell(x, y, h, RL_RATE_CELL[i + 1u], T_THEME,
+                     (rl_rates >> (i + 1u)) & 1u || (bz_build && bz_build_rate == i + 1u) ? RLC_FILL : RLC_IDLE, BZK_B,
+                     i + 1u);
+        else
+            bzk_cell(x, y, h, BZ_BLACK_NAME[i - 6u], T_MID,
+                     (i == BZK_TAP || i == BZK_NDN || i == BZK_NUP) && ext ? RLC_DIM
+                     : (i == BZK_NDN || i == BZK_NUP) && rl_nudging(i) ? RLC_FILL
+                     : i == BZK_ONE && !song.playing ? RLC_DIM : RLC_IDLE, BZK_B, i + 1u);
     }
 }
 

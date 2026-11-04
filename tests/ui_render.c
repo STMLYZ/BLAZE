@@ -694,7 +694,7 @@ static void state(void)                          /* a playing song with steps on
     ui_power_on();
     fm1_in.buttons = 0; fm1_in.notes = 0;        /* (BLAZE: no SHIFT, no KEYS, nothing of its running) */
     bz_keys = 0; bz_pads = 0; bz_riser = 0; bz_build = 0; rl_extra = 0; bz_s16 = bz_org = 0;
-    bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0;
+    bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0; bz_set_n = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
     seq_fill = 0;                                /* (1.5.5: GLO's FILL, held in layer_glo_fill only; */
     eu.on = 0;                                   /* SEQ TOOLS' EUCLID, open in layer_seq_euclid*) */
@@ -811,7 +811,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_ROLL, S_BLAZE_ROLL_GROOVE, S_BLAZE_ROLL_PADS1, S_BLAZE_ROLL_PICK,
        S_BLAZE_HOME, S_BLAZE_HOME_LIVE, S_BLAZE_HOME_DROP, S_BLAZE_SHIFT, S_BLAZE_DRUM, S_BLAZE_KEYS,
        S_BLAZE_RISER_EDIT, S_BLAZE_RISER_SYNTH, S_BLAZE_EOUT, S_BLAZE_CHORD, S_BLAZE_CHORD7,
-       S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT, S_COUNT };   /* BLAZE */
+       S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
+       S_BLAZE_HELD, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -846,7 +847,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_roll", "blaze_roll_groove", "blaze_roll_pads1", "blaze_roll_pick",
     "blaze_home", "blaze_home_live", "blaze_home_drop", "blaze_shift", "blaze_drum", "blaze_keys",
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
-    "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt"};
+    "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1319,6 +1320,10 @@ static void setup(int s)
         bz_blend = 0x0AD5u; bz_ktrk = 0; bz_ctrk = 2; bz_koct = 0; bz_ch_7th = 0; bz_ch_sel = 0;
         bz_keys = s == S_BLAZE_KEYS_BLEND; bz_chord = s == S_BLAZE_CHORD_BLEND; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_BATT: go_home(); usb.config = 0; song.batt_raw = 570; break;   /* (on the battery: ~60 %) */
+    /* 0.6: BLAZE with a SET loaded, white 6 (REVERB) and black 10 (ALL OFF) held: their cells outlined */
+    case S_BLAZE_HELD: go_home(); rl_live4 = 0x001Eu; bz_set_n = 8; { uint32_t k; fm1_in.notes = 0;
+        for (k = 0; k < 27u; k++) if ((!key_black(k) && key_place(k) == 5u) || (key_black(k) && key_place(k) == 9u))
+        fm1_in.notes |= 1u << k; } ui.layer = LAYER_BLAZE; break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
         TSEL->p[P_E6] = (s - S_ALG1) & 1 ? 40 : 0; TSEL->p[P_E4] = (int16_t)((S_ALG8 - s) * 18);

@@ -314,7 +314,7 @@ int main(void)
         btn_down(B_OCTUP);
         frame();
         turn(EN_K1, 3);
-        ok &= d->p[P_E0 + 2] > tone && !strcmp(bz_head(), "[ENV] BLAZE SHIFT");
+        ok &= d->p[P_E0 + 2] > tone && !strncmp(bz_head(), "[ENV] BLAZE SHIFT", 17);
         btn_up(B_OCTUP);
         frame();
         ok &= song.octave == 0;
@@ -325,7 +325,7 @@ int main(void)
         turn(EN_K1, 4);
         turn(EN_K3, -4);
         ok = d->p[BZ_LANE_MARK] == BZ_LANE_MAGIC && d->p[BZ_LANE_TUNE + 1] > 64 && d->p[BZ_LANE_TUNE] == 64 &&
-             d->p[P_LN0 + 1] < 127 && d->p[P_LN0] == 127 && !strcmp(bz_head(), "[ENV] BLAZE DRUM");
+             d->p[P_LN0 + 1] < 127 && d->p[P_LN0] == 127 && !strncmp(bz_head(), "[ENV] BLAZE DRUM", 16);
         key_up(wk(0));
         frame();
         bad += check("a pad held: KNOB 1 its TUNE, KNOB 3 its LEVEL (that drum only; the slots marked once)", ok);
@@ -340,7 +340,7 @@ int main(void)
     trk[0].p[P_AHOLD] = 0;
     song.sel = 0;
     press(B_OCTDN);
-    ok = bz_keys && bz_ktrk == 0u && !strcmp(bz_head(), "[ENV] KEYS");
+    ok = bz_keys && bz_ktrk == 0u && !strncmp(bz_head(), "[ENV] KEYS", 10);
     v0 = vage;
     key_down(wk(0)); key_down(wk(2)); key_down(wk(7));
     ok &= kb_note[wk(0)] == 57u && kb_note[wk(2)] == 60u && kb_note[wk(7)] == 69u && kb_trk[wk(0)] == 0u;
@@ -502,9 +502,9 @@ int main(void)
     press(B_OCTDN);
     ok = bz_keys && !bz_chord;
     press(B_OCTDN);
-    ok &= !bz_keys && bz_chord && !strcmp(bz_head(), "[ENV] CHORD");
+    ok &= !bz_keys && bz_chord && !strncmp(bz_head(), "[ENV] CHORD", 11);
     press(B_OCTDN);
-    ok &= !bz_keys && !bz_chord && bz_loops && !strcmp(bz_head(), "[ENV] LOOPS");
+    ok &= !bz_keys && !bz_chord && bz_loops && !strncmp(bz_head(), "[ENV] LOOPS", 11);
     press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && !bz_loops;
     bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> BLAZE", ok);
@@ -514,7 +514,7 @@ int main(void)
     frame();
     turn(EN_K1, 3);
     turn(EN_K3, -5);
-    ok = !strcmp(bz_head(), "[ENV] RISER SOUND") && bz_cfg[BZC_MAGIC_I] == BZ_CFG_MAGIC && bz_rs_type != BZR_NOISE &&
+    ok = !strncmp(bz_head(), "[ENV] RISER SOUND", 17) && bz_cfg[BZC_MAGIC_I] == BZ_CFG_MAGIC && bz_rs_type != BZR_NOISE &&
          bz_rs_type == bz_cfg[BZC_TYPE] && bz_rs_lvl < 100u && lys.rp_dirty;
     key_up(wk(BZ_RISER));
     key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));       /* (a tap toggles it: stop the one the hold started) */
@@ -638,6 +638,29 @@ int main(void)
         song.batt_raw = 640; ok &= batt_pct() == 100;
         bad += check("lights by fours (1st / 3rd low, 2nd / 4th brighter); battery 501 0 %, 561 50 %, full 100 %", ok);
     }
+
+    /* 0.6: RAIL's SET sends a song: the tempo, the KIT, the tracks in at the next point; the key on CC 20..25 */
+    home_reset();
+    song.g[G_CLOCK] = 0;
+    song.g[G_BPM] = 120;
+    bz_lp_q = 0;                                    /* (NOW: the tracks at once) */
+    bz_cc_seq++;
+    bz_cc[0] = 9; bz_cc[1] = 0; bz_cc[2] = 4;       /* 9A, E minor */
+    bz_cc[3] = 0;
+    bz_cc[6] = 128 - 60; bz_cc[7] = 10 + 1; bz_cc[8] = 64 | 0x9; bz_cc[10] = 8; bz_cc[9] = 3;   /* 128, TIGHT, T1 T4 */
+    bz_ui_pass();
+    run(2, 0, 0);
+    ok = song.g[G_BPM] == 128 && trk[3].p[P_E0] == 10 && bz_set_n == 8u && trk[0].p[P_ROOT] == 4 &&
+         !trk[0].p[P_MUTE] && trk[1].p[P_MUTE] && trk[2].p[P_MUTE] && !trk[3].p[P_MUTE];
+    bad += check("SET: a song from RAIL: 128 BPM, KIT TIGHT, T1 + T4 in (T2 T3 out), key E minor; 8 songs", ok);
+    bz_cc_seq++;
+    bz_cc[6] = 140 - 60;
+    song.g[G_CLOCK] = 1;
+    bz_cc[9] = 4;
+    bz_ui_pass();
+    ok = song.g[G_BPM] == 128;
+    song.g[G_CLOCK] = 0;
+    bad += check("  following an external clock: the song's BPM is not applied (Link sets it)", ok);
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;

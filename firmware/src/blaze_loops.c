@@ -118,6 +118,17 @@ static __attribute__((noinline)) void loops_block(uint32_t n, uint32_t adv)
             bz_lp_op[k] = BZL_NONE;
         bz_lp_restart = 0;
     }
+    if (bz_set_layers) {                         /* a SET song's tracks: in or out at the next point */
+        uint32_t m = bz_set_layers & 15u;
+        bz_set_layers = 0;
+        for (k = 0; k < NTRK; k++) {
+            uint32_t in = (m >> k) & 1u, muted = trk[k].p[P_MUTE] != 0;
+            bz_lp_op[k] = (uint8_t)(in && muted ? BZL_IN : !in && !muted ? BZL_OUT : BZL_NONE);
+        }
+        bz_lp_wait = bz_lp_point();
+        if (!bz_lp_wait)
+            bz_lp_fire();
+    }
     if (bz_waiting()) {
         if (bz_lp_wait <= adv)
             bz_lp_fire();

@@ -64,8 +64,8 @@ static void draw_battery(int32_t bx)
 {
     int32_t lvl = batt_shown(), p, w;
     char t[6];
-    if (lvl == 4) {
-        cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), T_OK, T_BG);   /* 24 px: the glyph is wide and short */
+    if (lvl == 4 || !song.batt_raw) {                   /* (USB power; no reading yet: the glyph) */
+        cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), lvl == 4 ? T_OK : T_MID, T_BG);   /* 24 px: wide and short */
         return;
     }
     p = batt_pct();

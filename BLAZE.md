@@ -162,3 +162,27 @@ keys) a low glow, the 2nd and 4th a little brighter. Lit: on. Breathing: a chang
 
 On the battery the header shows an estimated percentage in 10 % steps (on USB: the plug). It is calibrated from the
 stock three-bar thresholds; run it from full to shutdown once and note what it showed to calibrate it.
+
+## 0.6 — key cells you can tell apart, SET
+
+### Every page: white keys first, black keys after, each numbered
+
+- White-key cells are light with dark text; black-key cells are black with light text. The coloured outline still
+  says what kind of control it is.
+- Each cell has its key's number on a tab at its left: white keys 1–16, black keys 1–11. A white key's tab is black
+  with a white figure, a black key's white with a black figure.
+- White keys always come first, four a row in order (1–4, 5–8, 9–12, 13–16), then the black keys, four a row (1–4,
+  5–8, 9–11). No row mixes them.
+- The key you are holding has its cell outlined bright, so a wrong press shows at once.
+- Shorter names where a number tab needed the room: REPEAT (was STUTTER), SLOWER / FASTER (NUDGE − / +), ALL OFF
+  (RELEASE), THE 1, FROM 1 (LOOPS' RESTART), PADS (ROLL; the mode is in the header), CRASH (a kit's cymbal).
+- KEYS shows its 16 notes as 4 rows of 4; the key is in the header (with "+9A" in a blend).
+
+### SET (RAIL v6)
+
+RAIL has a SET panel: your planned songs, each with its key, BPM, kit and (optionally) which tracks play. Paste a list
+("title, key, BPM" a line) or add songs by hand. On the FM-1, BLAZE's white 15 / 16 are PREV / NEXT: RAIL moves
+through the list and sends the song: its key, the next song's key (so KEYS and CHORD keep to the notes both share
+while you blend), BPM (on the FM-1's own clock; with Link rekordbox keeps the tempo), the kit, and the tracks in or
+out at LOOPS' QUANTIZE point. RAIL's own Prev / Next buttons do the same. Channel 16: CC 26–30 to the FM-1, CC 31
+from it (1 PREV, 2 NEXT).

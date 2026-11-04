@@ -10,6 +10,8 @@
  *   white 13     RISER: swept up and swelling from the next bar over 8 bars (tapped twice quickly: 16), cut on the 1
  *                after it. Again: stops it. Its sound (held + knobs, blaze_home_ui.c): TYPE NOISE AIR SIREN TONE
  *                (bz_riser_mix, fx.c mix_block: on the master, no voice) or SYNTH (a track's note bent up TOP semitones)
+ *   white 15, 16 SET PREV / NEXT: to RAIL (CC 31 on channel 16: 1 PREV, 2 NEXT), which sends the song (its key, the
+ *                next song's for the blend, BPM, KIT, the LOOPS tracks in: blaze_home_ui.c bz_song)
  *   white 14     ECHO OUT: from the next bar the FM-1 into the echo (ECHO THROW) for a beat, then every track muted
  *                while the echo rings on for BARS (1 2 4), then: the internal clock stops (the tracks back), an
  *                external one keeps them muted until ECHO OUT again. Pressed while it runs: back at once
@@ -31,6 +33,8 @@ static const uint8_t BZ_FX[BZ_NFX] = {PF_ETHR, PF_RTHR, PF_REV, PF_TAPE, PF_FRZ,
 #define BZ_B8 11u
 #define BZ_RISER 12u
 #define BZ_EOUT 13u
+#define BZ_SPREV 14u                            /* SET: PREV, NEXT (to RAIL: CC 31 on channel 16, 1 / 2) */
+#define BZ_SNEXT 15u
 enum { BZR_NOISE, BZR_AIR, BZR_SIREN, BZR_TONE, BZR_SYNTH, BZR_NTYPE };
 enum { BZE_IDLE, BZE_ARMED, BZE_ECHO, BZE_TAIL, BZE_OUT };
 enum { BZK_TAP = 6u, BZK_NDN, BZK_NUP, BZK_REL, BZK_ONE };   /* black places 6..10 (0..5: the rates) */
@@ -59,8 +63,11 @@ static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
 static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
 static uint32_t bz_eo_left;                    /* .. samples left of the state */
 static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
-static volatile uint8_t bz_cc_seq, bz_cc[6];   /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
-                                                * 0: none) on channel 16 (seq bumped on each) */
+static volatile uint8_t bz_cc_seq, bz_cc[11];  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
+                                                * 0: none), 26..30 (RAIL's SET: the song's BPM - 60, KIT + 1, LOOPS
+                                                * 64 + the tracks in, the song's number, how many) on channel 16 */
+static volatile uint8_t bz_set_n;              /* main: the SET's songs (RAIL), 0: none */
+static volatile uint8_t bz_set_layers;         /* main: 0x80 | the tracks a song wants in (LOOPS takes them at its point) */
 static volatile uint16_t bz_blend;             /* main: the next track's scale (bit pc, 0 = C), 0: no blend (KEYS and
                                                 * CHORD keep to the notes both keys share) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
@@ -282,6 +289,8 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         bz_riser_tap();
     } else if (p == BZ_EOUT) {
         bz_eo_tap();
+    } else if (p == BZ_SPREV || p == BZ_SNEXT) {  /* SET: RAIL moves its list and sends the song back */
+        midi_out_event(0x0Bu | 0xBFu << 8 | 31u << 16 | (p == BZ_SNEXT ? 2u : 1u) << 24);
     }
 }
 

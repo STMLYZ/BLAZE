@@ -53,6 +53,31 @@ static uint32_t bz_camelot(uint32_t *b, char *name, uint32_t len)
 }
 
 /* RAIL's key arrived: every track whose keys play notes takes its root and MAJ / MIN */
+/* RAIL's SET sent a song (CC 26..30, the number last): the tempo (the internal clock only), the KIT, the tracks in
+ * (LOOPS: at its point); the key and the next song's came on CC 20..25 (bz_key_apply) */
+static void bz_song(void)
+{
+    static uint32_t last = 0xFFFFFFFFu;
+    uint32_t s = (uint32_t)bz_cc[6] | (uint32_t)bz_cc[7] << 8 | (uint32_t)bz_cc[8] << 16 | (uint32_t)bz_cc[9] << 24;
+    track_t *d = rl_track();
+    char m[24];
+    bz_set_n = bz_cc[10];
+    if (s == last || !bz_cc[9])
+        return;
+    last = s;
+    if (bz_cc[6] && !song.g[G_CLOCK])
+        song.g[G_BPM] = (int16_t)clamp(bz_cc[6] + 60, GP[G_BPM].min, GP[G_BPM].max);
+    if (bz_cc[7] && drum_track(d))
+        d->p[P_E0] = (int16_t)param_fit(track_desc(d, P_E0), bz_cc[7] - 1);
+    if (bz_cc[8] & 64u)
+        bz_set_layers = (uint8_t)(0x80u | (bz_cc[8] & 15u));
+    fmt_int(m, bz_cc[9]);
+    str_cpy(m + str_len(m), " OF ", sizeof m - str_len(m));
+    fmt_int(m + str_len(m), bz_cc[10]);
+    ui_say("SONG ", m);
+    ui.force = 1;
+}
+
 static void bz_key_apply(void)
 {
     static uint32_t last = 0xFFFFFFFFu, lastn = 0xFFFFFFFFu;
@@ -92,8 +117,8 @@ static void bz_key_apply(void)
     ui.force = 1;
 }
 
-static const char *const BZ_FX_NAME[BZ_NFX] = {"ECHO", "REVERB", "REVERSE", "BRAKE", "FREEZE", "STUTTER"};
-static const char *const BZ_BLACK_NAME[5] = {"TAP", "NUDGE-", "NUDGE+", "RELEASE", "THE ONE"};
+static const char *const BZ_FX_NAME[BZ_NFX] = {"ECHO", "REVERB", "REVERSE", "BRAKE", "FREEZE", "REPEAT"};
+static const char *const BZ_BLACK_NAME[5] = {"TAP", "SLOWER", "FASTER", "ALL OFF", "THE 1"};
 enum { BZK_ARP = 4u, BZK_LATCH, BZK_R8, BZK_R16, BZK_R32, BZK_ODN, BZK_OUP };   /* KEYS' black places (0..3: T1..T4) */
 static const char *const BZ_KEYS_NAME[7] = {"ARP", "LATCH", "1/8", "1/16", "1/32", "OCT-", "OCT+"};
 
@@ -192,8 +217,8 @@ static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> C
 
 /* ---- LOOPS' black keys (the main loop): QUANTIZE, FADE, DUCK, RAMP, CANCEL; THE ONE is the ISR's ---- */
 static const char *const BZ_LOOPS_BLACK[11] = {"NOW", "BAR", "4 BARS", "PHRASE", "FADE 2", "FADE 4", "FADE 8", "DUCK",
-                                               "RAMP", "CANCEL", "THE ONE"};
-static const char *const BZ_LOOPS_WHITE[4] = {"ALL IN", "DRUMS", "BREAK", "RESTART"};
+                                               "RAMP", "CANCEL", "THE 1"};
+static const char *const BZ_LOOPS_WHITE[4] = {"ALL IN", "DRUMS", "BREAK", "FROM 1"};
 static struct {
     uint8_t on, bars;                           /* RAMP: gliding; over its bars (4 8 16 32) */
     int16_t from, to;                           /* .. the tempo it left, the one it goes to */
@@ -405,6 +430,8 @@ static void bz_ui_key(uint32_t k)
         ui_message(!bz_riser ? "RISER STOPPED" : bz_riser == 16u ? "RISER 16 BARS" : "RISER 8 BARS FROM THE NEXT BAR");
     else if (p == BZ_EOUT)
         ui_message(bz_eo == BZE_IDLE ? "BACK IN" : "ECHO OUT FROM THE NEXT BAR");
+    else if (p == BZ_SPREV || p == BZ_SNEXT)
+        ui_message(!bz_set_n ? "NO SET: LOAD ONE IN RAIL" : p == BZ_SNEXT ? "NEXT SONG" : "PREVIOUS SONG");
 }
 
 /* each pass: RELEASE's knobs, RAIL's key, RISER's 16 said */
@@ -425,6 +452,7 @@ static void bz_ui_pass(void)
     if (bzu.cc_seq != bz_cc_seq) {
         bzu.cc_seq = bz_cc_seq;
         bz_key_apply();
+        bz_song();
     }
     bz_ramp_pass();
     if (rs != bz_riser) {
@@ -635,6 +663,8 @@ static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
     } else if (p == BZ_EOUT) {
         *on = bz_eo != BZE_IDLE;
         *can = 1;
+    } else if (p == BZ_SPREV || p == BZ_SNEXT) {
+        *can = bz_set_n != 0u;
     }
 }
 
@@ -655,11 +685,17 @@ static const char *bz_head(void)
     str_cpy(h, bz_keys ? "[ENV] KEYS" : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
-    if (!bz_keys && !bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (LOOPS too) */
+    if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
         str_cpy(h + str_len(h), "  ", sizeof h - str_len(h));   /* (BLAZE: the key in the header, the strip is the phrase) */
         fmt_int(nm, (int32_t)cam);
         str_cpy(nm + str_len(nm), b ? "B" : "A", sizeof nm - str_len(nm));
         str_cpy(h + str_len(h), nm, sizeof h - str_len(h));
+        if (bz_blend && bz_cc[3] >= 1u && bz_cc[3] <= 12u) {   /* (a blend: + the next key) */
+            fmt_int(nm, bz_cc[3]);
+            str_cpy(nm + str_len(nm), bz_cc[4] >= 64u ? "B" : "A", sizeof nm - str_len(nm));
+            str_cpy(h + str_len(h), "+", sizeof h - str_len(h));
+            str_cpy(h + str_len(h), nm, sizeof h - str_len(h));
+        }
     }
     return h;
 }
@@ -681,7 +717,8 @@ static uint32_t bz_sig(void)
         (uint32_t)bz_riser_held() * 137u + (uint32_t)bz_eo_held() * 139u + bz_rs_type * 149u + bz_rs_top * 151u +
         bz_rs_lvl * 157u + bz_rs_space * 163u + bz_rs_trk * 167u + bz_eo_bars * 173u + bz_loops * 179u +
         bz_lp_q * 181u + bz_lp_fbars * 191u + bz_duck * 193u + bz_duck_ms * 197u + (uint32_t)bzl.on * 199u +
-        (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u;
+        (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u + bz_set_n * 233u +
+        fm1_in.notes * 239u;                       /* (0.6: the key held, its cell outlined) */
     for (i = 0; i < NTRK; i++)
         h = h * 33u + (uint32_t)trk[i].p[P_MUTE] + bz_lp_op[i] * 2u + (bz_fd_len[i] ? (bz_fd_age[i] * 8u / bz_fd_len[i]) * 16u
             + 8u : 0u) + (bz_fill_left[i] ? 256u : 0u) + (uint32_t)drum_track(&trk[i]) * 512u;
