@@ -117,6 +117,16 @@ static uint32_t drum_swaps(const track_t *t)
     return kit >= DK_80 ? DK_SWAP[kit - DK_80] : 0u;
 }
 
+/* BLAZE (blaze_home_ui.c): a DRUM track's own TUNE and DECAY per lane, 64 each as designed, kept in the parameters
+ * DIGITAL's operator envelopes held (P_FM1_ATK .. P_FM4_DEC: inert since 1.0, on no page, never automation, read only
+ * when an old DIGITAL sound converts, which sets them again); valid while P_FM4_LEVEL holds BZ_LANE_MAGIC (a sound or
+ * project from before: 127 there, so its lanes play as designed) */
+#define BZ_LANE_TUNE P_FM1_ATK
+#define BZ_LANE_DECAY (P_FM1_ATK + 8)
+#define BZ_LANE_MARK P_FM4_LEVEL
+#define BZ_LANE_MAGIC 77
+_Static_assert(BZ_LANE_DECAY + 8 <= BZ_LANE_MARK, "BLAZE lane slots");
+
 /* the lane's name as the track's KIT plays it (5 characters at most) */
 static const char *drum_lane_name(const track_t *t, uint32_t l)
 {
@@ -279,11 +289,19 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         n = CTL;
     r = L->role;
     dv_default(&k, r);                                   /* the knobs move every lane from its design (64) */
-    k.decay = (uint8_t)clamp(k.decay + p[P_E3] - 64, 0, 127);
-    k.tone = (uint8_t)clamp(k.tone + p[P_E2] - 64, 0, 127);
-    k.extra = (uint8_t)clamp(k.extra + p[P_E4] - 64, 0, 127);
-    k.accent = (uint8_t)clamp(acc >> 9, 0, 127);         /* (Q16 -> 0..127) */
-    k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64) * 3);   /* +-12 semitones */
+    {   /* BLAZE: each lane's own TUNE and DECAY on top (BZ_LANE_*: the retired DIGITAL operator slots, marked) */
+        int32_t lt = 0, ld = 0;
+        uint32_t ln = (uint32_t)v->s[0] & (DV_NLANE - 1u);
+        if (p[BZ_LANE_MARK] == BZ_LANE_MAGIC) {
+            lt = p[BZ_LANE_TUNE + ln] - 64;
+            ld = p[BZ_LANE_DECAY + ln] - 64;
+        }
+        k.decay = (uint8_t)clamp(k.decay + p[P_E3] - 64 + ld, 0, 127);
+        k.tone = (uint8_t)clamp(k.tone + p[P_E2] - 64, 0, 127);
+        k.extra = (uint8_t)clamp(k.extra + p[P_E4] - 64, 0, 127);
+        k.accent = (uint8_t)clamp(acc >> 9, 0, 127);     /* (Q16 -> 0..127) */
+        k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64 + lt) * 3);   /* +-12 semitones, a lane +-12 more */
+    }
     if (((const uint32_t *)&k)[0] != ((const uint32_t *)&L->key)[0] ||
         ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1]) {
         dv_setup(&L->c, &k);                             /* (a parameter moved) */

@@ -3,7 +3,8 @@
 /* BLAZE's home layer (firmware/src/blaze_home.c, blaze_home_ui.c, blaze_home_draw.c) on the real sequencer and UI
  * sources, with the stubs of tests/ui_test.c: ENV held opens it; the 4 pads are ROLL's PADS 4 in key order and roll
  * with the rates; an effect tapped latches, held plays while held; BUILD 4 runs 1/4 1/8 1/16 1/32 a bar each, louder,
- * from the next bar while playing, and stops; IMPACT; RELEASE; THE ONE; RAIL's key CCs set ROOT and SCALE. */
+ * from the next bar while playing, and stops; RISER; RELEASE; THE ONE; RAIL's key CCs set ROOT and SCALE; SHIFT's
+ * knobs, a pad held edits that drum, ALGO the KIT; KEYS (OCT-): the white keys play the scale, the black ones the arp. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 
@@ -40,7 +41,8 @@ static void home_reset(void)
     kb_roll = kb_bz = 0;
     perf_held = perf_latched = 0;
     bz_build = 0;
-    bz_thr = 0;
+    bz_riser = 0;
+    bz_keys = 0;
     bz_pads = 0;
     bz_tapfx = bz_offfx = 0;
     song.g[G_BPM] = 120;
@@ -158,15 +160,50 @@ int main(void)
     key_up(wk(BZ_B8));
     bad += check("  pressed again: stopped", !bz_build);
 
-    /* IMPACT: KICK and the last lane accented, a beat of REVERB throw */
+    /* RISER: stopped, at once; quieter and darker early, louder late; ends after its 8 bars; tapped twice: 16 */
     home_reset();
-    v0 = vage;
-    key_down(wk(BZ_IMPACT));
-    key_up(wk(BZ_IMPACT));
-    ok = vage == v0 + 2u && (perf_held & PF_BIT(PF_RTHR));
-    run(beat_samples() / CTL + 2u, 0, 0);
-    ok &= !(perf_held & PF_BIT(PF_RTHR));
-    bad += check("IMPACT: KICK + BELL at once, a beat of REVERB throw", ok);
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
+    {
+        uint32_t blocks = 8u * bar / CTL;
+        double q1 = 0, q4 = 0;
+        static int32_t L[CTL], R[CTL], V[CTL];
+        ok = bz_riser == 8u && !bz_rs_wait;
+        for (b = 0; b < blocks + 4u; b++) {
+            double e = 0;
+            memset(L, 0, sizeof L); memset(R, 0, sizeof R); memset(V, 0, sizeof V);
+            bz_riser_mix(L, R, V, CTL);
+            home_block(CTL, CTL);
+            for (i = 0; i < CTL; i++) {
+                e += (double)L[i] * L[i];
+                ok &= L[i] >= -BZR_PEAK && L[i] <= BZR_PEAK;
+            }
+            if (b < blocks / 4u) q1 += e;
+            else if (b > blocks * 3u / 4u && b < blocks) q4 += e;
+        }
+        printf("    riser energy: first quarter %.3g, last quarter %.3g\n", q1, q4);
+        ok &= q4 > 20.0 * (q1 + 1.0) && !bz_riser;
+        memset(L, 0, sizeof L);
+        bz_riser_mix(L, R, V, CTL);
+        ok &= !L[0] && !L[CTL / 2u];
+    }
+    bad += check("RISER (stopped): swells over 8 bars, within its peak, then silent", ok);
+    home_reset();
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
+    run(10, 0, 0);
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
+    ok = bz_riser == 16u;
+    run(2000, 0, 0);
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
+    bad += check("  tapped twice quickly: 16 bars; tapped later: stopped", ok && !bz_riser);
+    home_reset();
+    seq_start();
+    song.playing = 1;
+    click_tick(0);
+    for (i = 0; i < 5u; i++)
+        click_tick(div_samples(2));
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
+    ok = bz_riser == 8u && near(bz_rs_wait, 11u * div_samples(2));
+    bad += check("  playing: it waits for the next bar", ok);
 
     /* RELEASE: latched effects, the build off; the main loop homes COLOR and DEPTH */
     home_reset();
@@ -174,11 +211,12 @@ int main(void)
     key_down(wk(BZ_B4)); key_up(wk(BZ_B4));
     perf_k[0] = -50;
     perf_k[3] = 40;
+    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));
     key_down(bk(BZK_REL)); key_up(bk(BZK_REL));
-    ok = !perf_latched && !bz_build && bz_rel;
+    ok = !perf_latched && !bz_build && !bz_riser && bz_rel;
     bz_ui_pass();
     ok &= !perf_k[0] && !perf_k[3] && !bz_rel;
-    bad += check("RELEASE: effects and the build off, COLOR and DEPTH home", ok);
+    bad += check("RELEASE: effects, the build and the riser off, COLOR and DEPTH home", ok);
 
     /* THE ONE: now is bar 1 (to the nearest beat) */
     home_reset();
@@ -239,6 +277,64 @@ int main(void)
     press(B_ENV);
     frame();
     bad += check("  ENV tapped again: the lock closes", !ui.lock && !(kb_lock & 8u));
+
+    /* the knobs: COLOR; SHIFT (OCT+ held): TONE; a pad held: that drum's TUNE and LEVEL; ALGO: the KIT */
+    ui_power_on();
+    btn_down(B_ENV);
+    frames(800);
+    {
+        track_t *d = &trk[3];
+        int16_t tone = d->p[P_E0 + 2], kit = d->p[P_E0];
+        perf_k[0] = 0;
+        turn(EN_K1, 3);
+        ok = perf_k[0] > 0 && d->p[P_E0 + 2] == tone;
+        btn_down(B_OCTUP);
+        frame();
+        turn(EN_K1, 3);
+        ok &= d->p[P_E0 + 2] > tone && !strcmp(bz_head(), "[ENV] BLAZE SHIFT");
+        btn_up(B_OCTUP);
+        frame();
+        ok &= song.octave == 0;
+        bad += check("knobs: COLOR; OCT+ held (SHIFT): TONE instead, no octave", ok);
+        d->p[BZ_LANE_MARK] = 127;                       /* (a sound from before: no lane values) */
+        key_down(wk(0));                                /* SNARE held */
+        frame();
+        turn(EN_K1, 4);
+        turn(EN_K3, -4);
+        ok = d->p[BZ_LANE_MARK] == BZ_LANE_MAGIC && d->p[BZ_LANE_TUNE + 1] > 64 && d->p[BZ_LANE_TUNE] == 64 &&
+             d->p[P_LN0 + 1] < 127 && d->p[P_LN0] == 127 && !strcmp(bz_head(), "[ENV] BLAZE DRUM");
+        key_up(wk(0));
+        frame();
+        bad += check("a pad held: KNOB 1 its TUNE, KNOB 3 its LEVEL (that drum only; the slots marked once)", ok);
+        turn(EN_ALGO, 1);
+        bad += check("ALGO in BLAZE: the next KIT", d->p[P_E0] != kit);
+    }
+
+    /* KEYS: OCT- flips the layer; the white keys play track 1 up A minor; the black keys the arp */
+    trk[0].p[P_ROOT] = 9;
+    trk[0].p[P_SCALE] = 2;
+    trk[0].p[P_AMODE] = 0;
+    trk[0].p[P_AHOLD] = 0;
+    song.sel = 0;
+    press(B_OCTDN);
+    ok = bz_keys && bz_ktrk == 0u && !strcmp(bz_head(), "[ENV] KEYS");
+    v0 = vage;
+    key_down(wk(0)); key_down(wk(2)); key_down(wk(7));
+    ok &= kb_note[wk(0)] == 57u && kb_note[wk(2)] == 60u && kb_note[wk(7)] == 69u && kb_trk[wk(0)] == 0u;
+    ok &= vage > v0 && kb_chn[wk(0)] && kb_chn[wk(2)] && kb_chn[wk(7)];   /* (track 1 may be MONO: one voice) */
+    key_up(wk(0)); key_up(wk(2)); key_up(wk(7));
+    frame();
+    bad += check("KEYS: white 1 3 8 play A3 C4 A4 (A minor up from the root) on track 1", ok);
+    key_down(bk(BZK_ARP)); frame(); key_up(bk(BZK_ARP)); frame();
+    key_down(bk(BZK_LATCH)); frame(); key_up(bk(BZK_LATCH)); frame();
+    key_down(bk(BZK_R32)); frame(); key_up(bk(BZK_R32)); frame();
+    key_down(bk(3)); frame(); key_up(bk(3)); frame();           /* T4: the DRUM track, refused */
+    ok = trk[0].p[P_AMODE] == 1 && trk[0].p[P_AHOLD] == 1 && trk[0].p[P_ARATE] == 3 && bz_ktrk == 0u;
+    bad += check("  black keys: ARP on, LATCH on, 1/32; T4 (DRUM) refused", ok);
+    press(B_OCTDN);
+    bad += check("  OCT- again: back to BLAZE", !bz_keys);
+    btn_up(B_ENV);
+    frame();
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;

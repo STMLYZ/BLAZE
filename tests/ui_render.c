@@ -692,6 +692,8 @@ static void state(void)                          /* a playing song with steps on
 {
     uint32_t i;
     ui_power_on();
+    fm1_in.buttons = 0; fm1_in.notes = 0;        /* (BLAZE: no SHIFT, no KEYS, nothing of its running) */
+    bz_keys = 0; bz_pads = 0; bz_riser = 0; bz_build = 0; rl_extra = 0; bz_s16 = bz_org = 0;
     seq_fill = 0;                                /* (1.5.5: GLO's FILL, held in layer_glo_fill only; */
     eu.on = 0;                                   /* SEQ TOOLS' EUCLID, open in layer_seq_euclid*) */
     if (large_on) ui_prefs |= PREF_LARGE;
@@ -805,7 +807,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
        S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
        S_BLAZE_ROLL, S_BLAZE_ROLL_GROOVE, S_BLAZE_ROLL_PADS1, S_BLAZE_ROLL_PICK,
-       S_BLAZE_HOME, S_BLAZE_HOME_LIVE, S_BLAZE_HOME_DROP, S_COUNT };   /* BLAZE */
+       S_BLAZE_HOME, S_BLAZE_HOME_LIVE, S_BLAZE_HOME_DROP, S_BLAZE_SHIFT, S_BLAZE_DRUM, S_BLAZE_KEYS, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -838,7 +840,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
     "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
     "blaze_roll", "blaze_roll_groove", "blaze_roll_pads1", "blaze_roll_pick",
-    "blaze_home", "blaze_home_live", "blaze_home_drop"};
+    "blaze_home", "blaze_home_live", "blaze_home_drop", "blaze_shift", "blaze_drum", "blaze_keys"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1273,14 +1275,24 @@ static void setup(int s)
     /* BLAZE (ENV held): stopped, no key (a CHR track); playing bar 6, 8A, ECHO latched, FREEZE held, KICK rolling 1/8,
      * BUILD 4 at 1/16, COLOR LP 40; the last bar of the phrase on its 1st beat, 5B, an external clock */
     case S_BLAZE_HOME: go_home(); song.sel = 0; TSEL->p[P_SCALE] = 0; song.playing = 0; perf_held = perf_latched = 0;
-        rl_extra = 0; rl_rates = 0; bz_build = 0; bz_thr = 0; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE; break;
+        rl_extra = 0; rl_rates = 0; bz_build = 0; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_HOME_LIVE: go_home(); song.sel = 0; TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = 2; song.playing = 1;
         clk_pos = 0; bz_org = 0; bz_s16 = 5u * 16u + 9u; perf_latched = PF_BIT(PF_ETHR); perf_held = PF_BIT(PF_FRZ);
         rl_live4 = 0x0003u | 1u << 3 | 1u << 9; rl_extra = 1u; rl_rates = 1u << 2; bz_build = 4; bz_build_rate = 4;
-        bz_thr = 0; perf_k[0] = -40; perf_k[3] = 20; ui.layer = LAYER_BLAZE; break;
+        perf_k[0] = -40; perf_k[3] = 20; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_HOME_DROP: go_home(); song.sel = 0; TSEL->p[P_ROOT] = 3; TSEL->p[P_SCALE] = 1; song.playing = 1;
         song.g[G_CLOCK] = 1; clk_pos = 0; bz_org = 16; bz_s16 = 16u + 15u * 16u + 1u; perf_latched = perf_held = 0;
-        rl_extra = 0; rl_rates = 0; bz_build = 0; bz_thr = 2000; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE; break;
+        rl_extra = 0; rl_rates = 0; bz_build = 0; bz_riser = 16; bz_rs_wait = 0; rl_live4 = 0x001Eu; ui.layer = LAYER_BLAZE;
+        break;
+    /* SHIFT (OCT+ held): TONE SNAP DRIVE THROW; SNARE held: its TUNE DECAY LEVEL; KEYS: A minor on track 1, ARP on and
+     * LATCHED at 1/16, a key held */
+    case S_BLAZE_SHIFT: go_home(); rl_live4 = 0x001Eu; perf_k[2] = 35; fm1_in.buttons = 1u << panel.btn[B_OCTUP];
+        ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_DRUM: go_home(); rl_live4 = 0x001Eu; bz_pads = 1u; trk[3].p[BZ_LANE_MARK] = 0;
+        bz_lanes_ready(&trk[3]); trk[3].p[BZ_LANE_TUNE + 1] = 70; trk[3].p[P_LN0 + 1] = 100; ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_KEYS: go_home(); song.sel = 0; TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = 2; bz_keys = 1; bz_ktrk = 0;
+        bz_koct = 0; TSEL->p[P_AMODE] = 1; TSEL->p[P_AHOLD] = 1; TSEL->p[P_ARATE] = 2; fm1_in.notes = 1u << 2;
+        ui.layer = LAYER_BLAZE; break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
         TSEL->p[P_E6] = (s - S_ALG1) & 1 ? 40 : 0; TSEL->p[P_E4] = (int16_t)((S_ALG8 - s) * 18);

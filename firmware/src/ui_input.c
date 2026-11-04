@@ -1349,6 +1349,7 @@ static void layer_masks(void);
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
 static int layer_knobs_quiet(void);
+static void bz_algo(int32_t s);                       /* BLAZE (blaze_home_ui.c): ALGO in its layer */
 static uint32_t layer_gesture(uint32_t now, uint32_t combo);
 static void layer_show(void);
 static void layer_tap(uint32_t l);
@@ -1590,7 +1591,10 @@ static void ui_input(void)
         }
         if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
             fx_default();                               /* .. EDIT: its default back */
-        panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
+        if ((s = panel_enc(EN_ALGO)) != 0 && ui.ly == LAYER_BLAZE) {   /* BLAZE: the KIT (KEYS: the arp's MODE) */
+            bz_algo(s);
+            combo = 1;
+        }                                               /* (else nothing: OCT- puts back the layer's track only) */
         if (glo && (sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the tempo, a combo (OCT- puts it back) */
             combo = 1;
     } else if ((kq = (uint32_t)layer_knobs_quiet()) != 0) {   /* a layer letting go: KNOB 1..4 are nobody's (#39) */

@@ -1032,6 +1032,7 @@ static uint32_t mix_split(void)
 }
 #endif
 
+static void bz_riser_mix(int32_t *l, int32_t *r, int32_t *rev, uint32_t n);   /* BLAZE (blaze_home.c) */
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -1067,6 +1068,7 @@ static void mix_block(int32_t *out, uint32_t n)
     for (i = 0; i < NPART; i++)                         /* (one core: as 1.6) */
         mix_part(&trk[i], n);
 #endif
+    bz_riser_mix(mix_l, mix_r, send_r, n);              /* BLAZE: the RISER (blaze_home.c), when it runs */
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);
     fx_buses(send_c, send_d, send_r, wet, n);

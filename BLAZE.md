@@ -40,11 +40,11 @@ Tapping ENV still opens ENV's page.
 | White 1–4 | The 4 pads ROLL's PADS 4 picked (default SNARE CLAP HAT OPEN), rolled by the black rates |
 | White 5–10 | ECHO, REVERB, REVERSE, BRAKE (tape stop), FREEZE, STUTTER — **tap**: latched on (tap again: off); **hold**: on while held |
 | White 11 / 12 | BUILD 4 / BUILD 8: ROLL's PADS 1 pad (SNARE) from the next bar, 1/4 → 1/8 → 1/16 → 1/32 over 4 or 8 bars, getting louder, ending on the next phrase's 1. Press again: stop |
-| White 13 | IMPACT: KICK + the last lane (BELL / a kit's CYMBAL) accented, and a beat of REVERB throw |
+| White 13 | RISER (0.3): noise sweeping up and swelling from the next bar over 8 bars (tap twice quickly: 16), cut on the 1 after it. Press again: stop |
 | Black 1–6 | Roll rates 1/4, 1/8, 1/8 T, 1/16, 1/16 T, 1/32 |
 | Black 7 | TAP tempo |
 | Black 8 / 9 | NUDGE − / + |
-| Black 10 | RELEASE: every latched effect, the build off; COLOR to the middle, DEPTH full |
+| Black 10 | RELEASE: every latched effect, the build, the riser off; COLOR to the middle, THROW off, DEPTH full |
 | Black 11 | THE ONE: now is bar 1 beat 1 of the phrase (to the nearest beat) |
 | KNOB 1–4 | COLOR (left low-pass, right high-pass; it stays where you leave it), PITCH and DECAY of the drum track, DEPTH (the buffer effects' level) |
 
@@ -64,3 +64,31 @@ MENU > THEME has three more palettes: **BOOTH** (black, hot orange, cyan: a dark
 black text, violet: daylight and glare), **CAMERA** (near-black, violet, gold, nothing pure white: on stream).
 
 Tests: `tests/blaze_home_test.c`; screens `blaze_home*` in `tests/ui_render.c`.
+
+## 0.3 — SHIFT, each drum its own, RISER, KEYS
+
+In BLAZE (hold ENV):
+
+| Control | What it does |
+|---|---|
+| KNOB 1–4 | COLOR, PITCH, DECAY, DEPTH (as 0.2) |
+| OCT+ held (SHIFT) + KNOB 1–4 | TONE, SNAP, DRIVE (the kit), THROW (how much of the FM-1 goes into the echo and reverb) |
+| A pad held + KNOB 1–3 | That drum only: TUNE, DECAY, LEVEL. Saved with the sound and the project |
+| ALGO | The KIT (80 10 66 55 77 DEEP TIGHT PERC ...) |
+| White 13 | RISER (IMPACT is gone) |
+| OCT- | KEYS ↔ BLAZE |
+
+### KEYS (OCT- in BLAZE)
+
+| Keys | What they do |
+|---|---|
+| White 1–16 | The KEYS track's notes up its scale from the root (the key RAIL sent, or SCL's): every key in key |
+| Black 1–4 | The KEYS track: T1–T4 (a DRUM track is refused) |
+| Black 5 / 6 | ARP on / off, LATCH (the arp keeps running after you let go) |
+| Black 7–9 | Arp rate 1/8, 1/16, 1/32 |
+| Black 10 / 11 | Octave − / + |
+| KNOB 1–4 | FILTER, GATE (the arp's), RANGE (octaves the arp climbs), SPACE (reverb send) |
+| ALGO | The arp's pattern: UP, DOWN, UP-DOWN, RANDOM, ... |
+
+Each drum's TUNE and DECAY live in parameters DIGITAL's operator envelopes held (inert since 1.0), marked as BLAZE's;
+a sound or project from before plays as designed.

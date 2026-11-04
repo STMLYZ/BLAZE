@@ -757,11 +757,12 @@ static __attribute__((noinline)) void perf_key_remap(void)
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
+static uint8_t kb_raw;                             /* BLAZE KEYS: key_on's notes as they are (the arp maps no key again) */
 static void key_on(uint32_t k, track_t *t)
 {
     uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel;
     kb_chn[k] = 0;
-    in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
+    in_key = kb_raw ? 0u : (uint8_t)(k + 1u);       /* (the arp keeps the key: arp_add) */
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
@@ -810,6 +811,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 #include "blaze_home.c"                          /* BLAZE: the home layer's (ENV held) */
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
 static uint32_t kb_bz;                           /* .. in the BLAZE layer */
+static uint32_t kb_bzn;                          /* .. BLAZE KEYS' white keys playing notes */
 
 static void keyboard_block(void)
 {
@@ -841,6 +843,15 @@ static void keyboard_block(void)
                 kb_note[k] = KB_SILENT;
                 continue;
             }
+            if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
+                kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
+                kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], key_place(k));
+                kb_bzn |= 1u << k;
+                kb_raw = 1;
+                key_on(k, &trk[kb_trk[k]]);
+                kb_raw = 0;
+                continue;
+            }
             if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
                 kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
@@ -867,6 +878,11 @@ static void keyboard_block(void)
             kb_lat(k);
 #endif
         } else {
+            if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
+                kb_bzn &= ~(1u << k);
+                key_off(k, &trk[kb_trk[k] % NTRK]);
+                continue;
+            }
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
                 if ((kb_roll >> k) & 1u) {
