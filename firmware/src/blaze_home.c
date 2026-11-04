@@ -397,7 +397,7 @@ static __attribute__((noinline)) void bz_riser_mix(int32_t *l, int32_t *r, int32
     f0 = type == BZR_AIR ? 600 : type == BZR_TONE ? 300 : type == BZR_SIREN ? 200 : 150;
     top = 1500 + bz_rs_top * 4500 / 127;
     fc = f0 + (int32_t)(((((int64_t)(top - f0) * x) >> 15) * x >> 15) * x >> 15);   /* f0 + (top - f0) x^3 */
-    f = (int32_t)((int64_t)fc * 205887 / FS);    /* 2 pi fc / FS, Q15 */
+    f = (int32_t)((uint64_t)(uint32_t)fc * 205887u / FS);   /* 2 pi fc / FS, Q15 (unsigned: no signed 64-bit divide) */
     q = type == BZR_SIREN ? 6000 : type == BZR_AIR ? 30000 : type == BZR_TONE ? 16000 : 23000;   /* damping, Q15 */
     amp = (int32_t)((int64_t)x * x >> 15);
     if (type == BZR_TONE) {                      /* the saws: the root at C2 .. B2, up 24 semitones as x */

@@ -153,8 +153,9 @@ static __attribute__((noinline)) void loops_block(uint32_t n, uint32_t adv)
                     bz_fd_out |= (uint8_t)(1u << k);
                 }
             } else {
-                bz_fd_gain[k] = bz_fd_from[k] + (int32_t)((int64_t)(bz_fd_to[k] - bz_fd_from[k]) * bz_fd_age[k] /
-                                                          bz_fd_len[k]);
+                uint32_t fr = (uint32_t)((uint64_t)bz_fd_age[k] * 32768u / bz_fd_len[k]);   /* (unsigned: the
+                                                  * target has no signed 64-bit divide) */
+                bz_fd_gain[k] = bz_fd_from[k] + (int32_t)((int64_t)(bz_fd_to[k] - bz_fd_from[k]) * (int64_t)fr >> 15);
             }
         }
         if (((bz_fd_out >> k) & 1u) && !trk[k].p[P_MUTE]) {   /* (unmuted another way: as it is) */
