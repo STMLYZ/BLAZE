@@ -171,7 +171,10 @@ static void layer_keys_map(void)
         uint32_t how;
         uint16_t c = T_MID;
         char nm[4] = {'T', (char)('1' + i), 0, 0};
-        if (i < NTRK) {
+        if (i == 0u && bz_shift()) {                /* 0.7: SHIFT: black 1 KEY LOCK */
+            bzk_cell(BZX(0), ry, h, "LOCK", T_ACCENT, bz_lock ? RLC_FILL : RLC_IDLE, BZK_B, 1u);
+            continue;
+        } else if (i < NTRK) {
             how = !bz_notes_track(&trk[i]) ? RLC_DIM : i == bz_ktrk % NTRK ? RLC_FILL : RLC_IDLE;
             c = T_THEME;
         } else if (i == BZK_ARP || i == BZK_LATCH) {
@@ -208,7 +211,12 @@ static void layer_blaze(void)
     bz_phrase_bar();
     for (i = 0; i < 16u; i++) {                         /* white keys 1..16: 4 rows of 4 (15, 16: SET) */
         int32_t x = BZX(i % 4u), y = BZD_Y7 + 16 * (int32_t)(i / 4u);
-        if (i < BZ_FX0) {
+        if (i < 8u && bz_shift()) {                     /* 0.7: SHIFT: KIT 1..8 (held: saving / loading; the one
+                                                         * loaded tinted; empty dim) */
+            char nm[8] = {'K', 'I', 'T', ' ', (char)('1' + i), 0};
+            bzk_cell(x, y, 14, nm, T_THEME, bzkit.k == i + 1u ? RLC_FILL : !bz_kit_used(i) ? RLC_DIM
+                     : t->user == BZ_KIT0 + i + 1u ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i < BZ_FX0) {
             uint32_t pad = bz_pad_of(i);
             bzk_cell(x, y, 14, pad < 16u ? rl_lane_name(t, pad % NLANE) : "-", rl_lane_col(pad % NLANE),
                      pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rlu.fl) >> pad) & 1u ? RLC_FILL

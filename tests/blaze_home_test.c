@@ -89,6 +89,33 @@ static uint32_t run(uint32_t blocks, uint32_t *at, uint32_t nat)
     return n;
 }
 static int near(uint32_t a, uint32_t b) { return (a > b ? a - b : b - a) <= CTL; }
+static int bz_gate_note(const track_t *t, uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].gate && t->v[i].note == note)
+            return 1;
+    return 0;
+}
+/* 0.7: n MIDI clock pulses at bpm10 / 10 BPM from *t (ms, exact), each stamped in whole ms off by up to +-jit (a
+ * fixed pseudo-random walk); the lowest and highest BPM shown after the first `settle` pulses */
+static uint32_t clk_seed = 12345u;
+static void clk_feed(double *t, uint32_t bpm10, uint32_t n, uint32_t jit, uint32_t settle, int *lo, int *hi)
+{
+    uint32_t i;
+    double step = 60000.0 * 10.0 / bpm10 / 24.0;
+    for (i = 0; i < n; i++) {
+        int32_t j;
+        clk_seed = clk_seed * 1103515245u + 12345u;
+        j = jit ? (int32_t)((clk_seed >> 16) % (2u * jit + 1u)) - (int32_t)jit : 0;
+        *t += step;
+        midi_clock_pulse((uint32_t)((int32_t)(*t + 0.5) + j));
+        if (i >= settle) {
+            if (song.g[G_BPM] < *lo) *lo = song.g[G_BPM];
+            if (song.g[G_BPM] > *hi) *hi = song.g[G_BPM];
+        }
+    }
+}
 
 int main(void)
 {
@@ -661,6 +688,127 @@ int main(void)
     ok = song.g[G_BPM] == 128;
     song.g[G_CLOCK] = 0;
     bad += check("  following an external clock: the song's BPM is not applied (Link sets it)", ok);
+
+
+    /* 0.7: the external clock's tempo: over 4 beats, not one 16th; USB jitter of +-2 ms no longer moves the BPM shown */
+    home_reset();
+    {
+        double t = 1000.0;
+        int lo = 999, hi = 0, lo2 = 999, hi2 = 0, lo3 = 999, hi3 = 0;
+        memset(&midi_clock, 0, sizeof midi_clock);
+        song.g[G_CLOCK] = 1;
+        midi_clock.mode = 1;
+        clk_feed(&t, 1280, 24u * 32u, 2u, 24u * 4u, &lo, &hi);         /* 128, jitter +-2 ms: 32 beats */
+        ok = lo == 128 && hi == 128 && midi_beat_samples > (uint32_t)FS * 60u / 129u &&
+             midi_beat_samples < (uint32_t)FS * 60u / 127u;
+        bad += check("CLOCK: 128 BPM with +-2 ms of USB jitter reads 128 throughout (it read 126..130)", ok);
+        clk_feed(&t, 1400, 24u * 2u, 2u, 24u, &lo2, &hi2);                /* a jump to 140: near it in the 2nd beat, */
+        ok = lo2 >= 139 && hi2 <= 144;                                  /* on it from the 3rd */
+        lo2 = 999; hi2 = 0;
+        clk_feed(&t, 1400, 24u * 8u, 2u, 0u, &lo2, &hi2);
+        bad += check("  a jump to 140: 139..144 in the 2nd beat, 140 from the 3rd on", ok && lo2 == 140 && hi2 == 140);
+        clk_feed(&t, 1275, 24u * 16u, 1u, 24u * 4u, &lo3, &hi3);          /* 127.5: steady on one of its sides */
+        bad += check("  127.5 BPM: steady (no 127 / 128 flicker)", lo3 == hi3 && (lo3 == 127 || lo3 == 128));
+        song.g[G_CLOCK] = 0;
+        memset(&midi_clock, 0, sizeof midi_clock);
+        midi_beat_samples = 0;
+    }
+
+    /* 0.7: KEY LOCK: MIDI IN onto the key RAIL sent (A minor): C# plays C; its note-off releases the C; off: as played */
+    home_reset();
+    {
+        track_t *mt = midi_track(0);
+        int sc = !drum_track(mt);
+        bz_cfg_apply();
+        bz_follow = 1;
+        mt->p[P_ROOT] = 9;
+        mt->p[P_SCALE] = 2;
+        bz_lock = 1;
+        midi_event(0x90u, 0, 61, 100);
+        ok = sc && bz_gate_note(mt, 60) && !bz_gate_note(mt, 61);
+        midi_event(0x80u, 0, 61, 0);
+        ok &= !bz_gate_note(mt, 60);
+        mt->p[P_ROOT] = 4;                          /* (a key change while held: the note-off still finds it) */
+        mt->p[P_ROOT] = 9;
+        midi_event(0x90u, 0, 63, 100);              /* D# -> D */
+        mt->p[P_ROOT] = 1;
+        midi_event(0x80u, 0, 63, 0);
+        ok &= !bz_gate_note(mt, 62);
+        mt->p[P_ROOT] = 9;
+        bz_lock = 0;
+        midi_event(0x90u, 0, 61, 100);
+        ok &= bz_gate_note(mt, 61);
+        midi_event(0x80u, 0, 61, 0);
+        bz_lock = 1;
+        bad += check("KEY LOCK: MIDI IN C# plays C in A minor, its note-off releases it (the key changed meanwhile "
+                     "too); off: C# as played", ok);
+    }
+
+    /* 0.7: KITS: SHIFT + white 1 held a second saves the DRUM track's sound in U25 "KIT 1" (stopped); a tap loads it */
+    home_reset();
+    {
+        track_t *d = rl_track();
+        uint32_t sh = 1u << panel.btn[B_OCTUP], k0 = BZ_KIT0, v1 = vage;
+        song.playing = 0;
+        up_put(k0, 0);
+        d->p[P_E0] = 10;                            /* (TIGHT) */
+        fm1_in.buttons |= sh;
+        fm1_ms = 1000;
+        bz_ui_pass();
+        key_down(wk(0));
+        bz_ui_key(wk(0));
+        ok = vage == v1;                            /* (the pad did not play) */
+        fm1_ms = 1500;
+        bz_ui_pass();
+        ok &= !up_used(k0);
+        fm1_ms = 2000;
+        bz_ui_pass();
+        ok &= up_used(k0) && bz_kit_used(0);
+        up_name(k0, nm);
+        ok &= !strcmp(nm, "KIT 1");
+        key_up(wk(0));
+        bz_ui_pass();
+        ok &= bzkit.k == 0;
+        d->p[P_E0] = 0;
+        fm1_ms = 3000;
+        key_down(wk(0));
+        bz_ui_key(wk(0));
+        fm1_ms = 3100;
+        key_up(wk(0));
+        bz_ui_pass();
+        ok &= d->p[P_E0] == 10 && d->user == k0 + 1u;
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        v1 = vage;
+        key_down(wk(0));
+        ok &= vage == v1 + 1u;                      /* (no SHIFT: the pad again) */
+        key_up(wk(0));
+        bad += check("KITS: SHIFT + white 1 held 1 s saves KIT 1 in U25 (the pad silent), a tap loads it back", ok);
+        up_put(k0 + 1u, 0);
+        {
+            up_rec_t r;
+            memset(&r, 0, sizeof r);
+            r.used = UP_USED; r.ver = UP_VER; r.engine = ENGI_DRUM; r.np = P_COUNT;
+            memcpy(r.name, "MY BEATS", 8);
+            up_put(k0 + 1u, &r);
+        }
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        fm1_ms = 5000;
+        key_down(wk(1));
+        bz_ui_key(wk(1));
+        fm1_ms = 7000;
+        bz_ui_pass();
+        up_name(k0 + 1u, nm);
+        ok = !strcmp(nm, "MY BEATS");
+        key_up(wk(1));
+        bz_ui_pass();
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        bad += check("  a slot holding another sound (U26 \"MY BEATS\") is not written over", ok);
+        up_put(k0, 0);
+        up_put(k0 + 1u, 0);
+    }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;

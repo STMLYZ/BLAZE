@@ -186,3 +186,28 @@ through the list and sends the song: its key, the next song's key (so KEYS and C
 while you blend), BPM (on the FM-1's own clock; with Link rekordbox keeps the tempo), the kit, and the tracks in or
 out at LOOPS' QUANTIZE point. RAIL's own Prev / Next buttons do the same. Channel 16: CC 26–30 to the FM-1, CC 31
 from it (1 PREV, 2 NEXT).
+
+## 0.7 — steady external tempo, KITS, KEY LOCK
+
+### External clock: the BPM holds still
+
+Felucca measured the incoming tempo over one 16th (six clock ticks) in whole milliseconds, so a millisecond of USB
+jitter showed as 127 / 128 / 129 (up to ±3 with the computer busy). BLAZE measures over the last 4 beats instead and
+moves the BPM shown only when it is 0.8 off. A real tempo change (two 16ths in a row more than 1/16 off) starts the
+measurement over: a jump reads close in its second beat and exact from the third. The beat itself always follows
+the clock pulses, as before. Pair it with RAIL BRIDGE v4.
+
+### KITS (BLAZE, SHIFT + white 1–8)
+
+Hold SHIFT (OCT+): white 1–8 become KIT 1–8. Tap one to load it onto the DRUM track (playing or stopped). Hold one
+for a second to save the DRUM track's sound there (the kit, each drum's TUNE / DECAY / LEVEL, TONE, SNAP, DRIVE, ...)
+— stopped only: the FM-1 can't write flash while playing. The KITs live in the user presets U25–U32, named
+"KIT 1".."KIT 8", so PRESETS can load them too. A slot holding another sound is never written over. On screen: the
+loaded KIT tinted, saved ones normal, empty ones dim.
+
+### KEY LOCK (MIDI IN)
+
+Notes coming in over MIDI (a keyboard on TRS or USB) are moved onto the key, the way QNT SNAP moves the FM-1's own
+keys: down to the nearest note of the scale. It works once BLAZE has a key (from RAIL / SET) or the track's QNT is
+on, on tracks with a scale (not CHR), never on DRUM or sliced sounds. On by default; KEYS + SHIFT + black 1 (LOCK)
+turns it off and on (kept with the settings).

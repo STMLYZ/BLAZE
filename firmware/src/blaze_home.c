@@ -70,6 +70,10 @@ static volatile uint8_t bz_set_n;              /* main: the SET's songs (RAIL), 
 static volatile uint8_t bz_set_layers;         /* main: 0x80 | the tracks a song wants in (LOOPS takes them at its point) */
 static volatile uint16_t bz_blend;             /* main: the next track's scale (bit pc, 0 = C), 0: no blend (KEYS and
                                                 * CHORD keep to the notes both keys share) */
+static volatile uint8_t bz_lock = 1;           /* main: MIDI IN's notes onto the key (0.7: midi_control.c bz_lock_note) */
+static volatile uint8_t bz_kitk;               /* ISR: white keys 1..8 taken by a KIT (SHIFT held at the press: the main
+                                                * loop loads / saves it, the key plays nothing) */
+static volatile uint8_t bz_shift_on;           /* main: SHIFT (OCT+) held in the layer (bz_ui_pass, each pass) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
 static uint8_t bz_tapfx;                       /* ISR: the effects pressed down as a tap could be (bit i of BZ_FX) */
@@ -261,6 +265,17 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         else if (p == BZK_ONE && down)           /* the nearest step's beat is the 1 */
             bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
         return;                                  /* (TAP, NUDGE: the main loop's) */
+    }
+    if (p < 8u && !bz_keys) {                    /* 0.7: SHIFT + white 1..8: KIT 1..8 (the main loop's) */
+        uint8_t b = (uint8_t)(1u << p);
+        if (down && bz_shift_on) {
+            bz_kitk |= b;
+            return;
+        }
+        if (!down && (bz_kitk & b)) {
+            bz_kitk &= (uint8_t)~b;
+            return;
+        }
     }
     if (p < BZ_FX0) {
         pad = bz_pad_of(p);

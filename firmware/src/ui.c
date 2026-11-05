@@ -13,6 +13,7 @@ static int project_used(uint32_t slot);
 static uint32_t chain_prepare(void);
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
+static int up_store(uint32_t k, const char *name);   /* (BLAZE's KITs: blaze_home_ui.c) */
 static uint32_t up_count(void);
 static uint32_t up_nth(uint32_t n);
 static uint32_t up_rank(uint32_t slot);

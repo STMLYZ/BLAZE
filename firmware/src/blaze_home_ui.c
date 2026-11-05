@@ -170,6 +170,10 @@ static uint32_t bz_keys_track(void)
 #define BZ_CFG_MAGIC 0xB7u
 enum { BZC_MAGIC_I, BZC_TYPE, BZC_TOP, BZC_LVL, BZC_SPACE, BZC_TRK, BZC_EOB, BZC_DUCK };
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] <= 192u, "BLAZE settings bytes in the DRUM favourites");
+/* 0.7: 8 more of that row (16..23), marked their own way: [1] KEY LOCK (MIDI IN onto the key) 1 on, 0 off */
+#define bz_cfg2 (&favorites.factory[ENGI_DRUM][16])
+#define BZ_CFG2_MAGIC 0xB9u
+enum { BZC2_MAGIC_I, BZC2_LOCK };
 static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
 static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
 /* the settings into the ISR's copies (an unmarked or old setting: the defaults first) */
@@ -193,6 +197,84 @@ static void bz_cfg_apply(void)
     bz_rs_trk = (uint8_t)(c[BZC_TRK] % NTRK);
     bz_eo_bars = BZ_EO_BARS[c[BZC_EOB] % 3u];
     bz_duck = (uint8_t)(c[BZC_DUCK] > 100u ? 100u : c[BZC_DUCK]);
+    c = bz_cfg2;
+    if (c[BZC2_MAGIC_I] != BZ_CFG2_MAGIC) {
+        memset(c, 0, 8);
+        c[BZC2_LOCK] = 1;
+        c[BZC2_MAGIC_I] = BZ_CFG2_MAGIC;
+    }
+    bz_lock = (uint8_t)(c[BZC2_LOCK] != 0u);
+}
+
+/* ---- 0.7: KITS. SHIFT + white 1..8: KIT 1..8, the DRUM track's sound (its KIT, each drum's TUNE DECAY LEVEL, TONE
+ * SNAP DRIVE ...) in the user presets U25..U32, named "KIT 1".."KIT 8": a tap loads it (playing too), held a second
+ * saves it there (stopped: no flash erase while playing). A slot holding another sound is not written over ---- */
+#define BZ_KIT0 (UP_SLOTS - 8u)
+#define BZ_KIT_SAVE_MS 900u
+static struct { uint8_t k, saved; uint32_t t; } bzkit;   /* k: the KIT key held + 1 */
+static int bz_kit_mine(uint32_t k)                  /* slot k empty or one of BLAZE's KITs */
+{
+    char b[16];
+    if (!up_used(k))
+        return 1;
+    up_name(k, b);
+    return b[0] == 'K' && b[1] == 'I' && b[2] == 'T' && b[3] == ' ';
+}
+static int bz_kit_used(uint32_t i) { return up_used(BZ_KIT0 + i) && bz_kit_mine(BZ_KIT0 + i); }
+/* the DRUM track as the selected one for up_store / up_load (TSEL), then back */
+static void bz_kit_do(uint32_t i, int save)
+{
+    track_t *d = rl_track();
+    uint32_t k = BZ_KIT0 + i, sel = song.sel;
+    char nm[8] = {'K', 'I', 'T', ' ', (char)('1' + i), 0}, m[28], u[4];
+    int rc;
+    up_slot_label(u, k);
+    if (!drum_track(d)) {
+        ui_message("NO DRUM TRACK");
+        return;
+    }
+    if (!bz_kit_mine(k)) {
+        str_cpy(m, u, sizeof m);
+        str_cpy(m + str_len(m), " HOLDS ANOTHER SOUND", sizeof m - str_len(m));
+        ui_message(m);
+        return;
+    }
+    if (!save && (!up_used(k) || up_engine(k) != ENGI_DRUM)) {
+        str_cpy(m, nm, sizeof m);
+        str_cpy(m + str_len(m), " EMPTY: HOLD TO SAVE", sizeof m - str_len(m));
+        ui_message(m);
+        return;
+    }
+    song.sel = (uint8_t)(d - trk);
+    rc = save ? up_store(k, nm) : up_load(k);
+    song.sel = (uint8_t)sel;
+    if (save && rc == 2)
+        return;                                     /* (up_put said why: STOP TO SAVE, or the flash) */
+    str_cpy(m, nm, sizeof m);
+    if (rc == 3)
+        rc = 0;                                     /* (no flash: kept in RAM, as SAVE does) */
+    str_cpy(m + str_len(m), save ? (rc ? " NOT SAVED" : " SAVED IN ") : " LOADED", sizeof m - str_len(m));
+    if (save && !rc)
+        str_cpy(m + str_len(m), u, sizeof m - str_len(m));
+    ui_message(m);
+    ui.force = 1;
+}
+static void bz_kit_pass(void)                       /* each pass: the KIT key held a second saves, let go loads */
+{
+    uint32_t i;
+    if (!bzkit.k)
+        return;
+    i = bzkit.k - 1u;
+    if ((bz_kitk >> i) & 1u) {
+        if (!bzkit.saved && fm1_ms - bzkit.t >= BZ_KIT_SAVE_MS) {
+            bzkit.saved = 1;
+            bz_kit_do(i, 1);
+        }
+        return;
+    }
+    if (!bzkit.saved)
+        bz_kit_do(i, 0);
+    bzkit.k = 0;
 }
 static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> LOOPS -> BLAZE) */
 {
@@ -387,7 +469,12 @@ static void bz_ui_key(uint32_t k)
         if (!key_black(k))
             return;
         t = &trk[bz_ktrk % NTRK];
-        if (p < NTRK) {
+        if (p == 0u && bz_shift()) {                /* 0.7: SHIFT + black 1: KEY LOCK (MIDI IN onto the key) */
+            bz_lock = (uint8_t)!bz_lock;
+            bz_cfg2[BZC2_LOCK] = bz_lock;
+            lys.rp_dirty = 1;
+            ui_message(bz_lock ? "KEY LOCK ON: MIDI IN PLAYS IN KEY" : "KEY LOCK OFF: MIDI IN AS PLAYED");
+        } else if (p < NTRK) {
             if (!bz_notes_track(&trk[p])) {
                 ui_message("THAT TRACK PLAYS NO NOTES");
                 return;
@@ -421,7 +508,12 @@ static void bz_ui_key(uint32_t k)
             ui_message("THE ONE: BAR 1 OF THE PHRASE");
         return;
     }
-    if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX)
+    if (p < 8u && ((bz_kitk >> p) & 1u)) {          /* 0.7: SHIFT + white 1..8: a KIT (bz_kit_pass) */
+        bzkit.k = (uint8_t)(p + 1u);
+        bzkit.saved = 0;
+        bzkit.t = fm1_ms;
+        ui.force = 1;
+    } else if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX)
         ui_message(BZ_FX_NAME[p - BZ_FX0]);
     else if (p == BZ_B4 || p == BZ_B8)
         ui_message(!bz_build ? "BUILD STOPPED" : p == BZ_B4 ? "BUILD 4 BARS FROM THE NEXT BAR"
@@ -455,6 +547,8 @@ static void bz_ui_pass(void)
         bz_song();
     }
     bz_ramp_pass();
+    bz_shift_on = (uint8_t)bz_shift();
+    bz_kit_pass();
     if (rs != bz_riser) {
         if (bz_riser == 16u && rs == 8u)
             ui_message("RISER 16 BARS");
@@ -682,7 +776,7 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
-    str_cpy(h, bz_keys ? "[ENV] KEYS" : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_riser_held() ? "[ENV] RISER SOUND"
+    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
@@ -718,7 +812,8 @@ static uint32_t bz_sig(void)
         bz_rs_lvl * 157u + bz_rs_space * 163u + bz_rs_trk * 167u + bz_eo_bars * 173u + bz_loops * 179u +
         bz_lp_q * 181u + bz_lp_fbars * 191u + bz_duck * 193u + bz_duck_ms * 197u + (uint32_t)bzl.on * 199u +
         (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u + bz_set_n * 233u +
-        fm1_in.notes * 239u;                       /* (0.6: the key held, its cell outlined) */
+        fm1_in.notes * 239u + up_gen * 241u + bz_lock * 251u + (uint32_t)bzkit.k * 257u;   /* (0.6: the key held,
+                                                  * its cell outlined; 0.7: the KITs, KEY LOCK) */
     for (i = 0; i < NTRK; i++)
         h = h * 33u + (uint32_t)trk[i].p[P_MUTE] + bz_lp_op[i] * 2u + (bz_fd_len[i] ? (bz_fd_age[i] * 8u / bz_fd_len[i]) * 16u
             + 8u : 0u) + (bz_fill_left[i] ? 256u : 0u) + (uint32_t)drum_track(&trk[i]) * 512u;

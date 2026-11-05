@@ -9,19 +9,34 @@ static struct {
     uint32_t pos, rendered, last_ms, start_ms, interval_ms;
     uint32_t pulse_units, interp_q8, tempo_ms;
     uint8_t mode, have_pulse, tempo_valid, tempo_n;
+    uint32_t tw[17];                               /* BLAZE: the last 16ths' first pulses (ms), a ring: the tempo over */
+    uint8_t tw_n, tw_i, tw_jump;                   /* up to 4 beats (one 16th in whole ms read 1..3 BPM up and down) */
 } midi_clock;
+#define MC_TW 17u
+
+static void mc_tw_push(uint32_t ms)
+{
+    midi_clock.tw[midi_clock.tw_i] = ms;
+    midi_clock.tw_i = (uint8_t)((midi_clock.tw_i + 1u) % MC_TW);
+    if (midi_clock.tw_n < MC_TW)
+        midi_clock.tw_n++;
+}
+static uint32_t mc_tw_at(uint32_t back)            /* back 0: the newest */
+{
+    return midi_clock.tw[(midi_clock.tw_i + MC_TW - 1u - back) % MC_TW];
+}
 
 static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint32_t ms)
 {
     if (status == 0xFAu) {                         /* Start: step zero */
         midi_clock.pos = midi_clock.rendered = 0;
-        midi_clock.have_pulse = midi_clock.tempo_valid = 0;
+        midi_clock.have_pulse = 0;                 /* (BLAZE: the tempo window goes on: the pulses did not stop) */
         midi_clock.interval_ms = 0;
         midi_clock.start_ms = ms;
         seq_start();
     } else if (status == 0xFBu) {                  /* Continue: preserve the step */
         midi_clock.pos = midi_clock.rendered;
-        midi_clock.have_pulse = midi_clock.tempo_valid = 0;
+        midi_clock.have_pulse = 0;
         midi_clock.interval_ms = 0;
         midi_clock.start_ms = ms;
         if (!song.playing)
@@ -56,13 +71,34 @@ static __attribute__((noinline)) void midi_clock_pulse(uint32_t ms)
         midi_clock.tempo_valid = 1;
         midi_clock.tempo_ms = ms;
         midi_clock.tempo_n = 0;
+        midi_clock.tw_n = midi_clock.tw_i = midi_clock.tw_jump = 0;
+        mc_tw_push(ms);
     } else if (++midi_clock.tempo_n == 6u) {
         uint32_t dt = ms - midi_clock.tempo_ms;
         midi_clock.tempo_ms = ms;
         midi_clock.tempo_n = 0;
         /* Six clocks are a quarter of a beat. Reject gaps and corrupt bursts. */
-        if (dt >= 62u && dt <= 375u) {
-            uint32_t old_beat = beat_samples(), new_beat = (uint32_t)FS * dt / 250u;
+        if (dt < 62u || dt > 375u) {               /* (BLAZE: the window starts over from here) */
+            midi_clock.tw_n = midi_clock.tw_i = midi_clock.tw_jump = 0;
+            mc_tw_push(ms);
+        } else {
+            uint32_t old_beat = beat_samples(), new_beat, span, cnt, bpm10, cur10;
+            /* BLAZE: the tempo over the window (up to 16 16ths), not this one 16th; a 16th 1/16 off the window's
+             * twice running is a new tempo: the window starts over from the last 16th */
+            cnt = midi_clock.tw_n - 1u;
+            span = mc_tw_at(0) - mc_tw_at(cnt);
+            if (cnt >= 2u && (dt * cnt * 16u > span * 17u || dt * cnt * 17u < span * 16u)) {
+                if (++midi_clock.tw_jump >= 2u) {      /* (from this 16th only: the one before may straddle it) */
+                    uint32_t b = mc_tw_at(0);
+                    midi_clock.tw_n = midi_clock.tw_i = midi_clock.tw_jump = 0;
+                    mc_tw_push(b);
+                }
+            } else
+                midi_clock.tw_jump = 0;
+            mc_tw_push(ms);
+            cnt = midi_clock.tw_n - 1u;
+            span = ms - mc_tw_at(cnt);
+            new_beat = ((uint32_t)FS * span + 125u * cnt) / (250u * cnt);   /* (FS x 6000 ms fits 32 bits) */
             if (song.playing && new_beat != old_beat) {
                 uint32_t i;
                 /* Preserve each track's fractional step phase when the master
@@ -90,7 +126,10 @@ static __attribute__((noinline)) void midi_clock_pulse(uint32_t ms)
                 beat_pos = midi_clock_scale_phase(beat_pos, new_beat, old_beat, &midi_beat_grid);
             }
             midi_beat_samples = new_beat;
-            song.g[G_BPM] = (int16_t)clamp((int32_t)((15000u + dt / 2u) / dt), 40, 240);
+            bpm10 = (150000u * cnt + span / 2u) / span;   /* (BLAZE: the BPM shown moves at 0.8 off, not at 0.5) */
+            cur10 = (uint32_t)(song.g[G_BPM] > 0 ? song.g[G_BPM] : 0) * 10u;
+            if (bpm10 >= cur10 + 8u || bpm10 + 8u <= cur10)
+                song.g[G_BPM] = (int16_t)clamp((int32_t)((bpm10 + 5u) / 10u), 40, 240);
         }
     }
     if (song.playing) {

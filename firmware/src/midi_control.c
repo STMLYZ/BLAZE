@@ -395,6 +395,40 @@ static volatile uint8_t *const mpc_io;
  * (realtime and clock are handled in events_block, SysEx never reaches here). With ROUT CH1-4 channels
  * 5..16 are ignored entirely (with CH5-8 .. CH13-16 every channel outside the block): notes, bend, CCs (CC1/11/64, RPN, and the CC120/121/123 panic and reset),
  * channel aftertouch, Program Change, so they stay free for other instruments. */
+/* BLAZE 0.7, KEY LOCK: a note from MIDI IN (an external keyboard, USB or TRS) onto the key of the track it plays when
+ * BLAZE has a key (RAIL's, or the track's QNT on) and the track's SCALE is one (not CHR): moved down to the scale as
+ * QNT SNAP moves the FM-1's keys. Not a DRUM track, nor an engine's own key map (slices). Its note-off releases the
+ * note it played (kept per note), so a key change while it is held leaves nothing hanging */
+static uint8_t bz_lock_to[128], bz_lock_ch[128];  /* incoming note -> the note it plays + 1 (0: as it is), its channel */
+static uint32_t bz_lock_note(uint32_t ch, uint32_t note, uint32_t on)
+{
+    track_t *t;
+    const engine_t *e;
+    uint32_t n;
+    note &= 127u;
+    if (!on) {
+        if (bz_lock_to[note] && bz_lock_ch[note] == ch) {
+            n = bz_lock_to[note] - 1u;
+            bz_lock_to[note] = 0;
+            return n;
+        }
+        return note;
+    }
+    bz_lock_to[note] = 0;
+    t = midi_track(ch);
+    if (!bz_lock || drum_track(t) || !t->p[P_SCALE] || (!bz_follow && t->p[P_QUANT] == QN_OFF))
+        return note;
+    e = ENGINES[eng_idx(t->eng_req)];
+    if (e->keys && e->keys(t, 0) >= 0)
+        return note;
+    n = (uint32_t)clamp(scale_snap(t, (int32_t)note), 0, 127);
+    if (n != note) {
+        bz_lock_to[note] = (uint8_t)(n + 1u);
+        bz_lock_ch[note] = (uint8_t)ch;
+    }
+    return n;
+}
+
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
     if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 30u) {   /* BLAZE: RAIL's key, the next one (23..25), the SET's
@@ -405,8 +439,10 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
     }
     if (song.g[G_ROUTE] != 1 && !midi_in_block(ch))
         return;
-    if (st == 0x90u || st == 0x80u)
+    if (st == 0x90u || st == 0x80u) {
+        d1 = bz_lock_note(ch, d1, st == 0x90u && d2);   /* (BLAZE: KEY LOCK) */
         midi_note_event(ch, d1, st == 0x90u ? d2 : 0);
+    }
     else if (st == 0xE0u) {
         midi_channel(ch)->bend = (int16_t)((int32_t)(d1 | (d2 << 7)) - 8192);
         midi_expression_channel(ch);
