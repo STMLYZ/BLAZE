@@ -58,7 +58,7 @@ static uint32_t bz_sl_point(void)
 
 /* the point: the notes waiting start, then the releases (a key let go before its note started: its note-off waits
  * for the next point, so even a tap plays from the grid) */
-static void bz_sl_fire(void)
+static __attribute__((noinline)) void bz_sl_fire(void)   /* (noinline: rare; out of the IRQ's loops) */
 {
     uint32_t k, m = bz_sl_on | bz_sl_off, b;
     for (k = 0; k < 27u && m; k++) {
@@ -86,7 +86,7 @@ static void bz_sl_fire(void)
 }
 
 /* a white key of SLICE down / up (keyboard_block): its note now or at the point */
-static void bz_sl_key(uint32_t k, int down)
+static __attribute__((noinline)) void bz_sl_key(uint32_t k, int down)
 {
     uint32_t b = 1u << k;
     if (down)
