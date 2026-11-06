@@ -831,6 +831,27 @@ static __attribute__((noinline)) void kb_slice_press(uint32_t k)
     bz_sl_key(k, 1);
 }
 
+/* BLAZE SLICE: its white keys' presses and releases among the changes ch, taken out of ch (a pass of its own before
+ * keyboard_block's loop, out of line: that loop's code stays as it was: tests/target_budget.py) */
+static __attribute__((noinline)) uint32_t kb_slice_keys(uint32_t ch, uint32_t cur, int on)
+{
+    uint32_t k, b;
+    for (k = 0; k < 27u; k++) {
+        b = 1u << k;
+        if (!(ch & b))
+            continue;
+        if ((cur & b) && on && !key_black(k)) {
+            kb_slice_press(k);
+            ch &= ~b;
+        } else if (!(cur & b) && (kb_bzs & b)) {
+            kb_bzs &= ~b;
+            bz_sl_key(k, 0);
+            ch &= ~b;
+        }
+    }
+    return ch;
+}
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -852,6 +873,8 @@ static void keyboard_block(void)
     roll = (fm1_in.buttons & roll_mask) || (kb_lock & 4u);   /* BLAZE: ARP held (or locked): ROLL */
     home = (fm1_in.buttons & home_mask) || (kb_lock & 8u);   /* BLAZE: ENV held (or locked): BLAZE */
     mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
+    if ((bz_slice && lay && home && !kb_asleep) || kb_bzs)   /* BLAZE SLICE (0.8): its keys first */
+        ch = kb_slice_keys(ch, cur, bz_slice && lay && home && !kb_asleep);
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
             continue;
@@ -859,10 +882,6 @@ static void keyboard_block(void)
             kb_trk[k] = song.sel;
             if (kb_asleep) {                      /* (SCREEN OFF: the wake press is swallowed) */
                 kb_note[k] = KB_SILENT;
-                continue;
-            }
-            if (lay && home && bz_slice && !key_black(k)) {  /* BLAZE SLICE: a slice of the SLICE track (0.8) */
-                kb_slice_press(k);
                 continue;
             }
             if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
@@ -900,11 +919,6 @@ static void keyboard_block(void)
             kb_lat(k);
 #endif
         } else {
-            if ((kb_bzs >> k) & 1u) {             /* (BLAZE SLICE: its note ends, now or at the point) */
-                kb_bzs &= ~(1u << k);
-                bz_sl_key(k, 0);
-                continue;
-            }
             if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
                 kb_bzn &= ~(1u << k);
                 key_off(k, &trk[kb_trk[k] % NTRK]);
