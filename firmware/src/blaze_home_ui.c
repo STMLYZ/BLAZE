@@ -463,7 +463,8 @@ static void bz_shift_black(uint32_t p)
         bzride.to = (uint8_t)(bzm.pos < 50u ? 100u : 0u);
         bzride.s0 = bz_s16 + (in || clk_pos ? 16u - in : 0u);
         bzride.t0 = fm1_ms;
-        bzride.len = (uint32_t)((uint64_t)bzride.bars * 4u * beat_samples() * 10u / 441u);
+        bzride.len = (uint32_t)bzride.bars * 4u * beat_samples() / 441u * 10u;   /* (ms; 32-bit: the main loop's
+                                                                                 * code has no 64-bit divide) */
         bzride.on = 1;
         bzm.on = 1;
         str_cpy(m, bzride.to ? "RIDE TO B OVER " : "RIDE TO A OVER ", sizeof m);
@@ -479,9 +480,11 @@ static void bz_ride_pass(void)                      /* each pass: RIDE moves MOR
         uint32_t f, span = (uint32_t)bzride.bars * 16u * div_samples(2);
         if (song.playing) {
             uint32_t s = bz_s16, d = s - bzride.s0;
-            f = (int32_t)d < 0 ? 0u : (uint32_t)(((uint64_t)d * div_samples(2) + clk_pos) * 1000u / (span ? span : 1u));
-        } else
-            f = (uint32_t)((uint64_t)(fm1_ms - bzride.t0) * 1000u / (bzride.len ? bzride.len : 1u));
+            f = (int32_t)d < 0 ? 0u : (d * div_samples(2) + clk_pos) / (span / 1000u + 1u);
+        } else {
+            uint32_t e = fm1_ms - bzride.t0;
+            f = (e < bzride.len ? e : bzride.len) * 1000u / (bzride.len ? bzride.len : 1u);
+        }
         f = f > 1000u ? 1000u : f;
         bzm.pos = (uint8_t)((int32_t)bzride.from + ((int32_t)bzride.to - (int32_t)bzride.from) * (int32_t)f / 1000);
         bzm_apply();
