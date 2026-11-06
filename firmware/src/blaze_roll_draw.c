@@ -165,7 +165,8 @@ static void layer_roll(void)
     for (i = 0; i < 12u; i++) {                         /* black keys 1..11 in order, then OCT+ */
         int32_t x = BZX(i % 4u), y = RLD_Y1 + (RLD_BH + RLD_GAP) * (int32_t)(i / 4u);
         if (i < RL_NRATE) {
-            bzk_cell(x, y, RLD_BH, RL_RATE_CELL[i], T_THEME, (rl_rates >> i) & 1u ? RLC_FILL : RLC_IDLE, BZK_B, i + 1u);
+            bzk_cell(x, y, RLD_BH, RL_RATE_CELL[i], T_THEME, ((rl_rates & ~rl_latch) >> i) & 1u ? RLC_FILL
+                     : (rl_latch >> i) & 1u ? RLC_TINT : RLC_IDLE, BZK_B, i + 1u);   /* (0.9: tapped on: tinted) */
         } else if (i == RLK_TAP || i == RLK_NDN || i == RLK_NUP) {
             static const char *const N[3] = {"TAP", "SLOWER", "FASTER"};
             bzk_cell(x, y, RLD_BH, N[i - RLK_TAP], T_MID, ext ? RLC_DIM : rl_nudging(i) ? RLC_FILL : RLC_IDLE, BZK_B,

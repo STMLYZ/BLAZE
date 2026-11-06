@@ -695,7 +695,9 @@ static void state(void)                          /* a playing song with steps on
     fm1_in.buttons = 0; fm1_in.notes = 0;        /* (BLAZE: no SHIFT, no KEYS, nothing of its running) */
     bz_keys = 0; bz_pads = 0; bz_riser = 0; bz_build = 0; rl_extra = 0; bz_s16 = bz_org = 0;
     bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0; bz_set_n = 0; bzkit.k = 0;
-    bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0;
+    bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0; bz_rb = 0; bz_rb_deck = 0; bz_rb_val[0] = 64;
+    memset((void *)rl_pp_rate, 0, sizeof rl_pp_rate); memset((void *)rl_pp_fx, 0, sizeof rl_pp_fx); rl_pp = 0;
+    rl_latch = 0; bz_pads = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
     seq_fill = 0;                                /* (1.5.5: GLO's FILL, held in layer_glo_fill only; */
     eu.on = 0;                                   /* SEQ TOOLS' EUCLID, open in layer_seq_euclid*) */
@@ -814,7 +816,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_RISER_EDIT, S_BLAZE_RISER_SYNTH, S_BLAZE_EOUT, S_BLAZE_CHORD, S_BLAZE_CHORD7,
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
-       S_BLAZE_SLICE_NONE, S_COUNT };   /* BLAZE */
+       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -850,7 +852,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_home", "blaze_home_live", "blaze_home_drop", "blaze_shift", "blaze_drum", "blaze_keys",
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
-    "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none"};
+    "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1327,6 +1329,14 @@ static void setup(int s)
         trk[2].p[P_E2] = 2; trk[2].p[P_E4] = 1; trk[2].p[P_SLCR] = SL_GATE; bz_slice = 1; bz_strk = 2; bz_sl_ok = 1;
         bz_sl_q = 1; fm1_in.notes |= 1u << 9; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_SLICE_NONE: go_home(); bz_slice = 1; bz_strk = 0; bz_sl_ok = 0; bz_sl_q = 0; ui.layer = LAYER_BLAZE; break;
+    /* 0.9: REKORDBOX (deck 2, white 2 held); PAD PRESETS (SNARE 1/16 + ECHO, HAT 1/32) with 1/8 tapped on; editing
+     * SNARE's (its pad held + SHIFT) */
+    case S_BLAZE_RB: go_home(); bz_rb = 1; bz_rb_deck = 1; bz_rb_val[0] = 90; fm1_in.notes |= 1u << 2;
+        ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_PP: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; rl_pp_rate[3] = 7; rl_latch = 1u << 2;
+        rl_rates = 1u << 2; ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_PP_EDIT: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; bz_pads = 1; rl_pp = 1u << 1;
+        fm1_in.buttons = 1u << panel.btn[B_OCTUP]; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_LOOPS: go_home(); bz_loops = 1; trk[2].p[P_MUTE] = 1; trk[3].p[P_MUTE] = 1; bz_lp_op[3] = BZL_IN;
         bz_fd_len[1] = 4u * 88200u; bz_fd_age[1] = 88200u; bz_fill_left[0] = 30000u; bz_lp_restart = 1; bz_duck = 60;
         bzl.to = 132; bzl.bars = 16; bz_lp_q = 3; ui.layer = LAYER_BLAZE; break;

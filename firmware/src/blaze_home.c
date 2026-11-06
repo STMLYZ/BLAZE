@@ -48,6 +48,19 @@ static void bz_chord_key(uint32_t p);
 static void bz_chord_stop(void);
 static volatile uint8_t bz_loops;              /* main: the layer is LOOPS (blaze_loops.c) */
 static volatile uint8_t bz_slice;              /* main: the layer is SLICE (blaze_slice.c, 0.8) */
+/* 0.9 REKORDBOX (OCT- after SLICE): the FM-1 as a second controller. Every key sends a MIDI note (on 127, off on its
+ * release) and plays nothing; rekordbox's MIDI LEARN maps them. White 1..16: notes 36..51 on the DECK's channel (14:
+ * deck 1, 15: deck 2: black 11 switches it); black 1..10: notes 60..69 on channel 13 (the sampler, Beat FX: one for
+ * both decks); KNOB 1..4: CC 1..4 on channel 13, 0..127 (blaze_home_ui.c; sent here, the one MIDI-out writer) */
+#define BZ_RB_CH 12u                            /* (channel 13: status low nibble) */
+#define BZ_RB_DECK_CH 13u                       /* (14: deck 1, 15: deck 2) */
+#define BZ_RB_DECK_KEY 10u                      /* black 11: DECK 1 / 2 */
+static volatile uint8_t bz_rb;                 /* main: the layer is REKORDBOX */
+static volatile uint8_t bz_rb_deck;            /* ISR (black 11): 0 deck 1, 1 deck 2 */
+static volatile uint8_t bz_rb_val[4] = {64, 100, 64, 64};   /* main: the knobs' values */
+static uint8_t bz_rb_sent[4] = {64, 100, 64, 64};   /* ISR: the values last sent (one changed: sent) */
+static volatile uint32_t bz_rb_down;           /* ISR: keys down here (the main loop's LEDs) */
+static uint8_t bz_rb_kch[27];                  /* ISR: the channel each key's note went on (its note-off: the same) */
 static void bz_loops_key(uint32_t p);
 static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-) */
 static volatile uint8_t bz_ktrk;               /* main: the KEYS track */
@@ -76,6 +89,9 @@ static volatile uint8_t bz_kitk;               /* ISR: white keys 1..8 taken by 
                                                 * loop loads / saves it, the key plays nothing) */
 static volatile uint8_t bz_shift_on;           /* main: SHIFT (OCT+) held in the layer (bz_ui_pass, each pass) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
+static volatile uint8_t bz_pp_dirty;           /* ISR sets: a PAD PRESET changed (0.9; the main loop saves, says it) */
+static volatile uint8_t bz_pp_lane;            /* .. its lane */
+static uint16_t bz_ppk;                        /* ISR: keys (bit k) taken to set a PAD PRESET: their release, nothing */
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
 static uint8_t bz_tapfx;                       /* ISR: the effects pressed down as a tap could be (bit i of BZ_FX) */
 static uint8_t bz_offfx;                       /* .. pressed to turn a latched one off (its release does nothing) */
@@ -195,9 +211,39 @@ static void bz_riser_tap(void)
     bz_riser = 8u;
 }
 
+/* 0.9 PAD PRESETS: SHIFT + a rate (r1: 1..7) or an effect (f1: 1..6) key with BLAZE pads held: on that pad's lane,
+ * toggled (the same again: none) */
+static void bz_pp_set(uint32_t r1, uint32_t f1)
+{
+    uint32_t i, pad, l;
+    for (i = 0; i < 4u; i++) {
+        if (!((bz_pads >> i) & 1u) || (pad = bz_pad_of(i)) >= 16u)
+            continue;
+        l = pad % NLANE;
+        if (r1)
+            rl_pp_rate[l] = (uint8_t)(rl_pp_rate[l] == r1 ? 0u : r1);
+        if (f1)
+            rl_pp_fx[l] = (uint8_t)(rl_pp_fx[l] == f1 ? 0u : f1);
+        bz_pp_lane = (uint8_t)l;
+        bz_pp_dirty = 1;
+    }
+}
+/* a pad's PRESET effect off when its pad lets go: unless another pad held carries it, or its own key holds it */
+static void bz_pp_fx_off(uint32_t i, uint32_t f1)
+{
+    uint32_t j, pad, e = BZ_FX[f1 - 1u];
+    for (j = 0; j < 4u; j++)
+        if (j != i && ((bz_pads >> j) & 1u) && (pad = bz_pad_of(j)) < 16u && rl_pp_fx[pad % NLANE] == f1)
+            return;
+    if (!((bz_tapfx >> (f1 - 1u)) & 1u))
+        perf_held &= ~PF_BIT(e);
+}
+
 static void bz_release_all(void)
 {
     uint32_t i;
+    rl_unlatch();                                /* (0.9: the tapped rates, the pads at their own rate) */
+    rl_pp = 0;
     for (i = 0; i < BZ_NFX; i++)
         perf_held &= ~PF_BIT(BZ_FX[i]);
     perf_latched = 0;
@@ -245,6 +291,27 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
     uint32_t p = key_place(k), pad;
     if (bz_slice)                                /* SLICE: the white keys play (seq.c), the black ones: the main loop's */
         return;
+    if (bz_rb || (!down && ((bz_rb_down >> k) & 1u))) {   /* 0.9 REKORDBOX: notes out, nothing sounds (a key let go
+                                                  * after the page was left: its note-off still) */
+        uint32_t ch, note, b = 1u << k;
+        if (key_black(k) && p == BZ_RB_DECK_KEY && bz_rb) {
+            if (down)
+                bz_rb_deck = (uint8_t)!bz_rb_deck;
+            return;
+        }
+        if (down) {
+            ch = key_black(k) ? BZ_RB_CH : BZ_RB_DECK_CH + (bz_rb_deck & 1u);
+            note = key_black(k) ? 60u + p : 36u + p;
+            bz_rb_kch[k] = (uint8_t)ch;
+            bz_rb_down |= b;
+            midi_out_event(0x09u | (0x90u | ch) << 8 | note << 16 | 127u << 24);
+        } else if (bz_rb_down & b) {
+            bz_rb_down &= ~b;
+            note = key_black(k) ? 60u + p : 36u + p;
+            midi_out_event(0x08u | (0x80u | bz_rb_kch[k]) << 8 | note << 16);
+        }
+        return;
+    }
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
         if (!key_black(k) && down)
             bz_chord_key(p);
@@ -261,13 +328,29 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
     if (key_black(k)) {
         if (bz_keys)
             return;                              /* (KEYS: the main loop's) */
-        if (p < 6u)
+        if (p < 6u && down && bz_shift_on && bz_pads) {   /* 0.9: a pad + SHIFT: the pad's own rate */
+            bz_ppk |= (uint16_t)(1u << k);
+            bz_pp_set(p + 2u, 0);
+        } else if (p < 6u && !down && ((bz_ppk >> k) & 1u))
+            bz_ppk &= (uint16_t)~(1u << k);
+        else if (p < 6u)
             rl_rate(p + 1u, down);               /* (ROLL's rates 1/4 .. 1/32) */
         else if (p == BZK_REL && down)
             bz_release_all();
         else if (p == BZK_ONE && down)           /* the nearest step's beat is the 1 */
             bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
         return;                                  /* (TAP, NUDGE: the main loop's) */
+    }
+    if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX) {    /* 0.9: a pad + SHIFT + an effect: the pad's own effect */
+        if (down && bz_shift_on && bz_pads) {
+            bz_ppk |= (uint16_t)(1u << k);
+            bz_pp_set(0, p - BZ_FX0 + 1u);
+            return;
+        }
+        if (!down && ((bz_ppk >> k) & 1u)) {
+            bz_ppk &= (uint16_t)~(1u << k);
+            return;
+        }
     }
     if (p < 8u && !bz_keys) {                    /* 0.7: SHIFT + white 1..8: KIT 1..8 (the main loop's) */
         uint8_t b = (uint8_t)(1u << p);
@@ -285,13 +368,27 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         if (pad >= 16u)
             return;
         if (!down) {
+            if (!((bz_pads >> p) & 1u))
+                return;                          /* (it was not down here: a KIT key's, ...) */
+            if (rl_pp_fx[pad % NLANE])
+                bz_pp_fx_off(p, rl_pp_fx[pad % NLANE]);
             bz_pads &= (uint16_t)~(1u << p);
+            rl_pp_key(pad, 0, 0);
             rl_extra &= (uint16_t)~(1u << pad);
             rl_rerun();
             return;
         }
         bz_pads |= (uint16_t)(1u << p);
         rl_vel[pad] = (uint8_t)kb_vel;
+        if (rl_pp_fx[pad % NLANE]) {             /* 0.9: its PRESET effect, while held */
+            uint32_t e = BZ_FX[(rl_pp_fx[pad % NLANE] - 1u) % BZ_NFX];
+            perf_held |= PF_BIT(e);
+            perf_ord[e] = ++perf_seq;
+        }
+        if (rl_pp_rate[pad % NLANE]) {           /* 0.9: its PRESET rate: rolls at it, apart from the rates on */
+            rl_pp_key(pad, rl_pp_rate[pad % NLANE], 1);
+            return;
+        }
         rl_extra |= (uint16_t)(1u << pad);
         if (!rl_nr)
             rl_hit(pad, rl_vel[pad]);
@@ -317,6 +414,15 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
 {
     uint32_t pad, total, r, a;
     bz_now += n;
+    {                                            /* 0.9 REKORDBOX: a knob moved, its CC (channel 13, CC 1..4) */
+        uint32_t i, v;
+        for (i = 0; i < 4u; i++) {
+            v = bz_rb_val[i] & 127u;
+            if (bz_rb && v != bz_rb_sent[i])
+                midi_out_event(0x0Bu | (0xB0u | BZ_RB_CH) << 8 | (1u + i) << 16 | v << 24);
+            bz_rb_sent[i] = (uint8_t)v;          /* (outside the page: kept, nothing sent) */
+        }
+    }
     if (bz_eo != BZE_IDLE && bz_eo != BZE_OUT) { /* ECHO OUT: its states on the sequencer's time */
         a = adv;
         while (bz_eo != BZE_IDLE && bz_eo != BZE_OUT && bz_eo_left <= a) {

@@ -7,6 +7,14 @@
  * knobs, a pad held edits that drum, ALGO the KIT; KEYS (OCT-): the white keys play the scale, the black ones the arp. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
+/* 0.9: a rate key tapped (let go within 250 ms) stays on; a key let go here was held 300 ms (fm1_ms), so the presses
+ * of the tests before 0.9 stay holds. (key_up)(k): let go at once (a tap) */
+static void key_up_held(uint32_t k)
+{
+    fm1_ms += 300u;
+    (key_up)(k);
+}
+#define key_up(k) key_up_held(k)
 
 static uint32_t wk(uint32_t place)
 {
@@ -67,6 +75,7 @@ static void home_reset(void)
     bz_pads = 0;
     bz_tapfx = bz_offfx = 0;
     bz_slice = 0;
+    bz_rb = 0;
     bz_sl_on = bz_sl_off = 0;
     bz_sl_q = 0;
     bz_sl_page = 0;
@@ -540,8 +549,10 @@ int main(void)
     press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && !bz_loops && bz_slice && !strncmp(bz_head(), "[ENV] SLICE", 11);
     press(B_OCTDN);
-    ok &= !bz_keys && !bz_chord && !bz_loops && !bz_slice;
-    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> BLAZE", ok);
+    ok &= !bz_slice && bz_rb;
+    press(B_OCTDN);
+    ok &= !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb;
+    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> REKORDBOX -> BLAZE", ok);
     bz_cfg[BZC_MAGIC_I] = 0;
     bz_cfg_apply();
     key_down(wk(BZ_RISER));
@@ -878,6 +889,129 @@ int main(void)
         key_up(wk(0));
         bad += check("  32 slices: 17-32 puts slice 17 on white 1 (16 or fewer: one page)", ok);
         bz_slice = 0;
+    }
+
+
+    /* 0.9: a rate key TAPPED stays on: a pad then rolls at it with no rate held; tapped again: off; held: as before;
+     * ALL OFF: every tapped rate off */
+    home_reset();
+    {
+        uint32_t n1, n2, n3;
+        key_down(bk(3));
+        (key_up)(bk(3));                            /* (a tap: let go at once) */
+        ok = (rl_latch >> 4) & 1u;
+        v0 = vage;
+        key_down(wk(0));
+        n1 = vage - v0 + run(beat_samples() / CTL, 0, 0);
+        key_up(wk(0));
+        key_down(bk(3));
+        (key_up)(bk(3));                            /* (tapped again: off) */
+        ok &= !rl_latch && !rl_nr;
+        v0 = vage;
+        key_down(wk(0));
+        n2 = vage - v0 + run(beat_samples() / CTL, 0, 0);
+        key_up(wk(0));
+        key_down(bk(3));
+        key_up(bk(3));                              /* (held 300 ms: not latched) */
+        ok &= !rl_latch && !rl_nr;
+        key_down(bk(1));
+        (key_up)(bk(1));
+        key_down(bk(9));                            /* ALL OFF */
+        key_up(bk(9));
+        ok &= !rl_latch && !rl_nr;
+        v0 = vage;
+        key_down(wk(0));
+        n3 = vage - v0 + run(beat_samples() / CTL, 0, 0);
+        key_up(wk(0));
+        bad += check("RATES (0.9): 1/16 tapped on: the pad alone rolls 4 a beat; tapped again: once; held: not kept; "
+                     "ALL OFF: off", ok && n1 == 4u && n2 == 1u && n3 == 1u);
+    }
+
+    /* 0.9: PAD PRESETS: SNARE's pad held + SHIFT + black 4 (1/16) + white 5 (ECHO): saved; the pad alone then rolls at
+     * 1/16 with ECHO on while held; the same keys again: plain */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], n1, n2, echo;
+        bz_cfg_apply();
+        key_down(wk(0));
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(bk(3));
+        key_up(bk(3));
+        key_down(wk(4));
+        key_up(wk(4));
+        bz_ui_pass();
+        ok = rl_pp_rate[1] == 5u && rl_pp_fx[1] == 1u && bz_cfg_pp[1] == (5u | 1u << 4) && !rl_latch && !rl_nr &&
+             !(perf_latched & PF_BIT(PF_ETHR));
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        key_up(wk(0));
+        ok &= !(perf_held & PF_BIT(PF_ETHR));
+        v0 = vage;
+        key_down(wk(0));
+        echo = (perf_held & PF_BIT(PF_ETHR)) != 0u;
+        n1 = vage - v0 + run(beat_samples() / CTL, 0, 0);
+        key_up(wk(0));
+        ok &= echo && !(perf_held & PF_BIT(PF_ETHR)) && !rl_pp;
+        bad += check("PAD PRESETS (0.9): SNARE + SHIFT + 1/16 + ECHO: saved; the pad alone rolls 4 a beat with ECHO on "
+                     "while held", ok && n1 == 4u);
+        key_down(wk(0));
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(bk(3));
+        key_up(bk(3));
+        key_down(wk(4));
+        key_up(wk(4));
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        key_up(wk(0));
+        v0 = vage;
+        key_down(wk(0));
+        n2 = vage - v0 + run(beat_samples() / CTL, 0, 0);
+        key_up(wk(0));
+        bad += check("  the same keys again: plain (once), saved as none", n2 == 1u && !rl_pp_rate[1] && !rl_pp_fx[1] &&
+                     !bz_cfg_pp[1]);
+    }
+
+
+    /* 0.9 REKORDBOX: OCT- after SLICE; white 1 sends note 36 on channel 14 (deck 1), its release the note-off; black 11:
+     * deck 2 (channel 15); black 1: note 60 on channel 13; KNOB 1: CC 1 on channel 13; nothing sounds */
+    home_reset();
+    {
+        uint32_t mo, v1, pk[8], np = 0, i;
+        bz_slice = 1;
+        bz_keys_toggle();
+        ok = bz_rb && !bz_slice && !strncmp(bz_head(), "[ENV] REKORDBOX", 15);
+        usb.config = 1;
+        mo = mo_w;
+        v1 = vage;
+        key_down(wk(0));
+        key_up(wk(0));
+        key_down(bk(10));
+        key_up(bk(10));
+        key_down(wk(2));
+        key_up(wk(2));
+        key_down(bk(0));
+        key_up(bk(0));
+        bz_rb_val[0] = 90;
+        home_block(CTL, CTL);
+        for (i = mo; i != mo_w && np < 8u; i++)
+            pk[np++] = midi_out_q[i % MQ];
+        ok &= vage == v1 && np == 7u && bz_rb_deck == 1u &&
+              pk[0] == (0x09u | 0x9Du << 8 | 36u << 16 | 127u << 24) && pk[1] == (0x08u | 0x8Du << 8 | 36u << 16) &&
+              pk[2] == (0x09u | 0x9Eu << 8 | 38u << 16 | 127u << 24) && pk[3] == (0x08u | 0x8Eu << 8 | 38u << 16) &&
+              pk[4] == (0x09u | 0x9Cu << 8 | 60u << 16 | 127u << 24) && pk[5] == (0x08u | 0x8Cu << 8 | 60u << 16) &&
+              pk[6] == (0x0Bu | 0xBCu << 8 | 1u << 16 | 90u << 24);
+        bad += check("REKORDBOX (0.9): white 1 note 36 ch 14, black 11 deck 2 (white 3: note 38 ch 15), black 1 note 60 "
+                     "ch 13, KNOB 1 CC 1 ch 13; silent", ok);
+        mo = mo_w;
+        key_down(wk(5));
+        bz_keys_toggle();                           /* (left the page with the key down) */
+        key_up(wk(5));
+        ok = !bz_rb && mo_w == mo + 2u && midi_out_q[(mo + 1u) % MQ] == (0x08u | 0x8Eu << 8 | 41u << 16);
+        bad += check("  a key let go after the page was left: its note-off still goes", ok);
+        bz_rb_deck = 0;
+        usb.config = 0;
     }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");

@@ -173,7 +173,11 @@ _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] <= 192u, "BLAZE sett
 /* 0.7: 8 more of that row (16..23), marked their own way: [1] KEY LOCK (MIDI IN onto the key) 1 on, 0 off */
 #define bz_cfg2 (&favorites.factory[ENGI_DRUM][16])
 #define BZ_CFG2_MAGIC 0xB9u
-enum { BZC2_MAGIC_I, BZC2_LOCK };
+enum { BZC2_MAGIC_I, BZC2_LOCK, BZC2_PP };
+/* 0.9: the PAD PRESETS, a byte a lane in 8..15 of the row (valid once bz_cfg2[BZC2_PP] is BZ_PP_MAGIC): the rate + 1
+ * (low 4 bits), the effect + 1 (high 4) */
+#define bz_cfg_pp (&favorites.factory[ENGI_DRUM][8])
+#define BZ_PP_MAGIC 0x5Au
 static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
 static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
 /* the settings into the ISR's copies (an unmarked or old setting: the defaults first) */
@@ -204,6 +208,45 @@ static void bz_cfg_apply(void)
         c[BZC2_MAGIC_I] = BZ_CFG2_MAGIC;
     }
     bz_lock = (uint8_t)(c[BZC2_LOCK] != 0u);
+    if (c[BZC2_PP] != BZ_PP_MAGIC) {
+        memset(bz_cfg_pp, 0, NLANE);
+        c[BZC2_PP] = BZ_PP_MAGIC;
+    }
+    {
+        uint32_t l;
+        for (l = 0; l < NLANE; l++) {
+            uint32_t r = bz_cfg_pp[l] & 15u, f = bz_cfg_pp[l] >> 4;
+            rl_pp_rate[l] = (uint8_t)(r <= RL_NRATE ? r : 0u);
+            rl_pp_fx[l] = (uint8_t)(f <= BZ_NFX ? f : 0u);
+        }
+    }
+}
+
+static const char *rl_lane_name(const track_t *t, uint32_t l);   /* (blaze_roll_draw.c) */
+/* 0.9: a PAD PRESET changed (the ISR): kept with the settings, and said */
+static void bz_pp_pass(void)
+{
+    uint32_t l = bz_pp_lane % NLANE, r, f;
+    char m[40];
+    if (!bz_pp_dirty)
+        return;
+    bz_pp_dirty = 0;
+    r = rl_pp_rate[l];
+    f = rl_pp_fx[l];
+    bz_cfg_pp[l] = (uint8_t)(r | f << 4);
+    lys.rp_dirty = 1;
+    str_cpy(m, rl_lane_name(rl_track(), l), sizeof m);
+    str_cpy(m + str_len(m), r || f ? ":" : ": PLAIN AGAIN", sizeof m - str_len(m));
+    if (r) {
+        str_cpy(m + str_len(m), " ROLL ", sizeof m - str_len(m));
+        str_cpy(m + str_len(m), RL_RATE_CELL[r - 1u], sizeof m - str_len(m));
+    }
+    if (f) {
+        str_cpy(m + str_len(m), r ? " + " : " ", sizeof m - str_len(m));
+        str_cpy(m + str_len(m), BZ_FX_NAME[f - 1u], sizeof m - str_len(m));
+    }
+    ui_message(m);
+    ui.force = 1;
 }
 
 /* ---- 0.7: KITS. SHIFT + white 1..8: KIT 1..8, the DRUM track's sound (its KIT, each drum's TUNE DECAY LEVEL, TONE
@@ -288,7 +331,7 @@ static uint32_t bz_slice_first(void)               /* SLICE's track: the selecte
 }
 static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> BLAZE) */
 {
-    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice) {
+    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
         bz_ktrk = (uint8_t)bz_keys_track();
         bz_keys = 1;
     } else if (bz_keys) {
@@ -304,12 +347,16 @@ static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> C
         bz_strk = (uint8_t)bz_slice_first();
         bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
         bz_slice = 1;
-    } else {
+    } else if (bz_slice) {
         bz_slice = 0;
+        bz_rb = 1;
+    } else {
+        bz_rb = 0;
     }
     ui_message(bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
                : bz_loops ? "LOOPS: LAYERS IN AND OUT ON THE BEAT"
                : bz_slice ? (bz_sl_ok ? "SLICE: THE SAMPLE ON THE KEYS" : "SLICE: NO SLICE TRACK (SHIFT + T1..T4 MAKES ONE)")
+               : bz_rb ? "REKORDBOX: THE KEYS SEND MIDI (MIDI LEARN)"
                : "BLAZE: PADS AND EFFECTS");
     ui.force = 1;
 }
@@ -463,6 +510,12 @@ static void bz_chord_black(uint32_t p)
 
 /* ---- SLICE's black keys (the main loop): T1..T4 (SHIFT: make it a SLICE track), MODE, REV, DIV, SRC, 17-32,
  * QUANTIZE, CHOP (the track's SLICER insert: OFF GATE STUT) ---- */
+/* 0.9 REKORDBOX: what each key is for (rekordbox's MIDI LEARN decides; these are the names to learn them as) */
+static const char *const BZ_RB_WHITE[16] = {"CUE A", "CUE B", "CUE C", "CUE D", "CUE E", "CUE F", "CUE G", "CUE H",
+                                            "LOOP 1", "LOOP 2", "LOOP 4", "LOOP 8", "RELOOP", "JUMP -", "JUMP +", "SYNC"};
+static const char *const BZ_RB_BLACK[10] = {"SMP 1", "SMP 2", "SMP 3", "SMP 4", "SMP 5", "SMP 6", "SMP 7", "SMP 8",
+                                            "FX ON", "FX NEXT"};
+static const char *const BZ_RB_KNOB[4] = {"DEPTH", "VOLUME", "BEAT", "FILTER"};   /* (Beat FX depth, sampler volume, Beat FX beat, a filter) */
 enum { BZS_MODE = 4, BZS_REV, BZS_DIV, BZS_SRC, BZS_PAGE, BZS_Q, BZS_CHOP };
 static const char *const BZS_Q_NAME[4] = {"Q OFF", "Q 1/16", "Q 1/8", "Q BEAT"};
 static void bz_say_param(const track_t *t, uint32_t id, const char *pre)
@@ -534,6 +587,23 @@ static void bz_ui_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     track_t *t;
+    if (bz_rb) {                                    /* 0.9 REKORDBOX: what the key sends (the ISR sends it) */
+        char m[40];
+        uint32_t ch;
+        if (key_black(k) && p == BZ_RB_DECK_KEY) {
+            ui.force = 1;                           /* (the ISR switches it: bz_ui_pass says which) */
+            return;
+        }
+        ch = key_black(k) ? BZ_RB_CH + 1u : BZ_RB_DECK_CH + 1u + (bz_rb_deck & 1u);
+        str_cpy(m, key_black(k) ? BZ_RB_BLACK[p % 10u] : BZ_RB_WHITE[p % 16u], sizeof m);
+        str_cpy(m + str_len(m), ": NOTE ", sizeof m - str_len(m));
+        fmt_int(m + str_len(m), (int32_t)(key_black(k) ? 60u + p : 36u + p));
+        str_cpy(m + str_len(m), " CH ", sizeof m - str_len(m));
+        fmt_int(m + str_len(m), (int32_t)ch);
+        ui_message(m);
+        ui.force = 1;
+        return;
+    }
     if (bz_slice) {                                 /* SLICE: the black keys (the white ones play: seq.c) */
         if (key_black(k))
             bz_slice_black(p);
@@ -642,6 +712,15 @@ static void bz_ui_pass(void)
     }
     bz_ramp_pass();
     bz_shift_on = (uint8_t)bz_shift();
+    bz_pp_pass();
+    {                                               /* 0.9 REKORDBOX: DECK switched (the ISR): said */
+        static uint8_t deck;
+        if (bz_rb_deck != deck) {
+            deck = bz_rb_deck;
+            ui_message(deck ? "DECK 2: WHITE KEYS ON CHANNEL 15" : "DECK 1: WHITE KEYS ON CHANNEL 14");
+            ui.force = 1;
+        }
+    }
     if (bz_slice)                                   /* (0.8: SLICE's track could change engine elsewhere) */
         bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
     bz_kit_pass();
@@ -678,6 +757,10 @@ static void bz_knob(uint32_t k, int32_t s)
             bz_cfg_apply();
             lys.rp_dirty = 1;
         }
+        return;
+    }
+    if (bz_rb) {                                    /* 0.9 REKORDBOX: CC 1..4 on channel 13 (the ISR sends) */
+        bz_rb_val[k] = (uint8_t)clamp((int32_t)bz_rb_val[k] + accel(EN_K1 + k, s, 127), 0, 127);
         return;
     }
     if (bz_slice) {                                 /* SLICE: START PITCH DECAY TONE of the SLICE track */
@@ -796,6 +879,11 @@ static void bz_algo(int32_t s)
 static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
 {
     uint32_t p = key_place(k), fx = perf_held | perf_latched;
+    if (bz_rb) {                                    /* 0.9 REKORDBOX: every key can; held: lit; DECK 2: lit */
+        *can = !key_black(k) || p < 11u;
+        *on = key_black(k) && p == BZ_RB_DECK_KEY ? bz_rb_deck != 0u : (bz_rb_down >> k) & 1u;
+        return;
+    }
     if (bz_slice) {                                 /* SLICE: the slices there are breathe, a key held lit */
         const track_t *t = &trk[bz_strk % NTRK];
         if (!key_black(k)) {
@@ -896,7 +984,7 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
-    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_riser_held() ? "[ENV] RISER SOUND"
+    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
@@ -934,6 +1022,11 @@ static uint32_t bz_sig(void)
         (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u + bz_set_n * 233u +
         fm1_in.notes * 239u + up_gen * 241u + bz_lock * 251u + (uint32_t)bzkit.k * 257u;   /* (0.6: the key held,
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
+    h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +
+        bz_rb_val[2] * 367u + bz_rb_val[3] * 373u;   /* (0.9 REKORDBOX) */
+    h = h * 293u + rl_latch * 307u + rl_pp * 311u + bz_pads * 313u;   /* (0.9: tapped rates, PAD PRESETS) */
+    for (i = 0; i < NLANE; i++)
+        h = h * 17u + rl_pp_rate[i] + rl_pp_fx[i] * 9u;
     h = h * 263u + bz_slice * 269u + bz_strk * 271u + bz_sl_ok * 277u + bz_sl_page * 281u + bz_sl_q * 283u;
     if (bz_slice)                                    /* (0.8: SLICE's track: its sample, slices, knobs) */
         for (i = P_E0; i <= P_E7; i++)

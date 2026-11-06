@@ -249,10 +249,30 @@ static void layer_slice_map(void)
     }
 }
 
+/* 0.9 REKORDBOX: what each key sends, named for MIDI LEARN; the white keys tinted by deck (2: filled DECK key) */
+static void layer_rb_map(void)
+{
+    uint32_t i;
+    bzk_held_update();
+    bz_phrase_bar();
+    for (i = 0; i < 16u; i++)
+        bzk_cell(BZX(i % 4u), BZD_Y7 + 16 * (int32_t)(i / 4u), 14, BZ_RB_WHITE[i], i < 8u ? T_THEME : i < 12u ? T_ACCENT
+                 : T_MID, ((bzk_held_w >> i) & 1u) ? RLC_FILL : RLC_IDLE, BZK_W, i + 1u);
+    for (i = 0; i < 11u; i++) {
+        int32_t h = i < 8u ? 16 : 14, ry = BZD_YB + 18 * (int32_t)(i / 4u);
+        if (i == BZ_RB_DECK_KEY)
+            bzk_cell(BZX(i % 4u), ry, h, bz_rb_deck ? "DECK 2" : "DECK 1", T_MID, bz_rb_deck ? RLC_FILL : RLC_IDLE,
+                     BZK_B, i + 1u);
+        else
+            bzk_cell(BZX(i % 4u), ry, h, BZ_RB_BLACK[i], i < 8u ? T_THEME : T_REC,
+                     ((bzk_held_b >> i) & 1u) ? RLC_FILL : RLC_IDLE, BZK_B, i + 1u);
+    }
+}
+
 static void layer_blaze(void)
 {
     track_t *t = rl_track();
-    uint32_t i, fx = perf_kill ? 0u : perf_held | perf_latched, ok = perf_avail();
+    uint32_t i, fx = perf_kill ? 0u : perf_held | perf_latched, ok = perf_avail(), pe;
     int drum = drum_track(t), ext = song.g[G_CLOCK] != 0;
     if (bz_keys) {
         layer_keys_map();
@@ -270,20 +290,44 @@ static void layer_blaze(void)
         layer_slice_map();
         return;
     }
+    if (bz_rb) {
+        layer_rb_map();
+        return;
+    }
     bzk_held_update();
     bz_phrase_bar();
+    {                                                   /* 0.9: a pad held + SHIFT: its PAD PRESET shown (and set) */
+        uint32_t j, pad;
+        pe = 0;
+        for (j = 0; j < 4u && !pe; j++)
+            if (((bz_pads >> j) & 1u) && (pad = bz_pad_of(j)) < 16u && bz_shift())
+                pe = 1u + pad % NLANE;
+    }
     for (i = 0; i < 16u; i++) {                         /* white keys 1..16: 4 rows of 4 (15, 16: SET) */
         int32_t x = BZX(i % 4u), y = BZD_Y7 + 16 * (int32_t)(i / 4u);
-        if (i < 8u && bz_shift()) {                     /* 0.7: SHIFT: KIT 1..8 (held: saving / loading; the one
+        if (pe && i >= BZ_FX0 && i < BZ_FX0 + BZ_NFX) {    /* (the pad's effect filled) */
+            bzk_cell(x, y, 14, BZ_FX_NAME[i - BZ_FX0], T_ACCENT, rl_pp_fx[pe - 1u] == i - BZ_FX0 + 1u ? RLC_FILL
+                     : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i < BZ_FX0 && (pe || !bz_shift())) {
+            uint32_t pad = bz_pad_of(i), l = pad % NLANE;
+            char nm[16];
+            str_cpy(nm, pad < 16u ? rl_lane_name(t, l) : "-", sizeof nm);
+            if (pad < 16u && rl_pp_rate[l]) {           /* 0.9: a PAD PRESET: its rate (and + its effect) */
+                static const char *const R[RL_NRATE] = {"BAR", "4", "8", "8T", "16", "16T", "32"};
+                str_cpy(nm, drum_lane_abbr(t, l), sizeof nm);
+                str_cpy(nm + str_len(nm), " ", sizeof nm - str_len(nm));
+                str_cpy(nm + str_len(nm), R[rl_pp_rate[l] - 1u], sizeof nm - str_len(nm));
+            }
+            if (pad < 16u && rl_pp_fx[l])
+                str_cpy(nm + str_len(nm), "+", sizeof nm - str_len(nm));
+            bzk_cell(x, y, 14, nm, rl_lane_col(l),
+                     pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rl_pp | rlu.fl) >> pad) & 1u ? RLC_FILL
+                     : pad >= NLANE || rl_pp_rate[l] || rl_pp_fx[l] ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i < 8u && bz_shift()) {                     /* 0.7: SHIFT: KIT 1..8 (held: saving / loading; the one
                                                          * loaded tinted; empty dim) */
             char nm[8] = {'K', 'I', 'T', ' ', (char)('1' + i), 0};
             bzk_cell(x, y, 14, nm, T_THEME, bzkit.k == i + 1u ? RLC_FILL : !bz_kit_used(i) ? RLC_DIM
                      : t->user == BZ_KIT0 + i + 1u ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
-        } else if (i < BZ_FX0) {
-            uint32_t pad = bz_pad_of(i);
-            bzk_cell(x, y, 14, pad < 16u ? rl_lane_name(t, pad % NLANE) : "-", rl_lane_col(pad % NLANE),
-                     pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rlu.fl) >> pad) & 1u ? RLC_FILL
-                     : pad >= NLANE ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
         } else if (i < BZ_FX0 + BZ_NFX) {
             uint32_t e = BZ_FX[i - BZ_FX0];
             bzk_cell(x, y, 14, BZ_FX_NAME[i - BZ_FX0], T_ACCENT, !((ok >> e) & 1u) ? RLC_DIM : (fx >> e) & 1u ? RLC_FILL
@@ -303,10 +347,13 @@ static void layer_blaze(void)
     }
     for (i = 0; i < 11u; i++) {                         /* black keys 1..11: 3 rows of 4 */
         int32_t x = BZX(i % 4u), y = BZD_YB + 18 * (int32_t)(i / 4u), h = i < 8u ? 16 : 14;
-        if (i < 6u)
+        if (i < 6u && pe)                               /* (0.9: the pad's own rate filled) */
+            bzk_cell(x, y, h, RL_RATE_CELL[i + 1u], T_THEME, rl_pp_rate[pe - 1u] == i + 2u ? RLC_FILL : RLC_IDLE,
+                     BZK_B, i + 1u);
+        else if (i < 6u)                                /* (0.9: tapped on: tinted; held, playing: filled) */
             bzk_cell(x, y, h, RL_RATE_CELL[i + 1u], T_THEME,
-                     (rl_rates >> (i + 1u)) & 1u || (bz_build && bz_build_rate == i + 1u) ? RLC_FILL : RLC_IDLE, BZK_B,
-                     i + 1u);
+                     ((rl_rates & ~rl_latch) >> (i + 1u)) & 1u || (bz_build && bz_build_rate == i + 1u) ? RLC_FILL
+                     : (rl_latch >> (i + 1u)) & 1u ? RLC_TINT : RLC_IDLE, BZK_B, i + 1u);
         else
             bzk_cell(x, y, h, BZ_BLACK_NAME[i - 6u], T_MID,
                      (i == BZK_TAP || i == BZK_NDN || i == BZK_NUP) && ext ? RLC_DIM
@@ -349,6 +396,13 @@ static void bz_cards(void)
         draw_column(1, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "", "", "", T_DIM, -1, ICON_NONE);
+        return;
+    }
+    if (bz_rb) {                                        /* 0.9 REKORDBOX: CC 1..4 on channel 13 */
+        static const uint8_t IC[4] = {ICON_MIX, ICON_SAMPLE, ICON_DIVISION, ICON_CUTOFF};
+        uint32_t c;
+        for (c = 0; c < 4u; c++)
+            bz_card127(c, BZ_RB_KNOB[c], bz_rb_val[c], 0, IC[c]);
         return;
     }
     if (bz_slice) {                                     /* SLICE: START PITCH DECAY TONE of the SLICE track */

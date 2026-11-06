@@ -235,3 +235,44 @@ using Felucca's own SLICE engine: its BREAK, your own samples in USR1–USR3, or
 Loading your own sample (Mac, FM-1 on USB, BLAZE installed):
 `python3.12 tools/fm1_sample_upload.py load 1 VOX vocal.wav` puts `vocal.wav` in USR1 (about 7 s max per slot, any
 WAV; it is converted to mono 22 kHz). Then SAMPLE → USR1 and SLICES → AUTO.
+
+## 0.9 — tapped rates, PAD PRESETS, REKORDBOX
+
+### Rates stay on when tapped (BLAZE and ROLL)
+
+A rate key **tapped** (let go within a quarter second) stays on, tinted on screen: any pad you press then rolls at it,
+with no rate key held. Tap it again: off. **Held**, a rate works as before (rolls while held, gone when let go). ALL OFF
+turns every tapped rate off. Several tapped rates combine as held ones do (GROOVE / LAST).
+
+### PAD PRESETS (BLAZE's pads)
+
+Hold a pad, then hold SHIFT (OCT+), then tap:
+- a **rate key**: that drum rolls at that rate whenever its pad is held, whatever rates are on (the label shows it:
+  `SD 16`);
+- an **effect key** (ECHO .. REPEAT): that effect comes on while the pad is held (`+` on the label). Effects work on the
+  whole FM-1 output, not one drum.
+
+The same key again removes it. While a pad and SHIFT are held the screen shows that pad's preset (its rate and effect
+filled). Presets belong to the drum (lane), are kept with the settings, and play from BLAZE's pads. SHIFT on its own
+still gives KIT 1–8 on white 1–8.
+
+### REKORDBOX (OCT- after SLICE)
+
+The FM-1 becomes a second controller: every key sends a MIDI note (127 on press, note-off on release) and plays nothing.
+Map them in rekordbox: Preferences → MIDI (or the MIDI button) → device **Felucca** → MIDI LEARN.
+
+| FM-1 | Sends | Suggested rekordbox function |
+|---|---|---|
+| White 1–8 | notes 36–43, channel 14 (deck 1) / 15 (deck 2) | Hot Cue A–H |
+| White 9–12 | notes 44–47, ch 14 / 15 | Beat Loop 1 / 2 / 4 / 8 |
+| White 13 | note 48, ch 14 / 15 | Reloop / Exit |
+| White 14 / 15 | notes 49 / 50, ch 14 / 15 | Beat Jump − / + |
+| White 16 | note 51, ch 14 / 15 | Sync |
+| Black 1–8 | notes 60–67, channel 13 | Sampler slot 1–8 |
+| Black 9 / 10 | notes 68 / 69, ch 13 | Beat FX on / off, Beat FX select |
+| Black 11 | — (on the FM-1) | DECK 1 / 2: which channel the white keys use |
+| KNOB 1–4 | CC 1–4, channel 13, 0–127 | Beat FX depth, Sampler volume, Beat FX beat, a filter |
+
+Learn the white keys twice: once with DECK 1 (channel 14) to the deck 1 functions, once with DECK 2 (channel 15) to deck
+2's. The black keys and knobs are the same on both decks. The screen names each key as in the table; pressing one shows
+its note and channel.

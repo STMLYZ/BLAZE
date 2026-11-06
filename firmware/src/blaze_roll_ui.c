@@ -145,7 +145,7 @@ static const char *rl_head(void)
 static uint32_t rl_sig(void)
 {
     track_t *t = rl_track();
-    return (uint32_t)rl_held * 31u + (uint32_t)rlu.fl * 131u + (uint32_t)rl_rates * 7919u + rl_padmode * 3u +
+    return (uint32_t)rl_held * 31u + (uint32_t)rlu.fl * 131u + (uint32_t)rl_rates * 7919u + rl_latch * 4099u + rl_padmode * 3u +
            (uint32_t)rl_live() * 977u + rl_groove * 5u + rl_pick * 11u + rlu.nk * 13u + (uint32_t)song.g[G_CLOCK] * 17u + fm1_in.notes * 37u +
            (uint32_t)drum_track(t) * 19u + trk_index(t) * 23u + (uint32_t)t->p[P_E0] * 29u;
 }

@@ -6,6 +6,14 @@
  * tapped and held; ARP held opens the layer, double-tapped locks it; NUDGE; OCT+ GROOVE / LAST; the map draws. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
+/* 0.9: a rate key tapped (let go within 250 ms) stays on; a key let go here was held 300 ms (fm1_ms), so the presses
+ * of the tests before 0.9 stay holds. (key_up)(k): let go at once (a tap) */
+static void key_up_held(uint32_t k)
+{
+    fm1_ms += 300u;
+    (key_up)(k);
+}
+#define key_up(k) key_up_held(k)
 
 static uint32_t wk(uint32_t place)                 /* the key of white place p */
 {

@@ -8,7 +8,8 @@
  *   black keys 8..10: TAP, NUDGE -, NUDGE + (the main loop's: ui_layer.c rl_ui_key)
  *   black key 11: PADS. Tapped: 16 -> 4 -> 1 live pads -> 16 (the others dark and silent, so a fast hand never hits
  *     a neighbour). Held: the white keys pick the live pads of the mode (4: toggle, at most 4; 1: the one)
- * A pad with no rate held plays once, at once. A pad and a rate held: the pad rolls at that rate. Every rate starts on
+ * A pad with no rate held plays once, at once. A pad and a rate held: the pad rolls at that rate. 0.9: a rate key
+ * tapped stays on (rl_latch) until tapped again: a pad then rolls at it with no rate key held. Every rate starts on
  * its own grid while the transport plays (a 1/8 roll on the next 1/8, a 1/4 or a bar's on the next beat: never more
  * than a beat away), at once while stopped. GROOVE (rl_groove 1): every rate held plays, their hits combined, a hit two
  * of them share accented; LAST (0): the newest rate held only, the one held before it takes over when it is let go.
@@ -45,6 +46,18 @@ static uint32_t rl_age;                        /* ISR: samples since the roll be
 static uint8_t rl_vel[16];                     /* ISR: each pad's velocity as pressed */
 static uint32_t rl_offt[NLANE];                /* ISR: samples until that lane's note-off (0: none) */
 static uint8_t rl_offn[NLANE], rl_offc[NLANE];   /* .. its note and MIDI channel */
+/* 0.9: a rate key TAPPED stays on (rl_latch: a pad pressed then rolls at it, no rate held); tapped again: off. HELD it
+ * plays while held, as before (a latched one held stays latched). */
+#define RL_TAP_MS 250u
+static volatile uint8_t rl_latch;              /* ISR (the main loop reads): the rates tapped on */
+static uint8_t rl_wasl;                        /* ISR: the rates latched when their key went down */
+static uint32_t rl_rdown[RL_NRATE];            /* ISR: when (fm1_ms) */
+/* 0.9: PAD PRESETS (BLAZE's pads): a lane can carry its own rate (rolls at it while its pad is held, whatever rates are
+ * on) and an effect (on while the pad is held): blaze_home.c bz_pp_key, set with a pad + SHIFT + a rate / effect key */
+static volatile uint8_t rl_pp_rate[NLANE];     /* main / ISR: the lane's rate + 1 (0: none) */
+static volatile uint8_t rl_pp_fx[NLANE];       /* main / ISR: the lane's effect (BLAZE's BZ_FX index) + 1 (0: none) */
+static volatile uint16_t rl_pp;                /* ISR: pads rolling at their lane's own rate */
+static uint32_t rl_ppn[16];                    /* ISR: samples to each one's next hit */
 
 static uint16_t rl_live(void)
 {
@@ -136,7 +149,18 @@ static void rl_rerun(void)
 
 static void rl_rate(uint32_t r, int down)
 {
-    uint32_t i, k = 0;
+    uint32_t i, k = 0, b = 1u << r;
+    if (down) {
+        rl_rdown[r] = fm1_ms;
+        rl_wasl = (uint8_t)((rl_wasl & ~b) | (rl_latch & b));
+    } else {                                     /* 0.9: a tap toggles it on / off, a hold was only while held */
+        int tap = fm1_ms - rl_rdown[r] < RL_TAP_MS;
+        if (tap ? !(rl_wasl & b) : (rl_wasl & b) != 0u) {
+            rl_latch |= (uint8_t)b;
+            return;                              /* (stays on: in the order, its bit) */
+        }
+        rl_latch &= (uint8_t)~b;
+    }
     for (i = 0; i < rl_nr; i++)                  /* (out of the order, then on its end if pressed) */
         if (rl_ord[i] != r)
             rl_ord[k++] = rl_ord[i];
@@ -145,6 +169,35 @@ static void rl_rate(uint32_t r, int down)
         rl_ord[rl_nr++] = (uint8_t)r;
     rl_rates = (uint8_t)(down ? rl_rates | 1u << r : rl_rates & ~(1u << r));
     rl_rerun();
+}
+
+/* 0.9: every tapped rate off (BLAZE's ALL OFF) */
+static void rl_unlatch(void)
+{
+    uint32_t i, k = 0;
+    for (i = 0; i < rl_nr; i++)
+        if (!((rl_latch >> rl_ord[i]) & 1u))
+            rl_ord[k++] = rl_ord[i];
+    rl_nr = (uint8_t)k;
+    rl_rates = (uint8_t)(rl_rates & ~rl_latch);
+    rl_latch = rl_wasl = 0;
+    rl_rerun();
+}
+
+/* 0.9: pad p (its lane's own rate r + 1) down / up: it rolls at it on its grid while held, apart from the rest */
+static void rl_pp_key(uint32_t p, uint32_t r1, int down)
+{
+    uint16_t b = (uint16_t)(1u << p);
+    if (!down) {
+        rl_pp = (uint16_t)(rl_pp & ~b);
+        return;
+    }
+    rl_ppn[p] = rl_wait(r1 - 1u);
+    if (!rl_ppn[p]) {
+        rl_hit(p, rl_vel[p]);                    /* (on the grid now, or stopped: a hit at once, then the rate) */
+        rl_ppn[p] = div_samples(RL_DIV[r1 - 1u]);
+    }
+    rl_pp = (uint16_t)(rl_pp | b);
 }
 
 /* PADS held: white place p picked for the mode (4: on / off, at most 4; 1: the one) */
@@ -214,6 +267,21 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
             else
                 rl_offt[l] -= n;
         }
+    if (rl_pp)                                   /* 0.9: pads at their own rate */
+        for (p = 0; p < 16u; p++)
+            if ((rl_pp >> p) & 1u) {
+                uint32_t r1 = rl_pp_rate[p % NLANE], period = r1 ? div_samples(RL_DIV[r1 - 1u]) : 0u;
+                if (!period) {
+                    rl_pp = (uint16_t)(rl_pp & ~(1u << p));   /* (its preset gone meanwhile) */
+                    continue;
+                }
+                if (rl_ppn[p] < adv) {
+                    rl_hit(p, rl_vel[p]);
+                    while (rl_ppn[p] < adv)
+                        rl_ppn[p] += period;
+                }
+                rl_ppn[p] -= adv;
+            }
     if (!rl_runs)
         return;
     for (r = 0; r < RL_NRATE; r++) {
