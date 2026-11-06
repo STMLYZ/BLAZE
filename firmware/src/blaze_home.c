@@ -120,6 +120,7 @@ static int8_t bz_dr_k0;                        /* .. COLOR before it (back on th
 static uint32_t bz_dr_wait, bz_dr_age, bz_dr_total;   /* .. samples to its start, since, in all */
 static uint32_t bz_dr_hit;                     /* .. the drop's 1 just came: samples left of its event (CC 41) */
 static volatile uint8_t bz_ev_morph;           /* main: MORPH's place for PHOSPHOR, 0..127 (CC 44) */
+static volatile uint8_t bz_ev_on;              /* main: BLAZE opened since power-on: PHOSPHOR's events go out */
 static struct {
     int32_t lp[2], bp[2];                      /* the riser's two filters (left, right) */
     uint32_t s[2];                             /* .. their noise */
@@ -348,14 +349,17 @@ static __attribute__((noinline)) void bz_drop_block(uint32_t adv)
 /* 0.11 PHOSPHOR: BLAZE's moments out as CC on channel 16 for visuals (RAIL passes them on): 40 the phrase's bar
  * (1..16, 0 stopped), 41 DROP (32 armed, 64 building, 127 its 1 for a beat), 42 RISER (1..127 as it rises, 0 off),
  * 43 BACKSPIN (64 armed, 127 spinning), 44 MORPH's place (0 A .. 127 B), 45 LOOP CAPTURE (32 armed, 64 recording,
- * 96 solo, 127 mixed in), 46 SCATTER (127 on), 47 BUILD (1..127 as it goes). Sent when it changes, two a block */
+ * 96 solo, 127 mixed in), 46 SCATTER (127 on), 47 BUILD (1..127 as it goes). Sent when it changes, two a block,
+ * once BLAZE (or ROLL) has been opened since power-on (Felucca alone sends nothing new) */
 #define BZ_EV_N 8u
-static uint8_t bz_ev_sent[BZ_EV_N] = {255, 255, 255, 255, 255, 255, 255, 255};
+static uint8_t bz_ev_sent[BZ_EV_N];             /* (all 0: idle, stopped; nothing sent until something moves) */
 static __attribute__((noinline)) void bz_ev_block(uint32_t n)
 {
     static const uint8_t CAPV[8] = {0, 32, 64, 96, 127, 96, 0, 0};   /* (BZC_*: FADE still sounding) */
     uint8_t v[BZ_EV_N];
     uint32_t i, sent = 0, t;
+    if (!bz_ev_on)
+        return;
     v[0] = song.playing ? (uint8_t)((bz_s16 - bz_org) / 16u % BZ_PHRASE + 1u) : 0u;
     if (bz_dr_hit) {
         v[1] = 127;

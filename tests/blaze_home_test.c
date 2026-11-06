@@ -1163,6 +1163,7 @@ int main(void)
         click_tick(div_samples(2));
         perf_k[0] = -20;
         bz_spin = BZB_IDLE;
+        bz_ev_on = 1;                               /* (BLAZE opened: PHOSPHOR's events out) */
         fm1_in.buttons |= sh;
         bz_ui_pass();
         key_down(bk(2));
@@ -1228,7 +1229,7 @@ int main(void)
         memset(&bzm, 0, sizeof bzm);
         bzm_load();
         ok = bzm.ok == 3u && bzm.v[0][0] == -60 && bzm.v[1][0] == 40 && bzm.v[1][BZM_N - 1u] == 90 &&
-             favorites.factory[ENGI_DIGITAL][0] == BZM_MAGIC && favorites.factory[ENGI_SAMPLE][8] == BZM_MAGIC;
+             favorites.factory[ENGI_PHYS][8] == BZM_MAGIC && favorites.factory[ENGI_SAMPLE][8] == BZM_MAGIC;
         bad += check("MORPH (0.11): A and B kept with the settings, back after a power-off", ok);
         song.playing = 0;
         fm1_in.buttons |= sh;
@@ -1256,7 +1257,7 @@ int main(void)
         fm1_in.buttons &= ~sh;
         bz_ui_pass();
         memset(&bzm, 0, sizeof bzm);
-        favorites.factory[ENGI_DIGITAL][0] = favorites.factory[ENGI_SAMPLE][8] = 0;
+        favorites.factory[ENGI_PHYS][8] = favorites.factory[ENGI_SAMPLE][8] = 0;
         perf_k[0] = 0;
     }
 

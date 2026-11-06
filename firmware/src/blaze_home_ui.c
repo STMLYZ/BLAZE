@@ -327,8 +327,8 @@ static void bz_kit_pass(void)                       /* each pass: the KIT key he
 }
 /* ---- 0.10 MORPH: two states, A and B, of COLOR THROW DEPTH and each track's FILTER LEVEL REVERB DELAY; held a
  * second (SHIFT + white 13 / 14) saves the state now as A / B (0.11: kept with the settings, so they are there after
- * power-off: A in the DIGITAL row of the favourites, which no engine uses in this build, B in the SAMPLE row's bytes
- * 8..27, past its presets); SHIFT + white 15 MORPH on: KNOB 2 (PITCH's) slides them all from A (0) to B (100).
+ * power-off: A in the PHYS row of the favourites, B in the SAMPLE row's, bytes 8..27 of each, past their presets;
+ * not DIGITAL's: settings_persist.c clears that row at every load); SHIFT + white 15 MORPH on: KNOB 2 (PITCH's) slides them all from A (0) to B (100).
  * 0.11 RIDE: SHIFT + black 1 / 2 slides it there over 8 / 16 bars from the next bar (to B; from B's half: to A) ---- */
 #define BZM_N (3u + 4u * NTRK)
 #define BZM_SAVE_MS 700u
@@ -353,7 +353,7 @@ static void bzm_take(int16_t *v)
 #define BZM_MAGIC 0xC5u
 _Static_assert(BZM_N <= 19u, "MORPH A / B: 19 bytes each in the favourites");
 _Static_assert(SMP_NPRESETS <= 64, "MORPH B in the SAMPLE favourites' bytes 8..27");
-static uint8_t *bzm_row(uint32_t ab) { return ab ? &favorites.factory[ENGI_SAMPLE][8] : &favorites.factory[ENGI_DIGITAL][0]; }
+static uint8_t *bzm_row(uint32_t ab) { return ab ? &favorites.factory[ENGI_SAMPLE][8] : &favorites.factory[ENGI_PHYS][8]; }
 static void bzm_store(uint32_t ab)                  /* A (0) / B (1) into the settings (saved with them) */
 {
     uint8_t *c = bzm_row(ab);
@@ -985,6 +985,8 @@ static void bz_ui_pass(void)
     }
     bz_ramp_pass();
     bz_shift_on = (uint8_t)bz_shift();
+    if (ui.layer == LAYER_BLAZE || ui.layer == LAYER_ROLL)
+        bz_ev_on = 1;                               /* (0.11 PHOSPHOR: from the first time BLAZE is open) */
     bz_pp_pass();
     {                                               /* 0.9 REKORDBOX: DECK switched (the ISR): said */
         static uint8_t deck;
