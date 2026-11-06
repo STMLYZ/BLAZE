@@ -1357,8 +1357,9 @@ static int test_throw(void)
         perf_map_put(m, 0, PF_RTHR);
         perf_map_put(m, 1, PF_ETHR);
         ok = (m[0] & 31u) == 14u && ((m[0] >> 5 | m[1] << 3) & 31u) == 15u && perf_map_of(m, 0) == PF_RTHR &&
-             perf_map_of(m, 1) == PF_ETHR && PF_NFX == 14 && PF_DEF[12] == PF_RTHR && PF_DEF[13] == PF_ETHR;
-        m[0] = (uint8_t)((m[0] & ~31u) | 16u);         /* code 16: a later firmware's effect -> the key's default */
+             perf_map_of(m, 1) == PF_ETHR && PF_NFX == 16 && PF_DEF[12] == PF_RTHR && PF_DEF[13] == PF_ETHR;
+        m[0] = (uint8_t)((m[0] & ~31u) | 18u);         /* code 18 (BLAZE 0.10: SCATTER 16, BACKSPIN 17): a later
+                                                         * firmware's effect -> the key's default */
         ok &= perf_map_of(m, 0) == PF_DEF[0];
         perf_map_put(m, 12, PF_RTHR);                   /* D5's default: code 0 */
         ok &= perf_map_of(m, 12) == PF_RTHR && !(m[7] & 0xF0u) && !(m[8] & 1u);
@@ -1598,9 +1599,68 @@ static void throw_demos(const char *dir)
     printf("perform: demo %s/throw_tour.wav (the three in a row)\n", dir);
 }
 
+/* ---------------------------------------------- BLAZE 0.10: SCATTER, BACKSPIN --- */
+static int test_blaze_xbuf(void)
+{
+    int bad = 0, ok;
+    char what[160];
+    {   /* SCATTER: starts on the 1/16, its first 1/16 live; then pieces of the last two (DEPTH full: 9 in 10 not live);
+         * never louder than twice the input; let go: live again after the ramp */
+        ev_t ev[] = {{992, PF_SCAT + 1}, {8u * P16, -(PF_SCAT + 1)}};
+        uint32_t t, diff = 0;
+        test_signal(440, 12000, 330, 9000);
+        pf_spin_cue = 0;
+        run(120, 1, ev, 2, 10u * P16);
+        for (t = 2u * P16; t < 7u * P16; t++)
+            diff += out_l[t] != in_l[t];
+        ok = same(0, 2u * P16) && diff > P16 && peak(out_l, 0, 8u * P16) <= 24000 && same(8u * P16 + 160u, 10u * P16);
+        snprintf(what, sizeof what, "SCATTER: the 1st 1/16 live, then scattered (%u samples off of %u), live again let go",
+                 diff, 5u * P16);
+        bad += check(what, ok);
+    }
+    {   /* BACKSPIN (the FX layer: no BLAZE cue): live while it records half a beat, then backwards to a stop over half a
+         * beat, then silent until let go */
+        ev_t ev[] = {{992, PF_SPIN + 1}, {60000, -(PF_SPIN + 1)}};
+        test_signal(440, 12000, 330, 9000);
+        pf_spin_cue = 0;
+        run(120, 1, ev, 2, 70000);
+        ok = same(0, 992 + 11025 - 64) && peak(out_l, 992 + 11025 + 64, 992 + 11025 + 8000) > 3000 &&
+             peak(out_l, 992 + 22050 + 256, 60000) == 0 && same(60000 + 160, 70000);
+        snprintf(what, sizeof what, "BACKSPIN: live half a beat, spins (peak %d), silent after (peak %d), live let go",
+                 peak(out_l, 992 + 11025 + 64, 992 + 11025 + 8000), peak(out_l, 992 + 22050 + 256, 60000));
+        bad += check(what, ok);
+    }
+    {   /* BACKSPIN cued (BLAZE): waits for its go */
+        uint32_t t;
+        test_signal(440, 12000, 330, 9000);
+        host_tracks_init();
+        perf_reset();
+        song.g[G_BPM] = 120;
+        song.playing = 1;
+        perf_start();
+        pf_spin_cue = 1;
+        perf_press(PF_SPIN, 1);
+        for (t = 0; t < 40000u; t += CTL) {
+            if (t >= 30000u && pf_spin_cue == 1u)
+                pf_spin_cue = 2;
+            memcpy(out_l + t, in_l + t, CTL * 4);
+            memcpy(out_r + t, in_r + t, CTL * 4);
+            if (perf_begin(CTL))
+                perf_block(out_l + t, out_r + t, CTL);
+        }
+        perf_press(PF_SPIN, 0);
+        pf_spin_cue = 0;
+        snprintf(what, sizeof what, "BACKSPIN cued: no spin until its go (live: %d), then it spins (state %u, mode %u)",
+                 same(0, 30000), pf.sp_state, pf.mode);
+        bad += check(what, same(0, 30000) && pf.sp_state >= 1u);
+    }
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
+    bad += test_blaze_xbuf();
     bad += test_timing();
     bad += test_stereo();
     bad += test_too_long();

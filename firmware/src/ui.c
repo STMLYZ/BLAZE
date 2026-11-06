@@ -1291,18 +1291,38 @@ static uint32_t preset_orig(const engine_t *e, uint32_t k)
     return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
 }
 
+/* BLAZE 0.10: factory presets browsing no longer shows (not BLAZE's music; they still load from a project, a stored
+ * number, MIDI program change) */
+static const char *const BZ_HIDDEN[] = {"TINE EP", "E.PIANO", "FUNK KEY", "MARIMBA", "ORGAN", "BRASS", "PERC KIT"};
+static int preset_hidden(const engine_t *e, uint32_t k)
+{
+    uint32_t i, j;
+    const char *n;
+    if (k >= e->npresets || !(n = e->presets[k].name))
+        return 0;
+    for (i = 0; i < NELEM(BZ_HIDDEN); i++) {
+        for (j = 0; n[j] && n[j] == BZ_HIDDEN[i][j]; j++)
+            ;
+        if (!n[j] && !BZ_HIDDEN[i][j])
+            return 1;
+    }
+    return 0;
+}
+/* preset k of e in browsing: not an alias (preset_orig), not hidden */
+static int preset_vis(const engine_t *e, uint32_t k) { return preset_orig(e, k) == k && !preset_hidden(e, k); }
+
 /* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
 static uint32_t preset_rank(const engine_t *e, uint32_t k)
 {
     uint32_t i, n = 0;
-    if (e->presets != SMP_PRESET_TABLE)
-        return k;
-    for (i = 0; i < k; i++)
-        n += preset_orig(e, i) == i;
+    for (i = 0; i < k && i < e->npresets; i++)
+        n += (uint32_t)preset_vis(e, i);
     return n;
 }
 
-#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
+#define preset_shown(e) preset_rank(ENGINES[e], ENGINES[e]->npresets)
+/* MIDI program change's count of e's presets: every one but the aliases (the hidden ones too, as before BLAZE) */
+#define preset_pc_n(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1482,13 +1502,14 @@ static void midi_pc_load(track_t *t, uint32_t n)
             t->p[P_E0] = (int16_t)k;
         return;
     }
-    if (n >= preset_shown(e)) {
-        int32_t s = (int32_t)(FM6_OWN + 1u + n - preset_shown(e));
+    if (n >= preset_pc_n(e)) {                      /* (BLAZE: program numbers count the hidden presets too: a number
+                                                     * is always the same sound) */
+        int32_t s = (int32_t)(FM6_OWN + 1u + n - preset_pc_n(e));
         if (e == ENGI_FM6 && fm6_bank_slot(s) >= 0 && fm6_slot_ok(s))
             t->p[P_E7] = (int16_t)s;
         return;
     }
-    for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th shown preset */
+    for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th preset, aliases skipped */
         ;
     apply_preset_to(t, k);
 }
@@ -1551,7 +1572,7 @@ static uint32_t preset_all_at(uint32_t n, uint32_t *k)
         return NENGINES;
     }
     e = eng_vis(r);
-    for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
+    for (i = 0; !preset_vis(ENGINES[e], i) || n--; i++)    /* the n-th shown preset */
         ;
     *k = i;
     return e;
@@ -1706,7 +1727,7 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
         return;
     n = (cur + (direction > 0 ? 1u : total - 1u)) % total;
     if (n < np) {
-        for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th shown preset */
+        for (k = 0; !preset_vis(ENGINES[e], k) || n--; k++)   /* the n-th shown preset */
             ;
         apply_preset(k);
     } else {

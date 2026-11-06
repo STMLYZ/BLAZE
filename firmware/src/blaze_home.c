@@ -26,7 +26,13 @@
  * the transport's start until then). The key: MIDI CC 20 / 21 / 22 on channel 16 (RAIL: the Camelot number, A / B,
  * the root) noted here for the main loop (blaze_home_ui.c), whatever ROUT is. */
 #define BZ_NFX 6u
-static const uint8_t BZ_FX[BZ_NFX] = {PF_ETHR, PF_RTHR, PF_REV, PF_TAPE, PF_FRZ, PF_R16};
+static const uint8_t BZ_FX[BZ_NFX + 1u] = {PF_ETHR, PF_RTHR, PF_REV, PF_TAPE, PF_FRZ, PF_R16,
+                                           PF_SCAT};   /* (0.10: [6] SCATTER, SHIFT + white 9: bz_fx_key's too) */
+#define BZ_SCAT 6u
+/* 0.10, SHIFT + white 9..16 (no pad held): 9 SCATTER (tap: on, hold: while held), 10 BACKSPIN, 13 / 14 MORPH A / B
+ * (held: saved), 15 MORPH on / off (blaze_home_ui.c); 11 12 16: 0.11's LOOP CAPTURE */
+enum { BZS9_SCAT = 8, BZS9_SPIN, BZS9_CAP, BZS9_CAPLEN, BZS9_MA, BZS9_MB, BZS9_MORPH, BZS9_CAPSAVE };
+enum { BZB_IDLE, BZB_ARMED, BZB_SPUN };
 #define BZ_PAD0 0u                              /* white places: the pads 0..3, the effects 4..9, BUILD 4 / 8, RISER */
 #define BZ_FX0 4u
 #define BZ_B4 10u
@@ -95,7 +101,11 @@ static uint16_t bz_ppk;                        /* ISR: keys (bit k) taken to set
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
 static uint8_t bz_tapfx;                       /* ISR: the effects pressed down as a tap could be (bit i of BZ_FX) */
 static uint8_t bz_offfx;                       /* .. pressed to turn a latched one off (its release does nothing) */
-static uint32_t bz_fxt[BZ_NFX];                /* .. when (bz_now) */
+static uint32_t bz_fxt[BZ_NFX + 1u];           /* .. when (bz_now) */
+static uint16_t bz_shk;                        /* ISR: white keys 9..16 taken with SHIFT (bit p): their release, theirs */
+static volatile uint16_t bz_shk_held;          /* ISR: .. those still down (the main loop's MORPH keys read it) */
+static volatile uint8_t bz_spin;               /* ISR: BACKSPIN: BZB_* */
+static uint32_t bz_spin_left;                  /* .. samples to its spin (ARMED), to the 1 that ends it (SPUN) */
 static uint32_t bz_now;                        /* ISR: samples, real time */
 static uint32_t bz_wait, bz_age, bz_next;      /* the build: samples to its start, since it started, to its next hit */
 static uint32_t bz_rs_wait, bz_rs_age, bz_rs_t;   /* the riser: samples to its start, since it started; its tap */
@@ -211,6 +221,42 @@ static void bz_riser_tap(void)
     bz_riser = 8u;
 }
 
+/* 0.10 BACKSPIN: off (its effect let go, the cue back to the FX layer's own) */
+static void bz_spin_off(void)
+{
+    perf_held &= ~PF_BIT(PF_SPIN);
+    pf_spin_cue = 0;
+    bz_spin = BZB_IDLE;
+}
+/* samples to the next beat of the phrase (0: on it now, or stopped) */
+static uint32_t bz_to_beat(void)
+{
+    uint32_t s16 = div_samples(2), in;
+    if (!song.playing || clk_pos == CLK_START)
+        return 0;
+    in = (bz_s16 - bz_org) % 4u;
+    return in || clk_pos ? (4u - in) * s16 - clk_pos : 0u;
+}
+/* BACKSPIN pressed: it records from now and spins on the next beat (at least a quarter beat later; stopped: half a
+ * beat on), backwards to a stop over half a beat, then silent until the next bar's 1 (stopped: a beat). Again: off */
+static void bz_spin_tap(void)
+{
+    uint32_t w = bz_to_beat(), b = beat_samples();
+    if (bz_spin != BZB_IDLE) {
+        bz_spin_off();
+        return;
+    }
+    if (!song.playing)
+        w = b >> 1;
+    else if (w < (b >> 2))
+        w += b;
+    perf_held |= PF_BIT(PF_SPIN);
+    perf_ord[PF_SPIN] = ++perf_seq;
+    pf_spin_cue = 1;
+    bz_spin_left = w;
+    bz_spin = BZB_ARMED;
+}
+
 /* 0.9 PAD PRESETS: SHIFT + a rate (r1: 1..7) or an effect (f1: 1..6) key with BLAZE pads held: on that pad's lane,
  * toggled (the same again: none) */
 static void bz_pp_set(uint32_t r1, uint32_t f1)
@@ -244,7 +290,8 @@ static void bz_release_all(void)
     uint32_t i;
     rl_unlatch();                                /* (0.9: the tapped rates, the pads at their own rate) */
     rl_pp = 0;
-    for (i = 0; i < BZ_NFX; i++)
+    bz_spin_off();                               /* (0.10: BACKSPIN; SCATTER below) */
+    for (i = 0; i < BZ_NFX + 1u; i++)
         perf_held &= ~PF_BIT(BZ_FX[i]);
     perf_latched = 0;
     bz_tapfx = bz_offfx = 0;
@@ -352,6 +399,25 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
             return;
         }
     }
+    if (p >= 8u && p < 16u && !bz_keys) {        /* 0.10: SHIFT + white 9..16 (no pad held: above) */
+        uint16_t b = (uint16_t)(1u << p);
+        if (down && bz_shift_on) {
+            bz_shk |= b;
+            bz_shk_held |= b;
+            if (p == BZS9_SCAT)
+                bz_fx_key(BZ_SCAT, 1);
+            else if (p == BZS9_SPIN)
+                bz_spin_tap();
+            return;                              /* (MORPH's: the main loop's, by bz_shk_held) */
+        }
+        if (!down && (bz_shk & b)) {
+            bz_shk &= (uint16_t)~b;
+            bz_shk_held &= (uint16_t)~b;
+            if (p == BZS9_SCAT)
+                bz_fx_key(BZ_SCAT, 0);
+            return;
+        }
+    }
     if (p < 8u && !bz_keys) {                    /* 0.7: SHIFT + white 1..8: KIT 1..8 (the main loop's) */
         uint8_t b = (uint8_t)(1u << p);
         if (down && bz_shift_on) {
@@ -414,6 +480,24 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
 {
     uint32_t pad, total, r, a;
     bz_now += n;
+    if (bz_spin == BZB_ARMED) {                  /* 0.10 BACKSPIN: the beat: spin (then silent to the next 1) */
+        if (bz_spin_left <= adv) {
+            pf_spin_cue = 2;
+            bz_spin = BZB_SPUN;
+            if (song.playing) {                  /* (to the next bar's 1, at least the half beat of the spin) */
+                bz_spin_left = bz_to_bar();
+                if (bz_spin_left < beat_samples() / 2u)
+                    bz_spin_left += 4u * beat_samples();
+            } else
+                bz_spin_left = beat_samples();
+        } else
+            bz_spin_left -= adv;
+    } else if (bz_spin == BZB_SPUN) {
+        if (bz_spin_left <= adv)
+            bz_spin_off();
+        else
+            bz_spin_left -= adv;
+    }
     {                                            /* 0.9 REKORDBOX: a knob moved, its CC (channel 13, CC 1..4) */
         uint32_t i, v;
         for (i = 0; i < 4u; i++) {

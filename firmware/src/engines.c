@@ -33,7 +33,25 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "../engines/src/eng_trio.c"
 #include "../engines/src/eng_wheel.c"
 #include "eng_grain.c"
+#if FELUCCA_PHYS
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
+#else
+/* BLAZE 0.10: PHYS left out of the FM-1 build. Engine 9 stays reserved (the stores name engines by index): no presets,
+ * never offered (eng_ok), a PHYS sound that arrives anyway (a project, a user preset) plays nothing */
+static void phys_legacy(int16_t *e) { (void)e; }
+static void phys_gone_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
+static void phys_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    (void)t; (void)v; (void)out; (void)n; (void)m;
+}
+static const engine_t ENG_PHYS_GONE = {
+    .name = "-",
+    .page_title = {"-", "-"},
+    .note_on = phys_gone_note_on,
+    .render = phys_gone_render,
+    .knob = {P_E4, P_E5, P_E6, P_REL},
+};
+#endif
 #include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c) */
 #include "../engines/src/eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
@@ -95,7 +113,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_TRIO,                   /* 6 */
     &ENG_WHEEL,                  /* 7 */
     &ENG_GRAIN,                  /* 8 */
+#if FELUCCA_PHYS
     &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
+#else
+    &ENG_PHYS_GONE,              /* 9: reserved (PHYS, left out of BLAZE's FM-1 build) */
+#endif
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
     &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
@@ -169,7 +191,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if FELUCCA_FM4
     1,                           /* DIGITAL */
 #endif
-    2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
+    2, 3, 4, 5, 6, 7, 8,         /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN */
+#if FELUCCA_PHYS
+    9,                           /* PHYS */
+#endif
     11,                          /* NOISE */
 #if FELUCCA_SLICE
     13,                          /* SLICE */
@@ -206,10 +231,14 @@ static uint32_t eng_nshown(void)
 #if FELUCCA_PLUGINS
 static int eng_ok(uint32_t e)
 {
-    return e < NENG_BUILTIN ? FELUCCA_FM4 || e != ENGI_DIGITAL : e < NENGINES && ENGINES[e] != &ENG_MISSING;
+    return e < NENG_BUILTIN ? (FELUCCA_FM4 || e != ENGI_DIGITAL) && (FELUCCA_PHYS || e != ENGI_PHYS)
+                            : e < NENGINES && ENGINES[e] != &ENG_MISSING;
 }
 #else
-static int eng_ok(uint32_t e) { return e < NENGINES && (FELUCCA_FM4 || e != ENGI_DIGITAL); }
+static int eng_ok(uint32_t e)
+{
+    return e < NENGINES && (FELUCCA_FM4 || e != ENGI_DIGITAL) && (FELUCCA_PHYS || e != ENGI_PHYS);
+}
 #endif
 static uint32_t eng_vis(uint32_t n) { uint32_t c = eng_nshown(); return ENG_ORDER[n % c]; }
 static uint32_t eng_rank(uint32_t e)

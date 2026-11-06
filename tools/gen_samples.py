@@ -437,11 +437,15 @@ def input_key(have_cc0):
 def main(out):
     subprocess.run([sys.executable, str(Path(__file__).with_name("gen_waves.py")), str(GENDIR)], check=True)
     have_cc0 = CC0.exists() and any(CC0.glob("*/*.wav"))
-    if not have_cc0:
+    if have_cc0 and NO_CC0:
+        have_cc0 = False                            # BLAZE 0.10: the FM-1's header without them (PIANO FLUTE SAX: ~104 KB
+        print("samples: --no-cc0: the CC0 sets left out")   # of flash for BLAZE's code; build.py build/gen_fm1)
+    elif not have_cc0:
         print("samples: CC0 library not fetched (tools/fetch_cc0.py) - no SAMPLE sets")
     key = input_key(have_cc0)
+    cache = CACHE if have_cc0 or not NO_CC0 else CACHE.with_suffix(".nocc0.cache")   # (each header its own cache)
     try:
-        ck, summary, text = CACHE.read_text().split("\n", 2)
+        ck, summary, text = cache.read_text().split("\n", 2)
         if ck == key:
             Path(out).write_text(text)
             print(summary + " (cached)")
@@ -460,8 +464,8 @@ def main(out):
         b.slice_piano()                             # (no data of its own: the PIANO set's)
     text = b.header()
     Path(out).write_text(text)
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(f"{key}\n{b.summary()}\n{text}")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(f"{key}\n{b.summary()}\n{text}")
     print(b.summary())
 
 
@@ -493,7 +497,11 @@ def user_slot_file(setname, slotname, prefix):
           f"(the zones of {setname} from its own files)")
 
 
+NO_CC0 = False
 if __name__ == "__main__":
+    if "--no-cc0" in sys.argv:                      # BLAZE 0.10: the FM-1 build's header (build.py: build/gen_fm1)
+        NO_CC0 = True
+        sys.argv.remove("--no-cc0")
     if sys.argv[1:2] == ["--user-slot"]:
         if len(sys.argv) != 5:
             sys.exit('gen_samples.py --user-slot SET NAME PREFIX   (e.g. PIANO "PIANO HD" build/piano_hd/PIANO_HD)')

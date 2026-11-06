@@ -1014,6 +1014,110 @@ int main(void)
         usb.config = 0;
     }
 
+
+    /* 0.10: SHIFT + white 9 SCATTER (tap: on; again: off), SHIFT + white 10 BACKSPIN (on the next beat, off at the 1),
+     * MORPH: hold 13 / 14 saves A / B, 15 on, KNOB 2 slides COLOR and the tracks' LEVEL between them */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], i;
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(wk(8));
+        (key_up)(wk(8));
+        ok = (perf_latched & PF_BIT(PF_SCAT)) != 0u && !(perf_held & PF_BIT(PF_SCAT));
+        key_down(wk(8));
+        (key_up)(wk(8));
+        ok &= !(perf_latched & PF_BIT(PF_SCAT));
+        key_down(wk(8));
+        ok &= (perf_held & PF_BIT(PF_SCAT)) != 0u;
+        bz_now += BZ_TAP_MS * 441u / 10u + 1u;      /* (held past a tap: the effects time it in samples) */
+        key_up(wk(8));                              /* (held: off when let go) */
+        ok &= !((perf_held | perf_latched) & PF_BIT(PF_SCAT)) && !bz_shk;
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        key_down(wk(8));                            /* (no SHIFT: FREEZE as before) */
+        ok &= (perf_held & PF_BIT(PF_FRZ)) != 0u;
+        key_up(wk(8));
+        bad += check("SCATTER (0.10): SHIFT + white 9 tapped on / off, held while held; white 9 alone still FREEZE", ok);
+
+        seq_start();
+        song.playing = 1;
+        click_tick(0);
+        click_tick(div_samples(2));                 /* (a 1/16 in: the next beat 3/16 away) */
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(wk(9));
+        key_up(wk(9));
+        ok = bz_spin == BZB_ARMED && (perf_held & PF_BIT(PF_SPIN)) && pf_spin_cue == 1u;
+        home_block(CTL, 3u * div_samples(2) - CTL);
+        ok &= pf_spin_cue == 1u;
+        home_block(CTL, 2u * CTL);
+        ok &= bz_spin == BZB_SPUN && pf_spin_cue == 2u && bz_spin_left > beat_samples() / 2u;
+        home_block(CTL, bz_spin_left + CTL);
+        ok &= bz_spin == BZB_IDLE && !(perf_held & PF_BIT(PF_SPIN)) && !pf_spin_cue;
+        bad += check("BACKSPIN (0.10): armed, spins on the next beat (a quarter beat on at least), off at the next 1", ok);
+        song.playing = 0;
+
+        for (i = 0; i < NTRK; i++)
+            trk[i].p[P_LEVEL] = 100;
+        perf_k[0] = -50;
+        fm1_ms = 10000;
+        key_down(wk(12));
+        bz_ui_key(wk(12));
+        fm1_ms = 10800;
+        bz_ui_pass();
+        key_up(wk(12));
+        bz_ui_pass();
+        for (i = 0; i < NTRK; i++)
+            trk[i].p[P_LEVEL] = 20;
+        perf_k[0] = 80;
+        fm1_ms = 20000;
+        key_down(wk(13));
+        bz_ui_key(wk(13));
+        fm1_ms = 20200;
+        bz_ui_pass();
+        ok = bzm.ok == 1u;                          /* (B not yet: held too short) */
+        fm1_ms = 20800;
+        bz_ui_pass();
+        key_up(wk(13));
+        bz_ui_pass();
+        ok &= bzm.ok == 3u;
+        key_down(wk(14));
+        bz_ui_key(wk(14));
+        key_up(wk(14));
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        ok &= bzm.on;
+        bzm.pos = 0;
+        bz_knob(1, 0);
+        bz_knob(1, 1);                              /* (a step: to A + a little) */
+        bzm.pos = 50;
+        bzm_apply();
+        ok &= perf_k[0] == 15 && trk[0].p[P_LEVEL] == 60 && trk[3].p[P_LEVEL] == 60;
+        bzm.pos = 100;
+        bzm_apply();
+        ok &= perf_k[0] == 80 && trk[2].p[P_LEVEL] == 20;
+        bad += check("MORPH (0.10): held 13 / 14 save A / B (a short hold does not), 15 on, KNOB 2 halfway: halfway", ok);
+        bzm.on = 0;
+        bzm.ok = 0;
+        perf_k[0] = 0;
+    }
+
+
+    /* 0.10: browsing hides TINE EP, BRASS, MARIMBA, ORGAN (FM6: BELL, FM BASS, PAD, PLUCK shown); PERC KIT (DRUM); program
+     * change still counts them (FM6 PC 4: PAD) */
+    {
+        const engine_t *f = ENGINES[ENGI_FM6];
+        uint32_t i, ok2 = preset_shown(ENGI_FM6) == 4u && preset_pc_n(ENGI_FM6) == 8u;
+        for (i = 0; i < f->npresets; i++)
+            ok2 &= preset_hidden(f, i) == (!strcmp(f->presets[i].name, "TINE EP") || !strcmp(f->presets[i].name, "BRASS") ||
+                                           !strcmp(f->presets[i].name, "MARIMBA") || !strcmp(f->presets[i].name, "ORGAN"));
+        for (i = 0; i < ENGINES[ENGI_DRUM]->npresets; i++)
+            if (!strcmp(ENGINES[ENGI_DRUM]->presets[i].name, "PERC KIT"))
+                ok2 &= preset_hidden(ENGINES[ENGI_DRUM], i);
+        bad += check("PRESETS (0.10): browsing hides TINE EP BRASS MARIMBA ORGAN PERC KIT; program change counts them", ok2);
+    }
+
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;
 }

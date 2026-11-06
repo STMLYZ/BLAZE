@@ -29,6 +29,8 @@ SRC = Path(__file__).resolve().parents[1]
 FW = SRC / "firmware"
 OUT = SRC / "build"
 GEN = OUT / "gen"
+GEN_FM1 = OUT / "gen_fm1"     # BLAZE 0.10: the FM-1's own headers, before build/gen (felucca_samples.h without the CC0
+                              # sets: PIANO FLUTE SAX, ~104 KB of flash; the host and the tests keep build/gen's)
 LDR = OUT / "loader"
 sys.path.insert(0, str(SRC / "tools"))
 import fm1pkg_make  # noqa: E402
@@ -97,6 +99,7 @@ def tc_all(*cmds):
 def generate():
     """generated headers (UI fonts, icons, keycaps, palettes, tables, samples)"""
     GEN.mkdir(parents=True, exist_ok=True)
+    GEN_FM1.mkdir(parents=True, exist_ok=True)
     for old in ("felucca_font.h", "felucca_icons.h"):     # headers of the bitmap font and icon atlas
         (GEN / old).unlink(missing_ok=True)
     tools = SRC / "tools"
@@ -107,6 +110,7 @@ def generate():
             [tools / "gen_tables.py", GEN / "felucca_tables.h"],
             [tools / "gen_fm6_patches.py", GEN / "felucca_fm6.h"],
             [tools / "gen_samples.py", GEN / "felucca_samples.h"],
+            [tools / "gen_samples.py", "--no-cc0", GEN_FM1 / "felucca_samples.h"],
             [tools / "gen_adpcm.py", GEN / "felucca_adpcm.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
@@ -202,11 +206,14 @@ def ld_regions():
 
 
 def build_app():
-    flags = [*CFLAGS, *HAL_INC, "-Ifirmware/src", "-Ibuild/gen"]
+    flags = [*CFLAGS, *HAL_INC, "-Ifirmware/src", "-Ibuild/gen_fm1", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4",
-                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2", "FELUCCA_ADPCM", "FELUCCA_PLUGINS"):
+                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2", "FELUCCA_ADPCM", "FELUCCA_PLUGINS",
+                 "FELUCCA_PHYS"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
+        if flag == "FELUCCA_PHYS" and v is None:
+            v = "0"                 # BLAZE 0.10: the FM-1 build leaves PHYS out (FELUCCA_PHYS=1 builds it in)
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
     v = os.environ.get("FELUCCA_USB_LAYOUT")   # firmware/src/usb.c: how the USB composite presents itself (#67), 0..3

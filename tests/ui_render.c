@@ -697,7 +697,7 @@ static void state(void)                          /* a playing song with steps on
     bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0; bz_set_n = 0; bzkit.k = 0;
     bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0; bz_rb = 0; bz_rb_deck = 0; bz_rb_val[0] = 64;
     memset((void *)rl_pp_rate, 0, sizeof rl_pp_rate); memset((void *)rl_pp_fx, 0, sizeof rl_pp_fx); rl_pp = 0;
-    rl_latch = 0; bz_pads = 0;
+    rl_latch = 0; rl_rates = 0; rl_nr = 0; bz_pads = 0; bzm.ok = 0; bzm.on = 0; bzm.pos = 0; bz_spin = 0; perf_latched = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
     seq_fill = 0;                                /* (1.5.5: GLO's FILL, held in layer_glo_fill only; */
     eu.on = 0;                                   /* SEQ TOOLS' EUCLID, open in layer_seq_euclid*) */
@@ -816,7 +816,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_RISER_EDIT, S_BLAZE_RISER_SYNTH, S_BLAZE_EOUT, S_BLAZE_CHORD, S_BLAZE_CHORD7,
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
-       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_COUNT };   /* BLAZE */
+       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -852,7 +852,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_home", "blaze_home_live", "blaze_home_drop", "blaze_shift", "blaze_drum", "blaze_keys",
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
-    "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit"};
+    "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
+    "blaze_morph"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1331,6 +1332,9 @@ static void setup(int s)
     case S_BLAZE_SLICE_NONE: go_home(); bz_slice = 1; bz_strk = 0; bz_sl_ok = 0; bz_sl_q = 0; ui.layer = LAYER_BLAZE; break;
     /* 0.9: REKORDBOX (deck 2, white 2 held); PAD PRESETS (SNARE 1/16 + ECHO, HAT 1/32) with 1/8 tapped on; editing
      * SNARE's (its pad held + SHIFT) */
+    /* 0.10: SHIFT held with MORPH on (A and B saved, 70 % to B), SCATTER on, a BACKSPIN armed */
+    case S_BLAZE_MORPH: go_home(); bzm.ok = 3; bzm.on = 1; bzm.pos = 70; perf_latched = PF_BIT(PF_SCAT);
+        bz_spin = BZB_ARMED; fm1_in.buttons = 1u << panel.btn[B_OCTUP]; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_RB: go_home(); bz_rb = 1; bz_rb_deck = 1; bz_rb_val[0] = 90; fm1_in.notes |= 1u << 2;
         ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_PP: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; rl_pp_rate[3] = 7; rl_latch = 1u << 2;

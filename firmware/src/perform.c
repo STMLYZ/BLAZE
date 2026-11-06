@@ -47,14 +47,15 @@
  * PF_M1), then the mutes of the black keys */
 enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS,
        PF_RTHR, PF_ETHR,                      /* 1.5.1: REV THROW, ECHO THROW */
+       PF_SCAT, PF_SPIN,                      /* BLAZE 0.10: SCATTER, BACKSPIN */
        PF_M1, PF_N = PF_M1 + NTRK };
 #define PF_NFX PF_M1                          /* the effects a white key can hold */
 #define PF_KEYS 16u                           /* the white keys F3 .. G5 */
 #define PF_BIT(e) (1u << (e))
 #define PF_REPEAT 0x7u                                         /* the three REPEAT rates */
-#define PF_Q (PF_REPEAT | PF_BIT(PF_REV))                      /* start on the 1/16 */
+#define PF_Q (PF_REPEAT | PF_BIT(PF_REV) | PF_BIT(PF_SCAT))    /* start on the 1/16 */
 #define PF_HARM (PF_BIT(PF_OUP) | PF_BIT(PF_ODN))
-#define PF_BUF (PF_REPEAT | PF_BIT(PF_REV) | PF_BIT(PF_TAPE) | PF_BIT(PF_FRZ) | PF_HARM)
+#define PF_BUF (PF_REPEAT | PF_BIT(PF_REV) | PF_BIT(PF_TAPE) | PF_BIT(PF_FRZ) | PF_HARM | PF_BIT(PF_SCAT) | PF_BIT(PF_SPIN))
 #define PF_MUTE (((1u << NTRK) - 1u) << PF_M1)
 #define PF_MOD (PF_BIT(PF_FLG) | PF_BIT(PF_PHS))   /* FLANGER, PHASER: their own stages after CRUSH */
 #define PB_FRAMES (NTRK * SL_LEN / 2u)        /* stereo frames in sl_buf: 8192, 371 ms at 22.05 kHz */
@@ -67,7 +68,7 @@ enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, P
 #define HB_FB 269                             /* .. KNOB 4 (0 .. 100) -> the shimmer, Q15: 0 .. 0.82 */
 #define PF_TOP (63 << 8)                      /* filter cutoff index, Q8 (PF_SVF): the LPF's open end */
 #define PF_LOW (14 << 8)                      /* .. the LPF sweep's end, the HPF sweep's (and K1's) top */
-enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
+enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM, BM_SCAT, BM_SPIN };
 #define FL_LEN 356u                           /* FLANGER: its line's frames (8.1 ms: FL_MAX + 2) */
 #define FL_MIN 22u                            /* .. the delay's sweep, samples: 0.5 .. 8 ms */
 #define FL_MAX 353u
@@ -110,6 +111,8 @@ static int bz_gain_busy(void)
     return 0;
 }
 static uint32_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
+static volatile uint8_t pf_spin_cue;   /* BACKSPIN: 0 spins once half a beat is recorded (the FX layer), 1 waits, 2 go
+                                        * (BLAZE: blaze_home.c spins it on the beat) */
 
 /* the ZDF state-variable filter at cutoff index i (30 Hz * 2^(i / 7), 0..63: up to 15.4 kHz), k = 1:
  * a1 a2 a3 in Q14 (tools: g = tan(pi fc / fs), a1 = 1 / (1 + g (g + k)), a2 = g a1, a3 = g a2) */
@@ -157,6 +160,13 @@ static struct {
     int32_t fw, pw;                    /* their shares, Q15 */
     uint32_t fwp, fn;                  /* FLANGER: the frame written next; frames written since it started */
     int32_t px[2][PH_ST], py[2][PH_ST], pfb[2];   /* PHASER: each stage's last input and output, L and R; the fed back */
+    /* BLAZE 0.10: SCATTER (each 1/16 the live mix, or one of the last two 1/16s again, forwards, backwards or as two
+     * 1/32s) and BACKSPIN (what was recorded since the press, backwards, from twice the speed to a stop) */
+    uint32_t sc_len, sc_sp, sc_src;    /* SCATTER: the 1/16 (samples), the sample in it, where it reads (samples) */
+    uint8_t sc_mode, sp_state;         /* .. 0 live, 1 forwards, 2 backwards, 3 1/32 twice; BACKSPIN: 0 recording, 1
+                                        * spinning, 2 silent */
+    uint32_t sp_end, sp_pos, sp_v, sp_dv, sp_max;   /* BACKSPIN: the newest frame, samples back (Q16), the speed and its
+                                        * step (Q16), how far back it may go (samples) */
 } pf = {.src = PF_N, .next = PF_N, .lc = PF_TOP, .mg = {32768, 32768, 32768, 32768}};
 
 static int16_t fl_buf[FL_LEN][2];      /* FLANGER's line: L R, at half the level (headroom) */
@@ -260,6 +270,14 @@ static void perf_buf_start(uint32_t e)
         pf.hph = 0;
         pf.hinc = e == PF_OUP ? 0u - (1u << 21) : 1u << 20;   /* the delay: -1 / +0.5 sample a sample */
         pf.hfb = 0;
+    } else if (e == PF_SCAT) {                  /* (its first 1/16 live: there is nothing behind it yet) */
+        pf.mode = BM_SCAT;
+        pf.sc_len = beat_samples() >> 2;
+        pf.sc_sp = 0;
+        pf.sc_mode = 0;
+    } else if (e == PF_SPIN) {
+        pf.mode = BM_SPIN;
+        pf.sp_state = 0;
     } else if (e == PF_FRZ) {
         pf.mode = BM_FRZ;
         pf.gp[0] = 0;
@@ -552,6 +570,86 @@ static __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, int32_t *y
     *yr = r + (r >> 3) + ((sr_ * 45875) >> 15);
 }
 
+/* SCATTER: the next 1/16. DEPTH (KNOB 4, perf_k[3] its cut) is how wild: full, 1 in 10 live; at 0, all live */
+static __attribute__((noinline)) void perf_scat_pick(void)
+{
+    uint32_t L = pf.sc_len, hf = L >> 1, k, r = rng() >> 16, w = 100u - (uint32_t)perf_k[3];
+    pf.sc_len = beat_samples() >> 2;                /* (the tempo now, from the next 1/16 on) */
+    if (r % 100u >= (w * 9u) / 10u || !hf) {
+        pf.sc_mode = 0;
+        return;
+    }
+    r >>= 7;
+    k = (r & 3u) == 3u ? 2u : 1u;                   /* the 1/16 before, or (1 in 4) the one before that */
+    if ((k + 1u) * hf > PB_FRAMES || pf.wr < k * hf)
+        k = 1u;
+    if (2u * hf > PB_FRAMES || pf.wr < hf) {
+        pf.sc_mode = 0;
+        return;
+    }
+    pf.sc_src = 2u * (pf.wr - k * hf);
+    r >>= 2;
+    pf.sc_mode = (uint8_t)((r % 5u) < 2u ? 1u : (r % 5u) < 4u ? 2u + ((r >> 3) & 1u) : 1u);
+}
+
+/* SCATTER / BACKSPIN on one sample (noinline: perf_block's loop keeps its code). Returns as perf_buf's `on` */
+static __attribute__((noinline)) int perf_xbuf(int32_t l, int32_t r, int32_t *yl, int32_t *yr)
+{
+    if (pf.mode == BM_SCAT) {
+        uint32_t L = pf.sc_len, len = pf.sc_mode == 3u ? L >> 1 : L, i = pf.sc_sp % (len ? len : 1u), e;
+        pf.wr = pb_rec(pf.wr, l, r);                /* (the live mix, always: the next 1/16s read it) */
+        if (!pf.sc_mode) {
+            *yl = l;
+            *yr = r;
+        } else {
+            e = len - 1u - i;
+            pb_at(pf.sc_src + (pf.sc_mode == 2u ? e : i), pf.wr, yl, yr);
+            if (i < e)
+                e = i;
+            if (e < (uint32_t)SL_RAMP) {            /* (each piece windowed: no clicks at the cuts) */
+                *yl = (*yl * (int32_t)e) >> SL_RAMP_LOG2;
+                *yr = (*yr * (int32_t)e) >> SL_RAMP_LOG2;
+            }
+        }
+        if (++pf.sc_sp >= L) {
+            pf.sc_sp = 0;
+            perf_scat_pick();
+        }
+        return 2;
+    }
+    if (pf.sp_state == 0u) {                        /* BACKSPIN: recording (the live mix plays on) */
+        uint32_t half = beat_samples() >> 1;
+        pf.wr = pb_rec(pf.wr, l, r);
+        if (pf_spin_cue == 2u || (pf_spin_cue == 0u && (2u * pf.wr >= half || pf.wr + 2u >= PB_FRAMES))) {
+            uint32_t t = 2u * (pf.wr < PB_FRAMES ? pf.wr : PB_FRAMES), T = t < half ? t : half;
+            pf.sp_end = pf.wr;
+            pf.sp_max = t > 2u ? t - 2u : 0u;
+            pf.sp_pos = 0;
+            pf.sp_v = 2u << 16;                     /* (twice the speed, down to a stop over T: T samples' worth back) */
+            pf.sp_dv = T ? (2u << 16) / T + 1u : 2u << 16;
+            pf.sp_state = 1;
+        }
+        return 0;
+    }
+    if (pf.sp_state == 1u) {
+        uint32_t back = pf.sp_pos >> 16, env;
+        if (back >= pf.sp_max || pf.sp_v <= pf.sp_dv) {
+            pf.sp_state = 2;
+            *yl = *yr = 0;
+            return 2;
+        }
+        pb_at(2u * pf.sp_end - 1u - back, pf.sp_end, yl, yr);
+        env = pf.sp_v >= (1u << 15) ? 32768u : pf.sp_v;   /* (the last quarter of the speed fades out) */
+        *yl = mulq16(*yl, env << 1);
+        *yr = mulq16(*yr, env << 1);
+        pf.sp_pos += pf.sp_v;
+        pf.sp_v -= pf.sp_dv;
+        return 2;
+    }
+    *yl = *yr = 0;                                  /* spun out: silent until let go */
+    return 2;
+}
+
 /* the buffer effect faded out: the next one, or the buffer back. Once per effect, out of the per-sample loop
  * (noinline: its calls stay out of perf_block's loop code) */
 static __attribute__((noinline)) void perf_buf_done(void)
@@ -626,6 +724,8 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
     } else if (pf.mode == BM_HARM) {
         perf_harm(l, r, &yl, &yr);
         on = 2;                                     /* (KNOB 4 is the shimmer: the level stays full) */
+    } else if (pf.mode >= BM_SCAT) {
+        on = perf_xbuf(l, r, &yl, &yr);             /* (BLAZE: SCATTER, BACKSPIN; DEPTH is SCATTER's wildness) */
     }
     pf.tw = on && pf.src != PF_N ? on == 2 ? 32768 : 32768 - perf_k[3] * 327 : 0;
     pf.w += clamp(pf.tw - pf.w, -SL_SLOPE, SL_SLOPE);

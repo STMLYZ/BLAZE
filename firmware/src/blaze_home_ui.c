@@ -254,7 +254,7 @@ static void bz_pp_pass(void)
  * saves it there (stopped: no flash erase while playing). A slot holding another sound is not written over ---- */
 #define BZ_KIT0 (UP_SLOTS - 8u)
 #define BZ_KIT_SAVE_MS 900u
-static struct { uint8_t k, saved; uint32_t t; } bzkit;   /* k: the KIT key held + 1 */
+static struct { uint8_t k, saved, key; uint32_t t; } bzkit;   /* k: the KIT key held + 1; key: its key (held: fm1_in) */
 static int bz_kit_mine(uint32_t k)                  /* slot k empty or one of BLAZE's KITs */
 {
     char b[16];
@@ -308,7 +308,7 @@ static void bz_kit_pass(void)                       /* each pass: the KIT key he
     if (!bzkit.k)
         return;
     i = bzkit.k - 1u;
-    if ((bz_kitk >> i) & 1u) {
+    if ((fm1_in.notes >> bzkit.key) & 1u) {           /* (the key itself: whichever of the ISR and here saw it first) */
         if (!bzkit.saved && fm1_ms - bzkit.t >= BZ_KIT_SAVE_MS) {
             bzkit.saved = 1;
             bz_kit_do(i, 1);
@@ -319,6 +319,86 @@ static void bz_kit_pass(void)                       /* each pass: the KIT key he
         bz_kit_do(i, 0);
     bzkit.k = 0;
 }
+/* ---- 0.10 MORPH: two states, A and B, of COLOR THROW DEPTH and each track's FILTER LEVEL REVERB DELAY; held a
+ * second (SHIFT + white 13 / 14) saves the state now as A / B (in RAM: they last until power-off); SHIFT + white 15
+ * MORPH on: KNOB 2 (PITCH's) slides them all from A (0) to B (100) ---- */
+#define BZM_N (3u + 4u * NTRK)
+#define BZM_SAVE_MS 700u
+static const uint8_t BZM_P[4] = {P_ED_FLT, P_LEVEL, P_REV, P_DLY};
+static struct {
+    int16_t v[2][BZM_N];
+    uint8_t ok;                                     /* bit 0 A saved, bit 1 B */
+    uint8_t on, pos;                                /* MORPH on; where it is, 0 (A) .. 100 (B) */
+    uint8_t k, key, saved;                          /* the A / B key held (+ 1: 1 A, 2 B), its key, saved yet */
+    uint32_t t;
+} bzm;
+static void bzm_take(int16_t *v)
+{
+    uint32_t i, j;
+    v[0] = perf_k[0];
+    v[1] = perf_k[2];
+    v[2] = perf_k[3];
+    for (i = 0; i < NTRK; i++)
+        for (j = 0; j < 4u; j++)
+            v[3u + 4u * i + j] = trk[i].p[BZM_P[j]];
+}
+static void bzm_apply(void)                         /* the state at pos, between A and B */
+{
+    uint32_t i, j;
+    int32_t p = bzm.pos;
+    int16_t m[BZM_N];
+    for (i = 0; i < BZM_N; i++)
+        m[i] = (int16_t)(bzm.v[0][i] + (bzm.v[1][i] - bzm.v[0][i]) * p / 100);
+    perf_k[0] = (int8_t)clamp(m[0], -100, 100);
+    perf_k[2] = (int8_t)clamp(m[1], 0, 100);
+    perf_k[3] = (int8_t)clamp(m[2], 0, 100);
+    for (i = 0; i < NTRK; i++)
+        for (j = 0; j < 4u; j++)
+            trk[i].p[BZM_P[j]] = (int16_t)clamp(m[3u + 4u * i + j], TP[BZM_P[j]].min, TP[BZM_P[j]].max);
+}
+static void bz_shift_white(uint32_t k, uint32_t p)  /* SHIFT + white 9..16 pressed (the ISR plays SCATTER, BACKSPIN) */
+{
+    if (p == BZS9_SCAT)
+        ui_message("SCATTER: KNOB 4 SETS HOW WILD");
+    else if (p == BZS9_SPIN)
+        ui_message(bz_spin != BZB_IDLE ? "BACKSPIN ON THE NEXT BEAT, BACK ON THE 1" : "BACKSPIN OFF");
+    else if (p == BZS9_MA || p == BZS9_MB) {
+        bzm.k = (uint8_t)(p == BZS9_MA ? 1u : 2u);
+        bzm.key = (uint8_t)k;
+        bzm.saved = 0;
+        bzm.t = fm1_ms;
+    } else if (p == BZS9_MORPH) {
+        if ((bzm.ok & 3u) != 3u) {
+            ui_message(!(bzm.ok & 1u) ? "MORPH: HOLD WHITE 13 TO SAVE A FIRST" : "MORPH: HOLD WHITE 14 TO SAVE B FIRST");
+            return;
+        }
+        bzm.on = (uint8_t)!bzm.on;
+        ui_message(bzm.on ? "MORPH ON: KNOB 2 SLIDES A -> B" : "MORPH OFF: KNOB 2 IS PITCH");
+    } else
+        ui_message("LOOP CAPTURE: COMING IN 0.11");
+    ui.force = 1;
+}
+static void bzm_pass(void)                          /* each pass: an A / B key held long enough saves; let go early: how */
+{
+    if (!bzm.k)
+        return;
+    if ((fm1_in.notes >> bzm.key) & 1u) {
+        if (!bzm.saved && fm1_ms - bzm.t >= BZM_SAVE_MS) {
+            bzm_take(bzm.v[bzm.k - 1u]);
+            bzm.ok |= (uint8_t)bzm.k;
+            bzm.saved = 1;
+            if (bzm.k == 1u)
+                bzm.pos = 0;
+            ui_message(bzm.k == 1u ? "MORPH A SAVED" : "MORPH B SAVED");
+            ui.force = 1;
+        }
+        return;
+    }
+    if (!bzm.saved)
+        ui_message(bzm.k == 1u ? "HOLD TO SAVE MORPH A" : "HOLD TO SAVE MORPH B");
+    bzm.k = 0;
+}
+
 static uint32_t bz_slice_first(void)               /* SLICE's track: the selected one if it plays SLICE, else the first */
 {
     uint32_t i;
@@ -557,6 +637,9 @@ static void bz_slice_black(uint32_t p)
         uint32_t id = p == BZS_MODE ? P_E4 : p == BZS_DIV ? P_E1 : P_E0;
         const param_desc_t *d = track_desc(t, id);
         t->p[id] = (int16_t)(t->p[id] >= d->max ? d->min : t->p[id] + 1);
+        if (p == BZS_SRC && t->p[id] == d->max && !bz_slice_n(t))   /* (0.10: PIANO, last, has no material in the FM-1
+                                                         * build: skipped) */
+            t->p[id] = (int16_t)d->min;
         bz_say_param(t, id, p == BZS_MODE ? "MODE " : p == BZS_DIV ? "SLICES " : "SAMPLE ");
         if (p == BZS_SRC && !bz_slice_n(t))
             ui_message("SAMPLE EMPTY: LOAD IT WITH fm1_sample_upload.py");
@@ -672,11 +755,14 @@ static void bz_ui_key(uint32_t k)
             ui_message("THE ONE: BAR 1 OF THE PHRASE");
         return;
     }
-    if (p < 8u && ((bz_kitk >> p) & 1u)) {          /* 0.7: SHIFT + white 1..8: a KIT (bz_kit_pass) */
+    if (p < 8u && bz_shift()) {                     /* 0.7: SHIFT + white 1..8: a KIT (bz_kit_pass) */
         bzkit.k = (uint8_t)(p + 1u);
+        bzkit.key = (uint8_t)k;
         bzkit.saved = 0;
         bzkit.t = fm1_ms;
         ui.force = 1;
+    } else if (p >= 8u && p < 16u && bz_shift() && !bz_pads) {   /* 0.10: SHIFT + white 9..16 */
+        bz_shift_white(k, p);
     } else if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX)
         ui_message(BZ_FX_NAME[p - BZ_FX0]);
     else if (p == BZ_B4 || p == BZ_B8)
@@ -724,6 +810,7 @@ static void bz_ui_pass(void)
     if (bz_slice)                                   /* (0.8: SLICE's track could change engine elsewhere) */
         bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
     bz_kit_pass();
+    bzm_pass();
     if (rs != bz_riser) {
         if (bz_riser == 16u && rs == 8u)
             ui_message("RISER 16 BARS");
@@ -819,6 +906,11 @@ static void bz_knob(uint32_t k, int32_t s)
             perf_k[2] = (int8_t)clamp(perf_k[2] + accel(EN_K4, s, 100), 0, 100);
         else
             perf_k[3] = (int8_t)clamp(perf_k[3] - accel(EN_K4, s, 100), 0, 100);   /* (DEPTH rises to the right) */
+        return;
+    }
+    if (k == 1u && l == NLANE && !bz_shift() && bzm.on) {   /* 0.10 MORPH: KNOB 2 slides A -> B */
+        bzm.pos = (uint8_t)clamp((int32_t)bzm.pos + accel(EN_K2, s, 100), 0, 100);
+        bzm_apply();
         return;
     }
     if (!drum_track(t)) {
@@ -1022,6 +1114,8 @@ static uint32_t bz_sig(void)
         (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u + bz_set_n * 233u +
         fm1_in.notes * 239u + up_gen * 241u + bz_lock * 251u + (uint32_t)bzkit.k * 257u;   /* (0.6: the key held,
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
+    h = h * 379u + bz_spin * 383u + bz_shk_held * 389u + bzm.on * 397u + bzm.pos * 401u + bzm.ok * 409u +
+        (uint32_t)bzm.k * 419u;                     /* (0.10: BACKSPIN, SHIFT 9..16, MORPH) */
     h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +
         bz_rb_val[2] * 367u + bz_rb_val[3] * 373u;   /* (0.9 REKORDBOX) */
     h = h * 293u + rl_latch * 307u + rl_pp * 311u + bz_pads * 313u;   /* (0.9: tapped rates, PAD PRESETS) */

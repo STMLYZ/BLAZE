@@ -25,6 +25,10 @@
 #else
 #define FELUCCA_PLUGINS_FM1 0
 #endif
+#ifndef FELUCCA_PHYS
+#define FELUCCA_PHYS 1           /* BLAZE 0.10: the PHYS engine (eng_phys.c). The FM-1 build leaves it out (tools/build.py:
+                                  * FELUCCA_PHYS=0, flash for BLAZE); engine 9 stays reserved, as DIGITAL's 1 */
+#endif
 #ifndef FELUCCA_FM4
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
@@ -62,7 +66,7 @@
 #endif
 #define ENGI_ADPCM 14u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENG_BUILTIN - !FELUCCA_FM4)   /* Felucca's engines one can pick: PRESETS, the EDIT layer, the
+#define NENG_SHOWN (NENG_BUILTIN - !FELUCCA_FM4 - !FELUCCA_PHYS)   /* Felucca's engines one can pick: PRESETS, the EDIT layer, the
                                                     * editor, in the display order of engines.c ENGINE_ORDER (with
                                                     * plugins: eng_nshown, those and the plugins of their own) */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */

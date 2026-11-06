@@ -323,6 +323,21 @@ static void layer_blaze(void)
             bzk_cell(x, y, 14, nm, rl_lane_col(l),
                      pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rl_pp | rlu.fl) >> pad) & 1u ? RLC_FILL
                      : pad >= NLANE || rl_pp_rate[l] || rl_pp_fx[l] ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
+        } else if (i >= 8u && bz_shift() && !pe) {             /* 0.10: SHIFT: 9 SCATTER, 10 BACKSPIN, 13 / 14 MORPH A / B,
+                                                         * 15 MORPH; 11 12 16 LOOP CAPTURE (0.11) */
+            static const char *const N[8] = {"SCATR", "SPIN", "-", "-", "SET A", "SET B", "MORPH", "-"};
+            uint32_t j = i - 8u, how = RLC_IDLE;
+            if (j == 0u)
+                how = (fx >> PF_SCAT) & 1u ? RLC_FILL : RLC_IDLE;
+            else if (j == 1u)
+                how = bz_spin != BZB_IDLE ? RLC_FILL : RLC_IDLE;
+            else if (j == 4u || j == 5u)
+                how = bzm.k == j - 3u ? RLC_FILL : (bzm.ok >> (j - 4u)) & 1u ? RLC_TINT : RLC_IDLE;
+            else if (j == 6u)
+                how = (bzm.ok & 3u) != 3u ? RLC_DIM : bzm.on ? RLC_FILL : RLC_IDLE;
+            else
+                how = RLC_DIM;
+            bzk_cell(x, y, 14, N[j], j < 2u ? T_ACCENT : j < 7u && j > 3u ? T_THEME : T_MID, how, BZK_W, i + 1u);
         } else if (i < 8u && bz_shift()) {                     /* 0.7: SHIFT: KIT 1..8 (held: saving / loading; the one
                                                          * loaded tinted; empty dim) */
             char nm[8] = {'K', 'I', 'T', ' ', (char)('1' + i), 0};
@@ -492,6 +507,12 @@ static void bz_cards(void)
         draw_column(1, "PITCH", "-", "", T_DIM, -1, ICON_TUNE);
         draw_column(2, "DECAY", "-", "", T_DIM, -1, ICON_DECAY);
     }
+    if (bzm.on) {                                       /* 0.10 MORPH: KNOB 2 is A .. B */
+        val[0] = bzm.pos < 50u ? 'A' : 'B';
+        val[1] = 0;
+        draw_column(1, "MORPH", val, "", VAL(1u), bzm.pos * 10, ICON_SWEEP);
+    }
     fmt_int(val, 100 - perf_k[3]);
-    draw_column(3, "DEPTH", val, "%", VAL(3u), (100 - perf_k[3]) * 10, ICON_MIX);
+    draw_column(3, (perf_held | perf_latched) & PF_BIT(PF_SCAT) ? "WILD" : "DEPTH", val, "%", VAL(3u),
+                (100 - perf_k[3]) * 10, ICON_MIX);
 }

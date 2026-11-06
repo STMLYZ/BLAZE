@@ -276,3 +276,31 @@ Map them in rekordbox: Preferences → MIDI (or the MIDI button) → device **Fe
 Learn the white keys twice: once with DECK 1 (channel 14) to the deck 1 functions, once with DECK 2 (channel 15) to deck
 2's. The black keys and knobs are the same on both decks. The screen names each key as in the table; pressing one shows
 its note and channel.
+
+## 0.10 — room to grow, SCATTER, BACKSPIN, MORPH
+
+### Stripped and hidden
+
+The FM-1 build leaves out the built-in PIANO, FLUTE and SAX samples (about 104 KB) and the PHYS engine (marimba,
+kalimba, hand drum, harp ...): the firmware has room for BLAZE's next pages again. SLICE's BREAK stays; SLICE's PIANO
+(the PIANO sample) is gone, so SAMPLE skips it. A project or user preset that used one of them loads, with that
+sound silent. Your own samples (USR1–3, `fm1_sample_upload.py`) play in SAMPLE, SLICE and GRAIN as before.
+
+PRESETS browsing no longer shows TINE EP, E.PIANO, FUNK KEY, MARIMBA, ORGAN, BRASS or PERC KIT (still in the
+firmware; MIDI program change numbers are unchanged).
+
+(Builds: `tools/build.py` makes `build/gen_fm1/felucca_samples.h` without the CC0 sets for the FM-1 and sets
+FELUCCA_PHYS=0; the host and the tests keep everything.)
+
+### SHIFT + white 9–16 (BLAZE, no pad held)
+
+| SHIFT + | Does |
+|---|---|
+| White 9 SCATR | **SCATTER**: tap on / off, hold while held. Each 1/16 is the live mix or one of the last two 1/16s again: forwards, backwards, or as two 1/32s. KNOB 4 (WILD while it runs) sets how often: full, 9 in 10 scattered. Starts on the 1/16 |
+| White 10 SPIN | **BACKSPIN**: records from the press, spins backwards to a stop on the next beat (at least a quarter beat later), silent until the next bar's 1, then back. Again: cancel |
+| White 13 / 14 SET A / SET B | Held 0.7 s: save MORPH's A / B (COLOR, THROW, DEPTH; each track's FILTER, LEVEL, REVERB, DELAY) |
+| White 15 MORPH | MORPH on / off (A and B saved first): KNOB 2 (the MORPH card) slides everything from A to B |
+| White 11, 12, 16 | LOOP CAPTURE (0.11) |
+
+SCATTER and BACKSPIN are in Felucca's FX layer too (assignable keys: SCAT, SPIN; there BACKSPIN spins after half a
+beat, silent until let go).
