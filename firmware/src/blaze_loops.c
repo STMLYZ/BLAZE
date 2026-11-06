@@ -107,11 +107,14 @@ static void bz_loops_key(uint32_t p)
         bz_lp_fire();
 }
 
+static void slice_block(uint32_t adv);             /* (0.8, blaze_slice.c: SLICE's notes on the grid; called from here, so
+                                                   * the audio ISR's own code stays as it was) */
 /* every block: n samples of real time (DUCK), adv of the sequencer's (the point, fades, fills) */
 static __attribute__((noinline)) void loops_block(uint32_t n, uint32_t adv)
 {
     uint32_t k;
     int32_t dg;
+    slice_block(adv);
     if (bz_lp_cancel) {
         bz_lp_cancel = 0;
         for (k = 0; k < NTRK; k++)

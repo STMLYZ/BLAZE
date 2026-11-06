@@ -87,7 +87,6 @@ static uint32_t run(uint32_t blocks, uint32_t *at, uint32_t nat)
         home_block(CTL, CTL);
         chord_block(CTL);
         loops_block(CTL, CTL);
-        slice_block(CTL);
         for (; v0 < vage; v0++, n++)
             if (at && n < nat)
                 at[n] = b * CTL;

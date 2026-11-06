@@ -816,6 +816,21 @@ static uint32_t kb_roll;                         /* the keys pressed in the ROLL
 static uint32_t kb_bz;                           /* .. in the BLAZE layer */
 static uint32_t kb_bzn;                          /* .. BLAZE KEYS' white keys playing notes */
 
+/* BLAZE SLICE: white key k down (out of line: keyboard_block's loop stays as it was) */
+static __attribute__((noinline)) void kb_slice_press(uint32_t k)
+{
+    kb_trk[k] = (uint8_t)(bz_strk % NTRK);
+    if (!bz_sl_ok) {
+        kb_note[k] = KB_SILENT;
+        kb_layer |= 1u << k;                     /* (no SLICE track: the key is the layer's, silent) */
+        kb_bz |= 1u << k;
+        return;
+    }
+    kb_note[k] = (uint8_t)bz_slice_note(&trk[kb_trk[k]], key_place(k));
+    kb_bzs |= 1u << k;
+    bz_sl_key(k, 1);
+}
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -847,16 +862,7 @@ static void keyboard_block(void)
                 continue;
             }
             if (lay && home && bz_slice && !key_black(k)) {  /* BLAZE SLICE: a slice of the SLICE track (0.8) */
-                kb_trk[k] = (uint8_t)(bz_strk % NTRK);
-                if (!bz_sl_ok) {
-                    kb_note[k] = KB_SILENT;
-                    kb_layer |= 1u << k;          /* (no SLICE track: the key is the layer's, silent) */
-                    kb_bz |= 1u << k;
-                    continue;
-                }
-                kb_note[k] = (uint8_t)bz_slice_note(&trk[kb_trk[k]], key_place(k));
-                kb_bzs |= 1u << k;
-                bz_sl_key(k, 1);
+                kb_slice_press(k);
                 continue;
             }
             if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
@@ -1544,7 +1550,6 @@ static void events_block(uint32_t n)
     home_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE: BUILD, RISER, ECHO OUT */
     chord_block(clock_mode && song.playing ? seq_n : n);     /* BLAZE: CHORD's stabs and gate */
     loops_block(n, clock_mode && song.playing ? seq_n : n);  /* BLAZE: LOOPS' changes and fades, DUCK */
-    slice_block(clock_mode && song.playing ? seq_n : n);     /* BLAZE: SLICE's notes on the grid */
     if (cin_flush)
         cin_record();
     if (song.playing)
