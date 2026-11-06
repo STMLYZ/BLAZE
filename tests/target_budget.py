@@ -118,6 +118,38 @@ def cost(insns):
     return {"insns": len(insns), "loop": n, "div": divs, "call": calls, "cost": w}
 
 
+def dump(name, insns):
+    """BLAZE: an over-budget function's loops, as runs of one nesting depth: their addresses, instructions,
+    calls (by target) and divides, to see what grew (TB_DUMP=name prints one that is not over)"""
+    lo = insns[0][0]
+    heads = {}
+    for a, t in insns:
+        m = TARGET.search(t)
+        if m and lo <= int(m.group(1), 16) < a:
+            h = int(m.group(1), 16)
+            heads[h] = max(heads.get(h, a), a)
+    loops = spans(heads)
+    print(f"target: dump {name}: {len(loops)} loops: " + " ".join(f"{h:x}-{e:x}" for h, e in loops))
+    run = None
+    for a, t in insns + [(None, "")]:
+        d = min(sum(1 for h, e in loops if h <= a <= e), MAXD) if a is not None else -1
+        if run and (d != run[1] or a is None):
+            calls = [re.sub(r"\s+", " ", c) for c in run[3]]
+            print(f"target:   {run[0]:x}-{run[4]:x} depth {run[1]}: {run[2]:4d} insns, {run[5]} div"
+                  + (f", calls {', '.join(calls)}" if calls else ""))
+            run = None
+        if a is None:
+            break
+        if run is None:
+            run = [a, d, 0, [], a, 0]
+        run[2] += 1
+        run[4] = a
+        if t.startswith("call"):
+            run[3].append(t[4:].strip()[:60])
+        if re.search(r"= r\d+ / r\d+", t):
+            run[5] += 1
+
+
 def main():
     if not os.path.exists(dis):
         print(f"target: skip ({dis} missing: run ./build.sh)")
@@ -153,10 +185,13 @@ def main():
             if r["cost"] > b * (1 + TOL):
                 state = f"OVER BUDGET (+{(r['cost'] / b - 1) * 100:.0f} %, limit +{TOL * 100:.0f} %)"
                 fail += 1
+                dump(n, fns[n])
             elif r["cost"] < b * (1 - TOL):
                 state = f"note: {(r['cost'] / b - 1) * 100:.0f} % (BUDGET_UPDATE=1 to keep it)"
         print(f"target: {n:15s} {r['insns']:5d} instructions, {r['loop']:4d} in loops, {r['div']} divides, "
               f"{r['call']:2d} calls there: cost {r['cost']:5d} (budget {b if b is not None else '-'}) {state}")
+    if os.environ.get("TB_DUMP") in fns:
+        dump(os.environ["TB_DUMP"], fns[os.environ["TB_DUMP"]])
     return 1 if fail else 0
 
 
