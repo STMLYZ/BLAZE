@@ -211,3 +211,27 @@ Notes coming in over MIDI (a keyboard on TRS or USB) are moved onto the key, the
 keys: down to the nearest note of the scale. It works once BLAZE has a key (from RAIL / SET) or the track's QNT is
 on, on tracks with a scale (not CHR), never on DRUM or sliced sounds. On by default; KEYS + SHIFT + black 1 (LOCK)
 turns it off and on (kept with the settings).
+
+## 0.8 — SLICE
+
+OCT- now steps BLAZE → KEYS → CHORD → LOOPS → **SLICE** → BLAZE. SLICE puts a sample's slices on the 16 white keys,
+using Felucca's own SLICE engine: its BREAK, your own samples in USR1–USR3, or PIANO.
+
+- **White 1–16:** slices S1..S16 (the screen shows which slice each key plays). START (knob 1) moves them along. With
+  fewer slices than keys the extra keys wrap round and show dim. Slice 1 is tinted.
+- **Black 1–4 T1..T4:** which track SLICE plays. **SHIFT + T1..T4** turns that track into a SLICE track (UNDO brings
+  its old sound back). With no SLICE track the white keys stay silent.
+- **Black 5 MODE:** ONE (plays the slice to its end), GATE (while held), LOOP (repeats while held).
+- **Black 6 REV:** slices backwards.
+- **Black 7 SLICES:** 4 / 8 / 16 / 32 equal slices, AUTO (one per hit Felucca finds), MAN (your own, set on
+  Felucca's SLICES page).
+- **Black 8 SAMPLE:** BREAK, USR1, USR2, USR3, PIANO. An empty slot says so.
+- **Black 9 17–32:** the second page when there are more than 16 slices.
+- **Black 10 QUANTIZE:** OFF, 1/16, 1/8, BEAT. A press waits for the next point of that grid (counted from the
+  phrase's 1), and so does its release. Stopped: at once.
+- **Black 11 CHOP:** the track's SLICER insert, OFF → GATE → STUTTER, in time with the tempo.
+- **Knobs:** START, PITCH (±24 semitones), DECAY, TONE.
+
+Loading your own sample (Mac, FM-1 on USB, BLAZE installed):
+`python3.12 tools/fm1_sample_upload.py load 1 VOX vocal.wav` puts `vocal.wav` in USR1 (about 7 s max per slot, any
+WAV; it is converted to mono 22 kHz). Then SAMPLE → USR1 and SLICES → AUTO.

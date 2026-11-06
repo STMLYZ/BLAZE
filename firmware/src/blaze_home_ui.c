@@ -276,9 +276,19 @@ static void bz_kit_pass(void)                       /* each pass: the KIT key he
         bz_kit_do(i, 0);
     bzkit.k = 0;
 }
-static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> LOOPS -> BLAZE) */
+static uint32_t bz_slice_first(void)               /* SLICE's track: the selected one if it plays SLICE, else the first */
 {
-    if (!bz_keys && !bz_chord && !bz_loops) {
+    uint32_t i;
+    if (bz_slice_trk(TSEL))
+        return song.sel;
+    for (i = 0; i < NTRK; i++)
+        if (bz_slice_trk(&trk[i]))
+            return i;
+    return bz_strk % NTRK;
+}
+static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> BLAZE) */
+{
+    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice) {
         bz_ktrk = (uint8_t)bz_keys_track();
         bz_keys = 1;
     } else if (bz_keys) {
@@ -289,11 +299,18 @@ static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> C
     } else if (bz_chord) {
         bz_chord = 0;
         bz_loops = 1;
-    } else {
+    } else if (bz_loops) {
         bz_loops = 0;
+        bz_strk = (uint8_t)bz_slice_first();
+        bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
+        bz_slice = 1;
+    } else {
+        bz_slice = 0;
     }
     ui_message(bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
-               : bz_loops ? "LOOPS: LAYERS IN AND OUT ON THE BEAT" : "BLAZE: PADS AND EFFECTS");
+               : bz_loops ? "LOOPS: LAYERS IN AND OUT ON THE BEAT"
+               : bz_slice ? (bz_sl_ok ? "SLICE: THE SAMPLE ON THE KEYS" : "SLICE: NO SLICE TRACK (SHIFT + T1..T4 MAKES ONE)")
+               : "BLAZE: PADS AND EFFECTS");
     ui.force = 1;
 }
 
@@ -444,11 +461,88 @@ static void bz_chord_black(uint32_t p)
     ui.force = 1;
 }
 
+/* ---- SLICE's black keys (the main loop): T1..T4 (SHIFT: make it a SLICE track), MODE, REV, DIV, SRC, 17-32,
+ * QUANTIZE, CHOP (the track's SLICER insert: OFF GATE STUT) ---- */
+enum { BZS_MODE = 4, BZS_REV, BZS_DIV, BZS_SRC, BZS_PAGE, BZS_Q, BZS_CHOP };
+static const char *const BZS_Q_NAME[4] = {"Q OFF", "Q 1/16", "Q 1/8", "Q BEAT"};
+static void bz_say_param(const track_t *t, uint32_t id, const char *pre)
+{
+    char v[12];
+    const char *u;
+    param_format(track_desc(t, id), t->p[id], v, &u);
+    ui_say(pre, v);
+}
+static void bz_slice_black(uint32_t p)
+{
+    track_t *t = &trk[bz_strk % NTRK];
+    char m[40];
+    if (p < NTRK) {
+        if (bz_shift() && !bz_slice_trk(&trk[p])) { /* SHIFT + T: that track becomes SLICE (UNDO brings its sound back) */
+#if FELUCCA_SLICE
+            set_engine_of(&trk[p], 13u);
+#endif
+            str_cpy(m, "T1 IS SLICE NOW (UNDO: ITS SOUND BACK)", sizeof m);
+            m[1] = (char)('1' + p);
+            ui_message(m);
+        }
+        if (bz_slice_trk(&trk[p])) {
+            bz_strk = (uint8_t)p;
+            bz_sl_page = 0;
+            if (!bz_shift()) {
+                str_cpy(m, "SLICES ON T1", sizeof m);
+                m[11] = (char)('1' + p);
+                ui_message(m);
+            }
+        } else if (!bz_shift()) {
+            str_cpy(m, "T1 IS NOT SLICE: SHIFT + T1 MAKES IT", sizeof m);
+            m[1] = m[35] = (char)('1' + p);
+            ui_message(m);
+        }
+    } else if (!bz_slice_trk(t)) {
+        ui_message("NO SLICE TRACK: SHIFT + T1..T4 MAKES ONE");
+    } else if (p == BZS_MODE || p == BZS_DIV || p == BZS_SRC) {
+        uint32_t id = p == BZS_MODE ? P_E4 : p == BZS_DIV ? P_E1 : P_E0;
+        const param_desc_t *d = track_desc(t, id);
+        t->p[id] = (int16_t)(t->p[id] >= d->max ? d->min : t->p[id] + 1);
+        bz_say_param(t, id, p == BZS_MODE ? "MODE " : p == BZS_DIV ? "SLICES " : "SAMPLE ");
+        if (p == BZS_SRC && !bz_slice_n(t))
+            ui_message("SAMPLE EMPTY: LOAD IT WITH fm1_sample_upload.py");
+        if (bz_slice_n(t) <= 16u)
+            bz_sl_page = 0;
+    } else if (p == BZS_REV) {
+        t->p[P_E5] = (int16_t)!t->p[P_E5];
+        ui_message(t->p[P_E5] ? "REVERSE ON" : "REVERSE OFF");
+    } else if (p == BZS_PAGE) {
+        if (bz_slice_n(t) > 16u) {
+            bz_sl_page = (uint8_t)!bz_sl_page;
+            ui_message(bz_sl_page ? "SLICES 17-32" : "SLICES 1-16");
+        } else
+            ui_message("16 SLICES OR FEWER: ONE PAGE");
+    } else if (p == BZS_Q) {
+        bz_sl_q = (uint8_t)((bz_sl_q + 1u) & 3u);
+        ui_message(BZS_Q_NAME[bz_sl_q]);
+    } else if (p == BZS_CHOP) {
+        t->p[P_SLCR] = (int16_t)((t->p[P_SLCR] + 1) % 3);
+        ui_message(t->p[P_SLCR] == SL_GATE ? "CHOP: GATE" : t->p[P_SLCR] == SL_STUT ? "CHOP: STUTTER" : "CHOP OFF");
+    }
+    bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
+    ui.force = 1;
+}
+
 /* a key of the BLAZE layer pressed (the main loop: what the ISR does not, and what it says) */
 static void bz_ui_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     track_t *t;
+    if (bz_slice) {                                 /* SLICE: the black keys (the white ones play: seq.c) */
+        if (key_black(k))
+            bz_slice_black(p);
+        else if (!bz_sl_ok)
+            ui_message("NO SLICE TRACK: SHIFT + T1..T4 MAKES ONE");
+        else
+            ui.force = 1;
+        return;
+    }
     if (bz_loops) {                                 /* LOOPS: the black keys (the white ones: the ISR's) */
         if (key_black(k))
             bz_loops_black(p);
@@ -548,6 +642,8 @@ static void bz_ui_pass(void)
     }
     bz_ramp_pass();
     bz_shift_on = (uint8_t)bz_shift();
+    if (bz_slice)                                   /* (0.8: SLICE's track could change engine elsewhere) */
+        bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
     bz_kit_pass();
     if (rs != bz_riser) {
         if (bz_riser == 16u && rs == 8u)
@@ -582,6 +678,17 @@ static void bz_knob(uint32_t k, int32_t s)
             bz_cfg_apply();
             lys.rp_dirty = 1;
         }
+        return;
+    }
+    if (bz_slice) {                                 /* SLICE: START PITCH DECAY TONE of the SLICE track */
+        static const uint8_t ID[4] = {P_E2, P_E3, P_E6, P_E7};
+        track_t *st = &trk[bz_strk % NTRK];
+        const param_desc_t *d;
+        if (!bz_slice_trk(st))
+            return;
+        d = track_desc(st, ID[k]);
+        vp = &st->p[ID[k]];
+        *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max);
         return;
     }
     if (bz_loops) {                                 /* LOOPS: DUCK, RELEASE, RAMP TO, RAMP BARS */
@@ -689,6 +796,19 @@ static void bz_algo(int32_t s)
 static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
 {
     uint32_t p = key_place(k), fx = perf_held | perf_latched;
+    if (bz_slice) {                                 /* SLICE: the slices there are breathe, a key held lit */
+        const track_t *t = &trk[bz_strk % NTRK];
+        if (!key_black(k)) {
+            *can = bz_sl_ok && p + 16u * bz_sl_page < bz_slice_n(t);
+            *on = (fm1_in.notes >> k) & 1u;
+            return;
+        }
+        *can = p < 11u;
+        *on = p < NTRK ? p == bz_strk % NTRK && bz_sl_ok : !bz_sl_ok ? 0u : p == BZS_MODE ? t->p[P_E4] != 0
+              : p == BZS_REV ? t->p[P_E5] != 0 : p == BZS_PAGE ? bz_sl_page != 0u : p == BZS_Q ? bz_sl_q != 0u
+              : p == BZS_CHOP && t->p[P_SLCR] != 0;
+        return;
+    }
     if (bz_loops) {
         if (!key_black(k)) {
             uint32_t t = p % 4u;
@@ -776,7 +896,7 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
-    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_riser_held() ? "[ENV] RISER SOUND"
+    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
@@ -814,6 +934,11 @@ static uint32_t bz_sig(void)
         (uint32_t)bzl.to * 211u + bzl.bars * 223u + bz_blend * 227u + bz_lp_restart * 229u + bz_set_n * 233u +
         fm1_in.notes * 239u + up_gen * 241u + bz_lock * 251u + (uint32_t)bzkit.k * 257u;   /* (0.6: the key held,
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
+    h = h * 263u + bz_slice * 269u + bz_strk * 271u + bz_sl_ok * 277u + bz_sl_page * 281u + bz_sl_q * 283u;
+    if (bz_slice)                                    /* (0.8: SLICE's track: its sample, slices, knobs) */
+        for (i = P_E0; i <= P_E7; i++)
+            h = h * 31u + (uint32_t)trk[bz_strk % NTRK].p[i] + (uint32_t)trk[bz_strk % NTRK].p[P_SLCR] * 7u +
+                bz_slice_n(&trk[bz_strk % NTRK]) * 13u;
     for (i = 0; i < NTRK; i++)
         h = h * 33u + (uint32_t)trk[i].p[P_MUTE] + bz_lp_op[i] * 2u + (bz_fd_len[i] ? (bz_fd_age[i] * 8u / bz_fd_len[i]) * 16u
             + 8u : 0u) + (bz_fill_left[i] ? 256u : 0u) + (uint32_t)drum_track(&trk[i]) * 512u;

@@ -66,6 +66,11 @@ static void home_reset(void)
     }
     bz_pads = 0;
     bz_tapfx = bz_offfx = 0;
+    bz_slice = 0;
+    bz_sl_on = bz_sl_off = 0;
+    bz_sl_q = 0;
+    bz_sl_page = 0;
+    kb_bzs = 0;
     song.g[G_BPM] = 120;
     song.g[G_CLOCK] = 0;
     home_mask = 1u << panel.btn[B_ENV];            /* ENV held: the keys are BLAZE's */
@@ -82,6 +87,7 @@ static uint32_t run(uint32_t blocks, uint32_t *at, uint32_t nat)
         home_block(CTL, CTL);
         chord_block(CTL);
         loops_block(CTL, CTL);
+        slice_block(CTL);
         for (; v0 < vage; v0++, n++)
             if (at && n < nat)
                 at[n] = b * CTL;
@@ -533,8 +539,10 @@ int main(void)
     press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && bz_loops && !strncmp(bz_head(), "[ENV] LOOPS", 11);
     press(B_OCTDN);
-    ok &= !bz_keys && !bz_chord && !bz_loops;
-    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> BLAZE", ok);
+    ok &= !bz_keys && !bz_chord && !bz_loops && bz_slice && !strncmp(bz_head(), "[ENV] SLICE", 11);
+    press(B_OCTDN);
+    ok &= !bz_keys && !bz_chord && !bz_loops && !bz_slice;
+    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> BLAZE", ok);
     bz_cfg[BZC_MAGIC_I] = 0;
     bz_cfg_apply();
     key_down(wk(BZ_RISER));
@@ -808,6 +816,69 @@ int main(void)
         bad += check("  a slot holding another sound (U26 \"MY BEATS\") is not written over", ok);
         up_put(k0, 0);
         up_put(k0 + 1u, 0);
+    }
+
+
+    /* 0.8: SLICE: SHIFT + black 2 makes T2 SLICE; white 3 plays slice 3 (C4 + ROOT + 2) on T2; QUANTIZE 1/16 holds a
+     * press made mid-16th to the next 16th; no SLICE track: the white keys are silent (no pad) */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], v1;
+        track_t *st = &trk[1];
+        bz_loops = 1;
+        bz_keys_toggle();                           /* (LOOPS -> SLICE) */
+        ok = bz_slice && !bz_loops;
+        bz_strk = 0;
+        bz_sl_ok = (uint8_t)bz_slice_trk(&trk[0]);
+        v1 = vage;
+        key_down(wk(2));
+        ok &= !bz_sl_ok && vage == v1;              /* (T1 is DRUM: silent, and no pad) */
+        key_up(wk(2));
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        bz_slice_black(1);                          /* SHIFT + T2: T2 becomes SLICE, and SLICE's track */
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        ok &= bz_slice_trk(st) && bz_strk == 1u && bz_sl_ok && bz_slice_n(st) == 16u;
+        st->engine = st->eng_req;                   /* (the ISR's switch at the next block start, done) */
+        st->xf_on = 0;
+        st->xp_n = 0;
+        st->p[P_ROOT] = 0;
+        key_down(wk(2));
+        ok &= bz_gate_note(st, 62);
+        key_up(wk(2));
+        bad += check("SLICE: SHIFT + T2 makes T2 SLICE (16 slices of BREAK); white 3 plays its slice 3; a DRUM track: "
+                     "silent", ok);
+
+        bz_sl_q = 1;                                /* QUANTIZE 1/16 */
+        seq_start();
+        song.playing = 1;
+        click_tick(0);
+        click_tick(div_samples(2) / 2u);            /* (half a 16th in) */
+        v1 = vage;
+        key_down(wk(4));
+        ok = vage == v1 && bz_sl_on != 0u;
+        run(div_samples(2) / 2u / CTL - 2u, 0, 0);
+        ok &= !bz_gate_note(st, 64);
+        run(4, 0, 0);
+        ok &= bz_gate_note(st, 64) && !bz_sl_on;
+        key_up(wk(4));
+        ok &= bz_sl_off != 0u;                       /* (the note-off waits for the next 16th too) */
+        click_tick(div_samples(2) / 2u);
+        run(div_samples(2) / CTL + 2u, 0, 0);
+        ok &= !bz_sl_off;
+        bad += check("  QUANTIZE 1/16: a press mid-16th plays on the next 16th, its release on the one after", ok);
+        song.playing = 0;
+        bz_sl_q = 0;
+        bz_slice_black(BZS_PAGE);
+        ok = !bz_sl_page;                           /* (16 slices: one page) */
+        st->p[P_E1] = 3;                            /* 32 slices */
+        bz_slice_black(BZS_PAGE);
+        key_down(wk(0));
+        ok &= bz_sl_page && bz_gate_note(st, 76);
+        key_up(wk(0));
+        bad += check("  32 slices: 17-32 puts slice 17 on white 1 (16 or fewer: one page)", ok);
+        bz_slice = 0;
     }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");

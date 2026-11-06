@@ -47,6 +47,7 @@ static volatile uint8_t bz_chord;              /* main: the layer is CHORD (blaz
 static void bz_chord_key(uint32_t p);
 static void bz_chord_stop(void);
 static volatile uint8_t bz_loops;              /* main: the layer is LOOPS (blaze_loops.c) */
+static volatile uint8_t bz_slice;              /* main: the layer is SLICE (blaze_slice.c, 0.8) */
 static void bz_loops_key(uint32_t p);
 static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-) */
 static volatile uint8_t bz_ktrk;               /* main: the KEYS track */
@@ -242,6 +243,8 @@ static void bz_fx_key(uint32_t i, int down)
 static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
 {
     uint32_t p = key_place(k), pad;
+    if (bz_slice)                                /* SLICE: the white keys play (seq.c), the black ones: the main loop's */
+        return;
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
         if (!key_black(k) && down)
             bz_chord_key(p);

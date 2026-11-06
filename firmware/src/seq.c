@@ -811,6 +811,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 #include "blaze_home.c"                          /* BLAZE: the home layer's (ENV held) */
 #include "blaze_chord.c"                         /* BLAZE: its CHORD */
 #include "blaze_loops.c"                         /* BLAZE: its LOOPS, DUCK */
+#include "blaze_slice.c"                         /* BLAZE: its SLICE (0.8) */
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
 static uint32_t kb_bz;                           /* .. in the BLAZE layer */
 static uint32_t kb_bzn;                          /* .. BLAZE KEYS' white keys playing notes */
@@ -843,6 +844,19 @@ static void keyboard_block(void)
             kb_trk[k] = song.sel;
             if (kb_asleep) {                      /* (SCREEN OFF: the wake press is swallowed) */
                 kb_note[k] = KB_SILENT;
+                continue;
+            }
+            if (lay && home && bz_slice && !key_black(k)) {  /* BLAZE SLICE: a slice of the SLICE track (0.8) */
+                kb_trk[k] = (uint8_t)(bz_strk % NTRK);
+                if (!bz_sl_ok) {
+                    kb_note[k] = KB_SILENT;
+                    kb_layer |= 1u << k;          /* (no SLICE track: the key is the layer's, silent) */
+                    kb_bz |= 1u << k;
+                    continue;
+                }
+                kb_note[k] = (uint8_t)bz_slice_note(&trk[kb_trk[k]], key_place(k));
+                kb_bzs |= 1u << k;
+                bz_sl_key(k, 1);
                 continue;
             }
             if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
@@ -880,6 +894,11 @@ static void keyboard_block(void)
             kb_lat(k);
 #endif
         } else {
+            if ((kb_bzs >> k) & 1u) {             /* (BLAZE SLICE: its note ends, now or at the point) */
+                kb_bzs &= ~(1u << k);
+                bz_sl_key(k, 0);
+                continue;
+            }
             if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
                 kb_bzn &= ~(1u << k);
                 key_off(k, &trk[kb_trk[k] % NTRK]);
@@ -1525,6 +1544,7 @@ static void events_block(uint32_t n)
     home_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE: BUILD, RISER, ECHO OUT */
     chord_block(clock_mode && song.playing ? seq_n : n);     /* BLAZE: CHORD's stabs and gate */
     loops_block(n, clock_mode && song.playing ? seq_n : n);  /* BLAZE: LOOPS' changes and fades, DUCK */
+    slice_block(clock_mode && song.playing ? seq_n : n);     /* BLAZE: SLICE's notes on the grid */
     if (cin_flush)
         cin_record();
     if (song.playing)

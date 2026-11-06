@@ -190,6 +190,65 @@ static void layer_keys_map(void)
     }
 }
 
+/* 0.8 SLICE: white 1..16 the slices (S1.., START moves them; the ones past the last wrap: dimmed), black: T1..T4,
+ * MODE, REV, DIV, SAMPLE, 17-32, QUANTIZE, CHOP */
+static void layer_slice_map(void)
+{
+    const track_t *t = &trk[bz_strk % NTRK];
+    uint32_t i, n = bz_slice_n(t), ok = bz_sl_ok;
+    char v[12], nm[8];
+    const char *u;
+    bzk_held_update();
+    bz_phrase_bar();
+    for (i = 0; i < 16u; i++) {
+        uint32_t j = i + 16u * bz_sl_page, sl = n ? (j + (uint32_t)clamp(t->p[P_E2], 0, 31)) % n : 0u;
+        nm[0] = 'S';
+        fmt_int(nm + 1, (int32_t)sl + 1);
+        bzk_cell(BZX(i % 4u), BZD_Y7 + 16 * (int32_t)(i / 4u), 14, ok && n ? nm : "-", T_THEME,
+                 !ok || !n ? RLC_DIM : ((bzk_held_w >> i) & 1u) ? RLC_FILL : j >= n ? RLC_DIM : sl == 0u ? RLC_TINT
+                 : RLC_IDLE, BZK_W, i + 1u);
+    }
+    for (i = 0; i < 11u; i++) {
+        int32_t h = i < 4u ? 14 : 16, ry = BZD_YB + (i < 4u ? 0 : i < 8u ? 16 : 34);
+        uint32_t how = RLC_IDLE;
+        uint16_t c = T_ACCENT;
+        const char *lab = v;
+        if (i < NTRK) {
+            v[0] = 'T';
+            v[1] = (char)('1' + i);
+            v[2] = 0;
+            how = bz_slice_trk(&trk[i]) ? (i == bz_strk % NTRK ? RLC_FILL : RLC_IDLE) : bz_shift() ? RLC_TINT : RLC_DIM;
+            c = T_THEME;
+        } else if (!ok) {
+            static const char *const L[7] = {"MODE", "REV", "SLICES", "SAMPLE", "17-32", "Q OFF", "CHOP"};
+            lab = L[i - NTRK];
+            how = RLC_DIM;
+        } else if (i == BZS_MODE || i == BZS_DIV || i == BZS_SRC) {
+            uint32_t id = i == BZS_MODE ? P_E4 : i == BZS_DIV ? P_E1 : P_E0;
+            param_format(track_desc(t, id), t->p[id], v, &u);
+            if (i == BZS_DIV && t->p[P_E1] < 4) {    /* (4 8 16 32: "16 SL") */
+                str_cpy(v + str_len(v), " SL", sizeof v - str_len(v));
+            }
+            how = i == BZS_MODE && t->p[P_E4] ? RLC_FILL : i == BZS_SRC && !n ? RLC_DIM : RLC_IDLE;
+        } else if (i == BZS_REV) {
+            lab = "REV";
+            how = t->p[P_E5] ? RLC_FILL : RLC_IDLE;
+        } else if (i == BZS_PAGE) {
+            lab = "17-32";
+            how = n <= 16u ? RLC_DIM : bz_sl_page ? RLC_FILL : RLC_IDLE;
+        } else if (i == BZS_Q) {
+            lab = BZS_Q_NAME[bz_sl_q & 3u];
+            how = bz_sl_q ? RLC_FILL : RLC_IDLE;
+            c = T_MID;
+        } else {
+            lab = t->p[P_SLCR] == SL_GATE ? "C GATE" : t->p[P_SLCR] == SL_STUT ? "C STUT" : "CHOP";
+            how = t->p[P_SLCR] ? RLC_FILL : RLC_IDLE;
+            c = T_REC;
+        }
+        bzk_cell(BZX(i % 4u), ry, h, lab, c, how, BZK_B, i + 1u);
+    }
+}
+
 static void layer_blaze(void)
 {
     track_t *t = rl_track();
@@ -205,6 +264,10 @@ static void layer_blaze(void)
     }
     if (bz_loops) {
         layer_loops_map();
+        return;
+    }
+    if (bz_slice) {
+        layer_slice_map();
         return;
     }
     bzk_held_update();
@@ -286,6 +349,24 @@ static void bz_cards(void)
         draw_column(1, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "", "", "", T_DIM, -1, ICON_NONE);
+        return;
+    }
+    if (bz_slice) {                                     /* SLICE: START PITCH DECAY TONE of the SLICE track */
+        static const uint8_t ID[4] = {P_E2, P_E3, P_E6, P_E7};
+        static const char *const NM[4] = {"START", "PITCH", "DECAY", "TONE"};
+        static const uint8_t IC[4] = {ICON_LENGTH, ICON_TUNE, ICON_DECAY, ICON_CUTOFF};
+        const track_t *st = &trk[bz_strk % NTRK];
+        uint32_t c;
+        for (c = 0; c < 4u; c++) {
+            const param_desc_t *d;
+            if (!bz_sl_ok) {
+                draw_column(c, NM[c], "-", "", T_DIM, -1, IC[c]);
+                continue;
+            }
+            d = track_desc(st, ID[c]);
+            param_format(d, st->p[ID[c]], val, &unit);
+            draw_column(c, NM[c], val, unit, VAL(c), RATIO(d, st->p[ID[c]]), IC[c]);
+        }
         return;
     }
     if (bz_loops) {                                     /* LOOPS: DUCK RELEASE RAMP TO BARS */
