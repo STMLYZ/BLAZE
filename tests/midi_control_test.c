@@ -872,10 +872,10 @@ static int pc_test(void)
     /* every engine: program n = the n-th sound PRESETS shows, then nothing */
     ok = 1;
     for (e = 0; e < NENGINES; e++) {
-        if (!eng_ok(e) || e == ENGI_DRUM || !preset_shown(e))
+        if (!eng_ok(e) || e == ENGI_DRUM || !preset_pc_n(e))
             continue;
         set_engine_of(t, e);
-        for (n = 0, last = -1; n < preset_shown(e); n++) {
+        for (n = 0, last = -1; n < preset_pc_n(e); n++) {   /* (BLAZE 0.10: browsing hides some; programs count them) */
             pc(0, n); frame();
             ok &= t->eng_req == e && (int32_t)t->preset > last && preset_orig(ENGINES[e], t->preset) == t->preset;
             last = t->preset;

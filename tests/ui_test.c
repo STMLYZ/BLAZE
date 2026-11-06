@@ -5174,7 +5174,7 @@ static int test_fm4_retired(void)
     eng_list_pos(&total);
     bad += check("  the record stays DIGITAL in the bank, listed with FM6's sounds (EDIT KNOB 2)",
                  up_rec(7)->engine == ENGI_DIGITAL && up_engine(7) == ENGI_FM6 &&
-                 total == ENGINES[ENGI_FM6]->npresets + 1u);
+                 total == preset_shown(ENGI_FM6) + 1u);   /* (BLAZE 0.10: the shown ones; some hidden) */
     up_store(8, "AGAIN");
     {
         uint8_t pk[FM6_PACKED], w[FP_SIZE + 1u];
@@ -7544,11 +7544,16 @@ static int test_fx_map(void)
     ok &= perf_map[10] == PF_RTHR && perf_held == PF_BIT(PF_RTHR) && msg_is("B4 REV THROW");
     turn(EN_PRESET, 1); keyboard_block();
     ok &= perf_map[10] == PF_ETHR && perf_held == PF_BIT(PF_ETHR) && msg_is("B4 ECHO THROW");
+    turn(EN_PRESET, 1); keyboard_block();               /* (BLAZE 0.10: SCATTER, BACKSPIN) */
+    ok &= perf_map[10] == PF_SCAT && perf_held == PF_BIT(PF_SCAT) && msg_is("B4 SCATTER");
+    turn(EN_PRESET, 1); keyboard_block();
+    ok &= perf_map[10] == PF_SPIN && perf_held == PF_BIT(PF_SPIN) && msg_is("B4 BACKSPIN");
     turn(EN_PRESET, 1); keyboard_block();               /* past the last: NONE */
     ok &= perf_map[10] == PF_N && !perf_held && msg_is("B4 NONE") && (kb_layer >> b4) & 1u;
     turn(EN_PRESET, 1); keyboard_block();               /* round: the first */
     ok &= perf_map[10] == PF_R8 && perf_held == PF_BIT(PF_R8);
-    turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); keyboard_block();
+    turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1);
+    turn(EN_PRESET, -1); keyboard_block();
     ok &= perf_map[10] == PF_PHS && perf_held == PF_BIT(PF_PHS) && lys.rp_dirty;
     ok &= (TSEL->preset | (uint32_t)TSEL->eng_req << 8) == snd && !gates();
     bad += check("  FX + B4 held + PRESETS: PHASER, REV THROW, ECHO THROW, NONE, round to REPEAT 1/8 and back, each held at once; no sound load", ok);
