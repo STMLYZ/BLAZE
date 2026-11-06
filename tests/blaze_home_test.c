@@ -983,6 +983,8 @@ int main(void)
         bz_keys_toggle();
         ok = bz_rb && !bz_slice && !strncmp(bz_head(), "[ENV] REKORDBOX", 15);
         usb.config = 1;
+        for (i = 0; i < 8u; i++)
+            home_block(CTL, CTL);                   /* (0.11: PHOSPHOR's first events out first) */
         mo = mo_w;
         v1 = vage;
         key_down(wk(0));
@@ -1116,6 +1118,235 @@ int main(void)
             if (!strcmp(ENGINES[ENGI_DRUM]->presets[i].name, "PERC KIT"))
                 ok2 &= preset_hidden(ENGINES[ENGI_DRUM], i);
         bad += check("PRESETS (0.10): browsing hides TINE EP BRASS MARIMBA ORGAN PERC KIT; program change counts them", ok2);
+    }
+
+    /* 0.11 ROLL SHAPE: ACCENT 2 every other hit at half; FADE falls over the bar */
+    home_reset();
+    {
+        uint32_t v[8], nv = 0, b, v0, f[4], nf = 0;
+        rl_shape = RLS_ACC2;
+        key_down(wk(0));
+        key_down(bk(3));                            /* (1/16) */
+        for (b = 0; b < 4u * beat_samples() / CTL && nv < 8u; b++) {
+            v0 = vage;
+            roll_block(CTL, CTL);
+            if (vage != v0)
+                v[nv++] = rl_vel_last;
+        }
+        ok = nv == 8u && v[0] == v[2] && v[1] == v[3] && v[2] == v[4] && v[1] * 2u <= v[0] + 1u && v[1] > 0u;
+        key_up(bk(3));
+        key_up(wk(0));
+        rl_shape = RLS_FADE;
+        key_down(wk(0));
+        key_down(bk(1));                            /* (1/8: 8 a bar) */
+        for (b = 0; b < 4u * beat_samples() / CTL + 2u && nf < 4u; b++) {
+            v0 = vage;
+            roll_block(CTL, CTL * 2u);              /* (twice as fast: 4 hits over the bar's first half) */
+            if (vage != v0)
+                f[nf++] = rl_vel_last;
+        }
+        ok &= nf == 4u && f[0] > f[1] && f[1] > f[2] && f[2] > f[3];
+        key_up(bk(1));
+        key_up(wk(0));
+        rl_shape = RLS_FLAT;
+        bad += check("ROLL SHAPE (0.11): ACCENT 2 halves every other hit; FADE falls along the bar", ok);
+    }
+
+    /* 0.11 DROP: SHIFT + black 3 playing, a 1/16 into bar 1: from bar 2 to the phrase's next 1 (15 bars): the RISER over
+     * them, COLOR up into the high pass, BACKSPIN asked for on the last beat, all back on the 1 (CC 41 127 for PHOSPHOR) */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], tot, i, mo, seen = 0;
+        seq_start();
+        song.playing = 1;
+        click_tick(0);
+        click_tick(div_samples(2));
+        perf_k[0] = -20;
+        bz_spin = BZB_IDLE;
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(bk(2));
+        key_up(bk(2));
+        ok = bz_drop == BZD_ARMED && bz_dr_bars == 15u && !(rl_runs | rl_latch);
+        bz_ui_key(bk(2));
+        home_block(CTL, 15u * div_samples(2) + CTL);
+        tot = 15u * 16u * div_samples(2);
+        ok &= bz_drop == BZD_RUN && bz_riser == 15u && perf_k[0] <= -19;
+        home_block(CTL, tot / 2u);
+        ok &= perf_k[0] > -10 && perf_k[0] < 40;
+        home_block(CTL, tot / 2u - 2u * beat_samples());
+        ok &= perf_k[0] > 50 && bz_spin == BZB_IDLE;
+        home_block(CTL, beat_samples() / 2u + CTL);
+        ok &= bz_spin == BZB_ARMED;
+        usb.config = 1;
+        for (i = 0; i < 8u; i++)
+            home_block(CTL, 0);
+        mo = mo_w;
+        home_block(CTL, beat_samples() + beat_samples() / 2u);
+        home_block(CTL, 0);
+        for (i = mo; i != mo_w; i++)
+            seen |= midi_out_q[i % MQ] == (0x0Bu | 0xBFu << 8 | 41u << 16 | 127u << 24);
+        ok &= bz_drop == BZD_IDLE && perf_k[0] == -20 && !bz_riser && seen;
+        bad += check("DROP (0.11): to the phrase's 1: RISER over the bars, COLOR up, BACKSPIN on the last beat, back on the 1", ok);
+        key_down(bk(2));                            /* (again while armed: off) */
+        key_up(bk(2));
+        ok = bz_drop == BZD_ARMED;
+        key_down(bk(2));
+        key_up(bk(2));
+        ok &= bz_drop == BZD_IDLE;
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        key_down(bk(2));                            /* (no SHIFT: the 1/8 rate as before) */
+        ok &= bz_drop == BZD_IDLE && (rl_rates >> 3) & 1u;
+        key_up(bk(2));
+        bad += check("  tapped again: off; black 3 without SHIFT: its rate", ok);
+        mo = mo_w;
+        bz_s16 = bz_org + 16u * 4u + 3u;            /* (bar 5) */
+        for (i = 0; i < 8u; i++)
+            home_block(CTL, 0);
+        seen = 0;
+        for (i = mo; i != mo_w; i++)
+            seen |= midi_out_q[i % MQ] == (0x0Bu | 0xBFu << 8 | 40u << 16 | 5u << 24);
+        bad += check("PHOSPHOR (0.11): CC 40 on channel 16 says the phrase's bar", seen);
+        usb.config = 0;
+        song.playing = 0;
+        perf_k[0] = 0;
+        bz_spin_off();
+    }
+
+    /* 0.11 MORPH A / B kept in the settings; RIDE 8 (stopped: in real time) slides A -> B and lets go */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], i, len;
+        memset(&bzm, 0, sizeof bzm);
+        for (i = 0; i < BZM_N; i++) {
+            bzm.v[0][i] = (int16_t)(i == 0u ? -60 : 10);
+            bzm.v[1][i] = (int16_t)(i == 0u ? 40 : 90);
+        }
+        bzm_store(0);
+        bzm_store(1);
+        memset(&bzm, 0, sizeof bzm);
+        bzm_load();
+        ok = bzm.ok == 3u && bzm.v[0][0] == -60 && bzm.v[1][0] == 40 && bzm.v[1][BZM_N - 1u] == 90 &&
+             favorites.factory[ENGI_DIGITAL][0] == BZM_MAGIC && favorites.factory[ENGI_SAMPLE][8] == BZM_MAGIC;
+        bad += check("MORPH (0.11): A and B kept with the settings, back after a power-off", ok);
+        song.playing = 0;
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        fm1_ms = 50000;
+        key_down(bk(0));
+        bz_ui_key(bk(0));
+        key_up(bk(0));
+        len = bzride.len;
+        ok = bzride.on && bzm.on && bzride.to == 100u && !(rl_rates | rl_latch) && len > 15000u && len < 17000u;
+        fm1_ms += len / 2u;
+        bz_ui_pass();
+        ok &= bzm.pos >= 49u && bzm.pos <= 51u && perf_k[0] >= -11 && perf_k[0] <= -9;
+        fm1_ms += len;
+        bz_ui_pass();
+        ok &= !bzride.on && bzm.pos == 100u && perf_k[0] == 40 && bz_ev_morph == 127u;
+        bad += check("RIDE (0.11): SHIFT + black 1 slides A -> B over 8 bars, then stops on B", ok);
+        key_down(bk(3));                            /* SHIFT + black 4: ROLL SHAPE, kept */
+        bz_ui_key(bk(3));
+        key_up(bk(3));
+        ok = rl_shape == RLS_ACC2 && bz_cfg2[BZC2_SHAPE] == RLS_ACC2 && !(rl_rates | rl_latch);
+        rl_shape = RLS_FLAT;
+        bz_cfg2[BZC2_SHAPE] = 0;
+        bad += check("  SHIFT + black 4: ROLL SHAPE cycles, kept", ok);
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        memset(&bzm, 0, sizeof bzm);
+        favorites.factory[ENGI_DIGITAL][0] = favorites.factory[ENGI_SAMPLE][8] = 0;
+        perf_k[0] = 0;
+    }
+
+    /* 0.11 LOOP CAPTURE: stopped, SHIFT + white 11: 1 bar recorded now (the echo off); then the loop in place of the
+     * tracks, as recorded (ADPCM: within 20 dB); again: MIX (the tracks back over it); RELEASE: out, the line cleared,
+     * the echo back. LENGTH (SHIFT + white 12) 4 -> 1 -> 2; 4 bars do not fit below 81 BPM */
+    home_reset();
+    {
+        static int32_t in[2 * 44100], l[CTL], r[CTL], w[CTL];
+        uint32_t sh = 1u << panel.btn[B_OCTUP], i, j, t = 0, len;
+        double e = 0, p = 0;
+        bz_cap = BZC_IDLE;
+        bz_cap_pend = 0;
+        bz_cfg2[BZC2_CAPLEN] = 0;
+        bz_cfg_apply();
+        ok = bz_cap_bars == 4u;
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(wk(11));
+        bz_ui_key(wk(11));
+        (key_up)(wk(11));
+        ok &= bz_cap_bars == 1u && bz_cfg2[BZC2_CAPLEN] == 1u;
+        song.g[G_BPM] = 60;
+        ok &= bz_cap_fit(4) == 2u && bz_cap_fit(2) == 2u;
+        song.g[G_BPM] = 120;
+        key_down(wk(10));
+        (key_up)(wk(10));
+        ok &= bz_cap == BZC_ARMED && !fx_dly_off;
+        len = 16u * div_samples(2);
+        for (i = 0; i < 2u * 44100u; i++)
+            in[i] = (int32_t)(8000.0 * sin(i * 2.0 * 3.14159265 * 440.0 / 44100.0) + 3000.0 * sin(i * 2.0 * 3.14159265 * 97.0 / 44100.0));
+        while (t < len + CTL) {
+            for (j = 0; j < CTL; j++) {
+                l[j] = r[j] = in[t + j];
+                w[j] = 0;
+            }
+            bz_cap_mix(l, r, w, CTL);
+            t += CTL;
+            if (t == CTL)
+                ok &= bz_cap == BZC_REC && fx_dly_off;
+        }
+        ok &= bz_cap == BZC_SOLO && bz_cap_got == 1u && bz_cap_len == len / 2u;
+        bad += check("LOOP CAPTURE (0.11): LENGTH 4 -> 1 (4 bars at 60 BPM: 2); stopped: 1 bar recorded now, the echo off",
+                     ok);
+        bz_cap_rewind();                            /* (from the loop's 1, the tracks silent: what plays is the loop) */
+        bz_cap_gp = 256;
+        bz_cap_gl = 0;
+        for (t = 0; t < 22050u; t += CTL) {
+            for (j = 0; j < CTL; j++)
+                l[j] = r[j] = w[j] = 9999;
+            bz_cap_mix(l, r, w, CTL);
+            for (j = 0; j < CTL; j++)
+                if (t + j > 64u && t + j + 1u < 22050u) {
+                    double d = (double)l[j] - in[t + j - 1u];
+                    e += d * d;
+                    p += (double)in[t + j - 1u] * in[t + j - 1u];
+                }
+        }
+        ok = 10.0 * log10(p / (e + 1.0)) > 20.0 && w[0] == 0;
+        printf("  (capture: %.1f dB)\n", 10.0 * log10(p / (e + 1.0)));
+        bad += check("  SOLO: the loop alone, as recorded (ADPCM within 20 dB)", ok);
+        key_down(wk(10));
+        (key_up)(wk(10));
+        ok = bz_cap == BZC_SOLO && bz_cap_pend == BZC_MIX;
+        for (t = 0; t < 512u; t += CTL) {
+            for (j = 0; j < CTL; j++) {
+                l[j] = r[j] = 1000;
+                w[j] = 0;
+            }
+            bz_cap_mix(l, r, w, CTL);
+        }
+        ok &= bz_cap == BZC_MIX && bz_cap_gl == 256 && bz_cap_gp == 256;
+        bad += check("  again: MIX at the bar (stopped: now), the tracks back over the loop", ok);
+        bz_release_all();
+        ok = bz_cap == BZC_FADE;
+        for (t = 0; t < 512u; t += CTL)
+            bz_cap_mix(l, r, w, CTL);
+        ok &= bz_cap == BZC_CLEAR && fx_dly_off;
+        bz_ui_pass();
+        ok &= bz_cap == BZC_IDLE && !fx_dly_off && !dly_buf[100] && !dly_buf[20000];
+        bad += check("  RELEASE: the loop out, the line cleared, the echo back", ok);
+        key_down(wk(15));                           /* (SAVE: no loop: says so, nothing changes) */
+        bz_ui_key(wk(15));
+        (key_up)(wk(15));
+        ok = bz_cap == BZC_IDLE;
+        bad += check("  SAVE without a loop: nothing", ok);
+        fm1_in.buttons &= ~sh;
+        bz_ui_pass();
+        bz_cfg2[BZC2_CAPLEN] = 0;
+        bz_cap_bars = 4;
     }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");

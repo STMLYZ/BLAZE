@@ -173,13 +173,16 @@ _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] <= 192u, "BLAZE sett
 /* 0.7: 8 more of that row (16..23), marked their own way: [1] KEY LOCK (MIDI IN onto the key) 1 on, 0 off */
 #define bz_cfg2 (&favorites.factory[ENGI_DRUM][16])
 #define BZ_CFG2_MAGIC 0xB9u
-enum { BZC2_MAGIC_I, BZC2_LOCK, BZC2_PP };
+enum { BZC2_MAGIC_I, BZC2_LOCK, BZC2_PP, BZC2_SHAPE, BZC2_CAPLEN };   /* (0.11: [3] ROLL SHAPE, [4] CAPTURE LENGTH:
+                                                                       * 0 4 bars, 1 one, 2 two) */
+static const uint8_t BZ_CAP_BARS[3] = {4u, 1u, 2u};
 /* 0.9: the PAD PRESETS, a byte a lane in 8..15 of the row (valid once bz_cfg2[BZC2_PP] is BZ_PP_MAGIC): the rate + 1
  * (low 4 bits), the effect + 1 (high 4) */
 #define bz_cfg_pp (&favorites.factory[ENGI_DRUM][8])
 #define BZ_PP_MAGIC 0x5Au
 static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
 static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
+static void bzm_load(void);                         /* (0.11: MORPH's A and B, kept: below) */
 /* the settings into the ISR's copies (an unmarked or old setting: the defaults first) */
 static void bz_cfg_apply(void)
 {
@@ -220,6 +223,9 @@ static void bz_cfg_apply(void)
             rl_pp_fx[l] = (uint8_t)(f <= BZ_NFX ? f : 0u);
         }
     }
+    rl_shape = (uint8_t)(c[BZC2_SHAPE] % RLS_N);
+    bz_cap_bars = BZ_CAP_BARS[c[BZC2_CAPLEN] % 3u];
+    bzm_load();
 }
 
 static const char *rl_lane_name(const track_t *t, uint32_t l);   /* (blaze_roll_draw.c) */
@@ -320,8 +326,10 @@ static void bz_kit_pass(void)                       /* each pass: the KIT key he
     bzkit.k = 0;
 }
 /* ---- 0.10 MORPH: two states, A and B, of COLOR THROW DEPTH and each track's FILTER LEVEL REVERB DELAY; held a
- * second (SHIFT + white 13 / 14) saves the state now as A / B (in RAM: they last until power-off); SHIFT + white 15
- * MORPH on: KNOB 2 (PITCH's) slides them all from A (0) to B (100) ---- */
+ * second (SHIFT + white 13 / 14) saves the state now as A / B (0.11: kept with the settings, so they are there after
+ * power-off: A in the DIGITAL row of the favourites, which no engine uses in this build, B in the SAMPLE row's bytes
+ * 8..27, past its presets); SHIFT + white 15 MORPH on: KNOB 2 (PITCH's) slides them all from A (0) to B (100).
+ * 0.11 RIDE: SHIFT + black 1 / 2 slides it there over 8 / 16 bars from the next bar (to B; from B's half: to A) ---- */
 #define BZM_N (3u + 4u * NTRK)
 #define BZM_SAVE_MS 700u
 static const uint8_t BZM_P[4] = {P_ED_FLT, P_LEVEL, P_REV, P_DLY};
@@ -342,6 +350,35 @@ static void bzm_take(int16_t *v)
         for (j = 0; j < 4u; j++)
             v[3u + 4u * i + j] = trk[i].p[BZM_P[j]];
 }
+#define BZM_MAGIC 0xC5u
+_Static_assert(BZM_N <= 19u, "MORPH A / B: 19 bytes each in the favourites");
+_Static_assert(SMP_NPRESETS <= 64, "MORPH B in the SAMPLE favourites' bytes 8..27");
+static uint8_t *bzm_row(uint32_t ab) { return ab ? &favorites.factory[ENGI_SAMPLE][8] : &favorites.factory[ENGI_DIGITAL][0]; }
+static void bzm_store(uint32_t ab)                  /* A (0) / B (1) into the settings (saved with them) */
+{
+    uint8_t *c = bzm_row(ab);
+    uint32_t i;
+    for (i = 0; i < BZM_N; i++)
+        c[1u + i] = (uint8_t)(int8_t)clamp(bzm.v[ab][i], -128, 127);
+    c[0] = BZM_MAGIC;
+    lys.rp_dirty = 1;
+}
+static void bzm_load(void)
+{
+    uint32_t ab, i;
+    for (ab = 0; ab < 2u; ab++) {
+        const uint8_t *c = bzm_row(ab);
+        if (c[0] != BZM_MAGIC || ((bzm.ok >> ab) & 1u))
+            continue;                               /* (none kept; or one saved here since: that one) */
+        for (i = 0; i < BZM_N; i++)
+            bzm.v[ab][i] = (int8_t)c[1u + i];
+        bzm.ok |= (uint8_t)(1u << ab);
+    }
+}
+static struct {
+    uint8_t on, bars, from, to;                     /* 0.11 RIDE: on, its bars, MORPH's place from / to */
+    uint32_t s0, t0, len;                           /* .. playing: the step it starts on; stopped: when (ms), how long */
+} bzride;
 static void bzm_apply(void)                         /* the state at pos, between A and B */
 {
     uint32_t i, j;
@@ -356,6 +393,8 @@ static void bzm_apply(void)                         /* the state at pos, between
         for (j = 0; j < 4u; j++)
             trk[i].p[BZM_P[j]] = (int16_t)clamp(m[3u + 4u * i + j], TP[BZM_P[j]].min, TP[BZM_P[j]].max);
 }
+static void bz_cap_say(void);                       /* (0.11 LOOP CAPTURE: below) */
+static void bz_cap_save_key(void);
 static void bz_shift_white(uint32_t k, uint32_t p)  /* SHIFT + white 9..16 pressed (the ISR plays SCATTER, BACKSPIN) */
 {
     if (p == BZS9_SCAT)
@@ -374,9 +413,154 @@ static void bz_shift_white(uint32_t k, uint32_t p)  /* SHIFT + white 9..16 press
         }
         bzm.on = (uint8_t)!bzm.on;
         ui_message(bzm.on ? "MORPH ON: KNOB 2 SLIDES A -> B" : "MORPH OFF: KNOB 2 IS PITCH");
-    } else
-        ui_message("LOOP CAPTURE: COMING IN 0.11");
+    } else if (p == BZS9_CAP)
+        bz_cap_say();
+    else if (p == BZS9_CAPLEN) {
+        uint32_t c = (bz_cfg2[BZC2_CAPLEN] + 1u) % 3u;
+        char m[40];
+        bz_cfg2[BZC2_CAPLEN] = (uint8_t)c;
+        bz_cap_bars = BZ_CAP_BARS[c];
+        lys.rp_dirty = 1;
+        str_cpy(m, "CAPTURE LENGTH: ", sizeof m);
+        fmt_int(m + str_len(m), bz_cap_bars);
+        str_cpy(m + str_len(m), bz_cap_bars == 1u ? " BAR" : " BARS", sizeof m - str_len(m));
+        if (bz_cap_fit(bz_cap_bars) < bz_cap_bars)
+            str_cpy(m + str_len(m), " (TOO SLOW: FEWER)", sizeof m - str_len(m));
+        ui_message(m);
+    } else if (p == BZS9_CAPSAVE)
+        bz_cap_save_key();
     ui.force = 1;
+}
+
+/* 0.11 SHIFT + black 1..4 (no pad held): RIDE 8, RIDE 16, DROP (the ISR's: said here), ROLL SHAPE */
+static const char *const RLS_NAME[RLS_N] = {"FLAT", "ACCENT 2", "ACCENT 4", "FADE"};
+static void bz_shift_black(uint32_t p)
+{
+    char m[48];
+    if (p == 2u) {
+        if (bz_drop == BZD_IDLE)
+            ui_message(song.playing ? "DROP OFF" : "DROP: PLAY FIRST (IT LANDS ON THE PHRASE)");
+        else {
+            str_cpy(m, "DROP IN ", sizeof m);
+            fmt_int(m + str_len(m), bz_dr_bars);
+            str_cpy(m + str_len(m), " BARS: ON THE PHRASE'S 1", sizeof m - str_len(m));
+            ui_message(m);
+        }
+    } else if (p == 3u) {
+        rl_shape = (uint8_t)((rl_shape + 1u) % RLS_N);
+        bz_cfg2[BZC2_SHAPE] = rl_shape;
+        lys.rp_dirty = 1;
+        ui_say("ROLL SHAPE ", RLS_NAME[rl_shape]);
+    } else if (bzride.on) {
+        bzride.on = 0;
+        ui_message("RIDE STOPPED");
+    } else if ((bzm.ok & 3u) != 3u) {
+        ui_message("RIDE: SAVE MORPH A AND B FIRST (SHIFT + WHITE 13, 14)");
+    } else {
+        uint32_t in = (bz_s16 - bz_org) % 16u;
+        bzride.bars = (uint8_t)(p ? 16u : 8u);
+        bzride.from = bzm.pos;
+        bzride.to = (uint8_t)(bzm.pos < 50u ? 100u : 0u);
+        bzride.s0 = bz_s16 + (in || clk_pos ? 16u - in : 0u);
+        bzride.t0 = fm1_ms;
+        bzride.len = (uint32_t)((uint64_t)bzride.bars * 4u * beat_samples() * 10u / 441u);
+        bzride.on = 1;
+        bzm.on = 1;
+        str_cpy(m, bzride.to ? "RIDE TO B OVER " : "RIDE TO A OVER ", sizeof m);
+        fmt_int(m + str_len(m), bzride.bars);
+        str_cpy(m + str_len(m), song.playing ? " BARS FROM THE NEXT BAR" : " BARS", sizeof m - str_len(m));
+        ui_message(m);
+    }
+    ui.force = 1;
+}
+static void bz_ride_pass(void)                      /* each pass: RIDE moves MORPH; PHOSPHOR hears where it is */
+{
+    if (bzride.on) {
+        uint32_t f, span = (uint32_t)bzride.bars * 16u * div_samples(2);
+        if (song.playing) {
+            uint32_t s = bz_s16, d = s - bzride.s0;
+            f = (int32_t)d < 0 ? 0u : (uint32_t)(((uint64_t)d * div_samples(2) + clk_pos) * 1000u / (span ? span : 1u));
+        } else
+            f = (uint32_t)((uint64_t)(fm1_ms - bzride.t0) * 1000u / (bzride.len ? bzride.len : 1u));
+        f = f > 1000u ? 1000u : f;
+        bzm.pos = (uint8_t)((int32_t)bzride.from + ((int32_t)bzride.to - (int32_t)bzride.from) * (int32_t)f / 1000);
+        bzm_apply();
+        if (f >= 1000u) {
+            bzride.on = 0;
+            ui_message(bzride.to ? "RIDE DONE: ON B" : "RIDE DONE: ON A");
+        }
+        ui.force = 1;
+    }
+    bz_ev_morph = (uint8_t)(bzm.on ? bzm.pos * 127u / 100u : 0u);
+}
+
+/* 0.11 LOOP CAPTURE, the main loop's: the line cleared after the loop (the echo back), what it does said */
+static const char *bz_cap_state_name(void)
+{
+    static const char *const N[8] = {"OFF", "FROM THE NEXT BAR", "RECORDING", "SOLO: THE LOOP ALONE",
+                                     "MIX: THE TRACKS OVER IT", "OUT", "OFF", "SAVING"};
+    return N[bz_cap & 7u];
+}
+static void bz_cap_say(void)
+{
+    char m[48];
+    str_cpy(m, "CAPTURE ", sizeof m);
+    if (bz_cap == BZC_ARMED) {
+        fmt_int(m + str_len(m), bz_cap_fit(bz_cap_bars));
+        str_cpy(m + str_len(m), bz_cap_fit(bz_cap_bars) == 1u ? " BAR " : " BARS ", sizeof m - str_len(m));
+    } else if ((bz_cap == BZC_SOLO || bz_cap == BZC_MIX) && bz_cap_pend)
+        str_cpy(m + str_len(m), bz_cap_pend == BZC_MIX ? "MIX " : "OUT ", sizeof m - str_len(m));
+    str_cpy(m + str_len(m), (bz_cap == BZC_SOLO || bz_cap == BZC_MIX) && bz_cap_pend ? "FROM THE NEXT BAR"
+                            : bz_cap_state_name(), sizeof m - str_len(m));
+    ui_message(m);
+}
+static int (*bz_cap_saver)(void);                   /* blaze_cap_save.c (the device: main.c sets it), 0: none */
+static void bz_cap_save_key(void)                   /* SHIFT + white 16: the loop into a USR slot */
+{
+    int rc;
+    char m[40];
+    if (bz_cap != BZC_SOLO && bz_cap != BZC_MIX) {
+        ui_message("SAVE: CAPTURE A LOOP FIRST (SHIFT + WHITE 11)");
+        return;
+    }
+    if (song.playing) {
+        ui_message("SAVE: STOP FIRST (THE FLASH WRITE PAUSES THE SOUND)");
+        return;
+    }
+    if (bz_cap_pend) {
+        ui_message("SAVE: WAIT FOR THE BAR");
+        return;
+    }
+    if (!bz_cap_saver) {
+        ui_message("SAVE: NOT ON THIS BUILD");
+        return;
+    }
+    rc = bz_cap_saver();
+    if (rc > 0) {
+        str_cpy(m, "LOOP SAVED TO USR", sizeof m);
+        fmt_int(m + str_len(m), rc);
+        str_cpy(m + str_len(m), ": SAMPLE / SLICE", sizeof m - str_len(m));
+        ui_message(m);
+    } else
+        ui_message(rc == -1 ? "SAVE: USR SLOTS FULL (CLEAR ONE IN THE EDITOR)" : "SAVE FAILED");
+}
+static void bz_cap_pass(void)
+{
+    static uint8_t last;
+    if (bz_cap == BZC_CLEAR) {                      /* (the loop gone: the line silent, then the echo again) */
+        memset(dly_buf, 0, sizeof dly_buf);
+        fx.dly_lp = 0;
+        fx_dly_off = 0;
+        bz_cap = BZC_IDLE;
+    }
+    if (bz_cap != last) {
+        uint8_t was = last;
+        last = bz_cap;
+        if (bz_cap == BZC_REC || bz_cap == BZC_SOLO || bz_cap == BZC_MIX || (bz_cap == BZC_IDLE && was != BZC_ARMED &&
+                                                                               was != BZC_SAVE))
+            bz_cap_say();
+        ui.force = 1;
+    }
 }
 static void bzm_pass(void)                          /* each pass: an A / B key held long enough saves; let go early: how */
 {
@@ -386,6 +570,7 @@ static void bzm_pass(void)                          /* each pass: an A / B key h
         if (!bzm.saved && fm1_ms - bzm.t >= BZM_SAVE_MS) {
             bzm_take(bzm.v[bzm.k - 1u]);
             bzm.ok |= (uint8_t)bzm.k;
+            bzm_store(bzm.k - 1u);
             bzm.saved = 1;
             if (bzm.k == 1u)
                 bzm.pos = 0;
@@ -745,7 +930,9 @@ static void bz_ui_key(uint32_t k)
         return;
     }
     if (key_black(k)) {
-        if (p < 6u)
+        if (p < 4u && bz_shift() && !bz_pads)       /* 0.11: SHIFT + black 1..4 */
+            bz_shift_black(p);
+        else if (p < 6u)
             ui_say("ROLL ", RL_RATE_NAME[p + 1u]);
         else if (p == BZK_TAP)
             glo_tap();
@@ -811,6 +998,8 @@ static void bz_ui_pass(void)
         bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
     bz_kit_pass();
     bzm_pass();
+    bz_ride_pass();                                 /* (0.11) */
+    bz_cap_pass();
     if (rs != bz_riser) {
         if (bz_riser == 16u && rs == 8u)
             ui_message("RISER 16 BARS");
@@ -911,6 +1100,7 @@ static void bz_knob(uint32_t k, int32_t s)
     if (k == 1u && l == NLANE && !bz_shift() && bzm.on) {   /* 0.10 MORPH: KNOB 2 slides A -> B */
         bzm.pos = (uint8_t)clamp((int32_t)bzm.pos + accel(EN_K2, s, 100), 0, 100);
         bzm_apply();
+        bzride.on = 0;                              /* (0.11: the hand takes over from a RIDE) */
         return;
     }
     if (!drum_track(t)) {
@@ -1116,6 +1306,8 @@ static uint32_t bz_sig(void)
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
     h = h * 379u + bz_spin * 383u + bz_shk_held * 389u + bzm.on * 397u + bzm.pos * 401u + bzm.ok * 409u +
         (uint32_t)bzm.k * 419u;                     /* (0.10: BACKSPIN, SHIFT 9..16, MORPH) */
+    h = h * 421u + bz_cap * 431u + bz_cap_pend * 433u + bz_drop * 439u + rl_shape * 443u + bzride.on * 449u +
+        bz_cap_bars * 457u;                         /* (0.11) */
     h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +
         bz_rb_val[2] * 367u + bz_rb_val[3] * 373u;   /* (0.9 REKORDBOX) */
     h = h * 293u + rl_latch * 307u + rl_pp * 311u + bz_pads * 313u;   /* (0.9: tapped rates, PAD PRESETS) */

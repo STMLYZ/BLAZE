@@ -129,6 +129,7 @@ static __attribute__((noinline)) int c1_wait(void) { return fm1_cpu1_wait(); }  
 #include "../bsp/chip/ota.c"
 #include "ota_hw.c"
 #include "editor.c"              /* web editor SysEx (needs the OTA SysEx plumbing) */
+#include "blaze_cap_save.c"      /* BLAZE 0.11: LOOP CAPTURE into a USR slot (editor.c's slot writes) */
 #endif
 #if FELUCCA_CDC
 #include "console.c"

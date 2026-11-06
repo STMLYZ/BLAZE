@@ -816,7 +816,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_RISER_EDIT, S_BLAZE_RISER_SYNTH, S_BLAZE_EOUT, S_BLAZE_CHORD, S_BLAZE_CHORD7,
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
-       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_COUNT };   /* BLAZE */
+       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -853,7 +853,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
     "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
-    "blaze_morph"};
+    "blaze_morph", "blaze_drop"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1335,6 +1335,11 @@ static void setup(int s)
     /* 0.10: SHIFT held with MORPH on (A and B saved, 70 % to B), SCATTER on, a BACKSPIN armed */
     case S_BLAZE_MORPH: go_home(); bzm.ok = 3; bzm.on = 1; bzm.pos = 70; perf_latched = PF_BIT(PF_SCAT);
         bz_spin = BZB_ARMED; fm1_in.buttons = 1u << panel.btn[B_OCTUP]; ui.layer = LAYER_BLAZE; break;
+    /* 0.11: SHIFT held: a LOOP CAPTURE in SOLO with MIX waiting for the bar, LENGTH 2, a DROP running, RIDE 16 on,
+     * ROLL SHAPE ACCENT 2 */
+    case S_BLAZE_DROP: go_home(); bzm.ok = 3; bzm.on = 1; bzm.pos = 40; bzride.on = 1; bzride.bars = 16;
+        bz_cap = BZC_SOLO; bz_cap_pend = BZC_MIX; bz_cap_bars = 2; bz_drop = BZD_RUN; bz_dr_bars = 6; rl_shape = RLS_ACC2;
+        song.playing = 1; fm1_in.buttons = 1u << panel.btn[B_OCTUP]; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_RB: go_home(); bz_rb = 1; bz_rb_deck = 1; bz_rb_val[0] = 90; fm1_in.notes |= 1u << 2;
         ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_PP: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; rl_pp_rate[3] = 7; rl_latch = 1u << 2;

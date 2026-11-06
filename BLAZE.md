@@ -298,9 +298,55 @@ FELUCCA_PHYS=0; the host and the tests keep everything.)
 |---|---|
 | White 9 SCATR | **SCATTER**: tap on / off, hold while held. Each 1/16 is the live mix or one of the last two 1/16s again: forwards, backwards, or as two 1/32s. KNOB 4 (WILD while it runs) sets how often: full, 9 in 10 scattered. Starts on the 1/16 |
 | White 10 SPIN | **BACKSPIN**: records from the press, spins backwards to a stop on the next beat (at least a quarter beat later), silent until the next bar's 1, then back. Again: cancel |
-| White 13 / 14 SET A / SET B | Held 0.7 s: save MORPH's A / B (COLOR, THROW, DEPTH; each track's FILTER, LEVEL, REVERB, DELAY) |
+| White 13 / 14 SET A / SET B | Held 0.7 s: save MORPH's A / B (COLOR, THROW, DEPTH; each track's FILTER, LEVEL, REVERB, DELAY); 0.11: kept after power-off |
 | White 15 MORPH | MORPH on / off (A and B saved first): KNOB 2 (the MORPH card) slides everything from A to B |
-| White 11, 12, 16 | LOOP CAPTURE (0.11) |
+| White 11, 12, 16 | LOOP CAPTURE (0.11, below) |
 
 SCATTER and BACKSPIN are in Felucca's FX layer too (assignable keys: SCAT, SPIN; there BACKSPIN spins after half a
 beat, silent until let go).
+
+## 0.11 — LOOP CAPTURE, DROP, MORPH RIDE, ROLL SHAPE, PHOSPHOR events
+
+### LOOP CAPTURE (BLAZE: SHIFT + white 11, 12, 16)
+
+| SHIFT + | Does |
+|---|---|
+| White 11 CAPT | From the next bar (stopped: now) records LENGTH bars of the whole mix (sends included). At the end the loop plays **in place of the tracks** (SOLO: change the pattern underneath, nobody hears it). Tap: from the next bar the tracks come back **over** the loop (MIX: a second deck). Tap: from the next bar the loop glides out (tap twice: out now). While recording, a tap drops it |
+| White 12 | LENGTH: 4 → 1 → 2 bars (kept). 4 bars need 81 BPM or faster; slower records 2 |
+| White 16 SAVE | Stopped, with a loop held: writes it into a USR slot (the first empty one; all full: one a capture filled before; your uploads are never written over), named e.g. `CAP4B132`. SAMPLE and SLICE play it from there. The sound pauses about a second while the flash is written. A slot holds 7.4 s: 4 bars from 130 BPM, else 2 |
+
+The cell shows the state: ARMED, REC, SOLO, MIX (tinted: a change waits for the bar), OUT. RELEASE (black 10)
+takes the loop out at once. COLOR, THROW, the FX keys and DROP all work on the loop.
+
+**The cost:** the loop lives in the echo's memory (128 KB, as 22 kHz mono ADPCM). From the moment recording starts
+until the loop is gone there is **no echo**: ECHO, EXIT's tail and the tracks' DELAY are silent. When it's gone the
+echo comes back from silence. The loop is mono and a little lo-fi (22 kHz, 4-bit).
+
+PLAY while a loop is held starts it from its 1 with the transport.
+
+### SHIFT + black 1–4 (BLAZE, no pad held)
+
+| SHIFT + | Does |
+|---|---|
+| Black 1 RIDE 8 | MORPH glides from where it is to B (or, past halfway, back to A) over 8 bars, starting on the next bar. Stopped: in real time at the tempo. Turning KNOB 2 takes over. Again: stop |
+| Black 2 RIDE16 | The same over 16 bars |
+| Black 3 DROP | Playing: from the next bar to the phrase's next 1 (fewer than 2 bars left: the 1 after): COLOR sweeps up into the high-pass (slow, then fast, to +70), the RISER (its TYPE) runs over exactly those bars, a BACKSPIN on the last beat, and on the 1 everything lets go: COLOR back where it was. Again: cancel |
+| Black 4 SHAPE | ROLL SHAPE (kept), for every roll: FLAT, ACC 2 (every other hit at half), ACC 4 (one in four full), FADE (down to 30 % over a bar) |
+
+### PHOSPHOR events (MIDI out, channel 16)
+
+For visuals: BLAZE sends what it's doing as CC on channel 16 (USB and DIN), only when a value changes.
+
+| CC | Value |
+|---|---|
+| 40 | The phrase's bar, 1–16 (0 stopped) |
+| 41 | DROP: 32 armed, 64 building, 127 on its 1 (for a beat), 0 |
+| 42 | RISER: 1–127 as it rises, 0 off |
+| 43 | BACKSPIN: 64 armed, 127 spinning, 0 |
+| 44 | MORPH: 0 (A) – 127 (B) |
+| 45 | LOOP CAPTURE: 32 armed, 64 recording, 96 solo / fading, 127 mix, 0 off |
+| 46 | SCATTER: 127 on, 0 off |
+| 47 | BUILD: 1–127 as it goes, 0 off |
+
+PHOSPHOR (v5.2) can MIDI-learn any of them today with the FM-1 as its MIDI input; so can any visuals app.
+

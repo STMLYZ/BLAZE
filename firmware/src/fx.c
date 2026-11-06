@@ -5,6 +5,7 @@
 #define DLY_LEN 65536u           /* 1.49 s: 1/4 fits from 41 BPM, 1/4D from 61, 1/2 from 81 */
 #define CHO_LEN 2048u
 static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
+static volatile uint8_t fx_dly_off;      /* BLAZE 0.11: LOOP CAPTURE holds its loop in dly_buf (blaze_cap.c): no echo */
 static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
@@ -580,12 +581,16 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
             y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
         }
         fx.cho_w++;
-        /* delay with a low-passed feedback */
-        x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
-        fx.dly_lp += mulq15(x - fx.dly_lp, col);
-        dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-            (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
-        fx.dly_w++;
+        /* delay with a low-passed feedback (BLAZE 0.11: none while a LOOP CAPTURE holds the line) */
+        if (fx_dly_off)
+            x = 0;
+        else {
+            x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+            fx.dly_lp += mulq15(x - fx.dly_lp, col);
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
+                (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
+            fx.dly_w++;
+        }
         y += mulq15(x << 1, dmix);
         wet[i] = y;
     }
@@ -1033,6 +1038,7 @@ static uint32_t mix_split(void)
 #endif
 
 static void bz_riser_mix(int32_t *l, int32_t *r, int32_t *rev, uint32_t n);   /* BLAZE (blaze_home.c) */
+static void bz_cap_mix(int32_t *l, int32_t *r, int32_t *w, uint32_t n);   /* BLAZE 0.11 LOOP CAPTURE (blaze_cap.c) */
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -1074,6 +1080,7 @@ static void mix_block(int32_t *out, uint32_t n)
     fx_buses(send_c, send_d, send_r, wet, n);
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
+    bz_cap_mix(mix_l, mix_r, wet, n);                   /* BLAZE 0.11: LOOP CAPTURE records / plays here */
     if (scope_mix)
         scope_take_mix(n);
     if (perf) {

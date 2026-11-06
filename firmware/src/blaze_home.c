@@ -19,6 +19,8 @@
  *   black 7..9   TAP, NUDGE -, NUDGE + (the main loop's: blaze_home_ui.c)
  *   black 10     RELEASE: every latched effect, the build, the riser, the rolls off (the main loop: COLOR and DEPTH)
  *   black 11     THE ONE: now is the 1 (the phrase counter's bar 1 beat 1, to the nearest beat)
+ * 0.11, SHIFT + black (no pad held): 1 / 2 MORPH RIDE 8 / 16 bars (the main loop's), 3 DROP (bz_drop_tap), 4 ROLL
+ * SHAPE (the main loop's); SHIFT + white 11 LOOP CAPTURE (blaze_cap.c). PHOSPHOR's events out (bz_ev_block).
  * KEYS (OCT- in the layer, bz_keys): the white keys play the KEYS track (bz_ktrk: a track whose keys play notes) up its
  * scale from the root, 16 notes from octave bz_koct (the notes as they are: the arp does not map them again); the
  * black keys are the main loop's (blaze_home_ui.c: the track, ARP, LATCH, its rate, the octave).
@@ -109,6 +111,15 @@ static uint32_t bz_spin_left;                  /* .. samples to its spin (ARMED)
 static uint32_t bz_now;                        /* ISR: samples, real time */
 static uint32_t bz_wait, bz_age, bz_next;      /* the build: samples to its start, since it started, to its next hit */
 static uint32_t bz_rs_wait, bz_rs_age, bz_rs_t;   /* the riser: samples to its start, since it started; its tap */
+static uint32_t bz_shb;                        /* ISR: black keys taken with SHIFT (0.11: RIDE DROP SHAPE): their release */
+enum { BZD_IDLE, BZD_ARMED, BZD_RUN };
+static volatile uint8_t bz_drop;               /* ISR: 0.11 DROP: BZD_* */
+static volatile uint8_t bz_dr_bars;            /* .. its bars (the main loop says them) */
+static uint8_t bz_dr_spun;                     /* .. its BACKSPIN asked for */
+static int8_t bz_dr_k0;                        /* .. COLOR before it (back on the 1) */
+static uint32_t bz_dr_wait, bz_dr_age, bz_dr_total;   /* .. samples to its start, since, in all */
+static uint32_t bz_dr_hit;                     /* .. the drop's 1 just came: samples left of its event (CC 41) */
+static volatile uint8_t bz_ev_morph;           /* main: MORPH's place for PHOSPHOR, 0..127 (CC 44) */
 static struct {
     int32_t lp[2], bp[2];                      /* the riser's two filters (left, right) */
     uint32_t s[2];                             /* .. their noise */
@@ -257,6 +268,118 @@ static void bz_spin_tap(void)
     bz_spin = BZB_ARMED;
 }
 
+#include "blaze_cap.c"                           /* 0.11 LOOP CAPTURE (bz_to_bar above) */
+
+/* 0.11 DROP (SHIFT + black 3, playing): from the next bar to the phrase's next 1 (fewer than 2 bars left: the one
+ * after): COLOR sweeps up into the high pass (to +70, slow then fast), the RISER (its TYPE) runs over those bars, a
+ * BACKSPIN on the last beat, and on the 1 it all lets go: COLOR back where it was. Again: off at once */
+#define BZ_DR_TOP 70
+static void bz_drop_off(void)
+{
+    if (bz_drop == BZD_RUN) {
+        perf_k[0] = bz_dr_k0;
+        bz_riser = 0;
+        bz_rs_synth_off();
+        if (bz_dr_spun && bz_spin != BZB_IDLE)
+            bz_spin_off();
+    }
+    bz_drop = BZD_IDLE;
+}
+static void bz_drop_tap(void)
+{
+    uint32_t w, in, bar;
+    if (bz_drop != BZD_IDLE) {
+        bz_drop_off();
+        return;
+    }
+    if (!song.playing)
+        return;                                  /* (the main loop says why) */
+    w = bz_to_bar();
+    in = bz_s16 - bz_org;
+    bar = (in / 16u + (w ? 1u : 0u)) % BZ_PHRASE;   /* (the bar it starts on, 0..15) */
+    bar = BZ_PHRASE - bar;
+    if (bar < 2u)
+        bar += BZ_PHRASE;
+    bz_dr_bars = (uint8_t)bar;
+    bz_dr_wait = w;
+    bz_dr_age = 0;
+    bz_dr_spun = 0;
+    bz_drop = BZD_ARMED;
+}
+static __attribute__((noinline)) void bz_drop_block(uint32_t adv)
+{
+    uint32_t a = adv, b = beat_samples(), end, x;
+    int32_t k0;
+    if (bz_drop == BZD_ARMED) {
+        if (bz_dr_wait > a) {
+            bz_dr_wait -= a;
+            return;
+        }
+        a -= bz_dr_wait;
+        bz_dr_wait = 0;
+        bz_dr_total = (uint32_t)bz_dr_bars * 16u * div_samples(2);
+        bz_dr_k0 = perf_k[0];
+        bz_rs_synth_off();                       /* (the riser: its bars from now, whatever it was doing) */
+        bz_rs_wait = 0;
+        bz_rs_age = 0;
+        bz_rs_t = bz_now;
+        bzr.lp[0] = bzr.lp[1] = bzr.bp[0] = bzr.bp[1] = 0;
+        bz_riser = bz_dr_bars;
+        bz_drop = BZD_RUN;
+    }
+    bz_dr_age += a;
+    if (bz_dr_age >= bz_dr_total) {              /* the 1: everything back */
+        bz_drop_off();
+        bz_dr_hit = b;
+        return;
+    }
+    end = bz_dr_total > b ? bz_dr_total - b : 1u;   /* (the sweep's top: the last beat's, the spin's) */
+    x = bz_dr_age >= end ? 32768u : (uint32_t)((uint64_t)bz_dr_age * 32768u / end);
+    k0 = bz_dr_k0 < BZ_DR_TOP ? bz_dr_k0 : BZ_DR_TOP;
+    perf_k[0] = (int8_t)(k0 + (int32_t)((uint32_t)(BZ_DR_TOP - k0) * (x * x >> 15) >> 15));
+    if (!bz_dr_spun && bz_dr_age + b + b / 2u >= bz_dr_total) {   /* (half way into beat 3 of the last bar: the
+                                                  * spin on beat 4, silent to the 1) */
+        bz_dr_spun = 1;
+        if (bz_spin == BZB_IDLE)
+            bz_spin_tap();
+    }
+}
+
+/* 0.11 PHOSPHOR: BLAZE's moments out as CC on channel 16 for visuals (RAIL passes them on): 40 the phrase's bar
+ * (1..16, 0 stopped), 41 DROP (32 armed, 64 building, 127 its 1 for a beat), 42 RISER (1..127 as it rises, 0 off),
+ * 43 BACKSPIN (64 armed, 127 spinning), 44 MORPH's place (0 A .. 127 B), 45 LOOP CAPTURE (32 armed, 64 recording,
+ * 96 solo, 127 mixed in), 46 SCATTER (127 on), 47 BUILD (1..127 as it goes). Sent when it changes, two a block */
+#define BZ_EV_N 8u
+static uint8_t bz_ev_sent[BZ_EV_N] = {255, 255, 255, 255, 255, 255, 255, 255};
+static __attribute__((noinline)) void bz_ev_block(uint32_t n)
+{
+    static const uint8_t CAPV[8] = {0, 32, 64, 96, 127, 96, 0, 0};   /* (BZC_*: FADE still sounding) */
+    uint8_t v[BZ_EV_N];
+    uint32_t i, sent = 0, t;
+    v[0] = song.playing ? (uint8_t)((bz_s16 - bz_org) / 16u % BZ_PHRASE + 1u) : 0u;
+    if (bz_dr_hit) {
+        v[1] = 127;
+        bz_dr_hit = bz_dr_hit > n ? bz_dr_hit - n : 0u;
+    } else
+        v[1] = bz_drop == BZD_ARMED ? 32u : bz_drop == BZD_RUN ? 64u : 0u;
+    t = (uint32_t)bz_riser * 4u * beat_samples();
+    v[2] = bz_riser && !bz_rs_wait && t ? (uint8_t)(1u + (bz_rs_age < t ? (uint32_t)((uint64_t)bz_rs_age * 126u / t)
+                                                                  : 126u)) : 0u;
+    v[3] = bz_spin == BZB_SPUN ? 127u : bz_spin == BZB_ARMED ? 64u : 0u;
+    v[4] = (uint8_t)(bz_ev_morph & 127u);
+    v[5] = CAPV[bz_cap & 7u];
+    v[6] = ((perf_held | perf_latched) & PF_BIT(PF_SCAT)) ? 127u : 0u;
+    t = (uint32_t)bz_build * 4u * beat_samples();
+    v[7] = bz_build && !bz_wait && t ? (uint8_t)(1u + (bz_age < t ? (uint32_t)((uint64_t)bz_age * 126u / t) : 126u))
+                                     : 0u;
+    for (i = 0; i < BZ_EV_N && sent < 2u; i++)
+        if (v[i] != bz_ev_sent[i]) {
+            bz_ev_sent[i] = v[i];
+            midi_out_event(0x0Bu | 0xBFu << 8 | (40u + i) << 16 | (uint32_t)v[i] << 24);
+            sent++;
+        }
+}
+
 /* 0.9 PAD PRESETS: SHIFT + a rate (r1: 1..7) or an effect (f1: 1..6) key with BLAZE pads held: on that pad's lane,
  * toggled (the same again: none) */
 static void bz_pp_set(uint32_t r1, uint32_t f1)
@@ -290,6 +413,8 @@ static void bz_release_all(void)
     uint32_t i;
     rl_unlatch();                                /* (0.9: the tapped rates, the pads at their own rate) */
     rl_pp = 0;
+    bz_drop_off();                               /* (0.11: DROP, COLOR back; LOOP CAPTURE out) */
+    bz_cap_off();
     bz_spin_off();                               /* (0.10: BACKSPIN; SCATTER below) */
     for (i = 0; i < BZ_NFX + 1u; i++)
         perf_held &= ~PF_BIT(BZ_FX[i]);
@@ -375,6 +500,16 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
     if (key_black(k)) {
         if (bz_keys)
             return;                              /* (KEYS: the main loop's) */
+        if (p < 4u && ((down && bz_shift_on && !bz_pads) || (!down && ((bz_shb >> k) & 1u)))) {
+            if (down) {                          /* 0.11: SHIFT + black 1..4 (RIDE 8, RIDE 16: the main loop's; SHAPE
+                                                  * too), 3 DROP */
+                bz_shb |= 1u << k;
+                if (p == 2u)
+                    bz_drop_tap();
+            } else
+                bz_shb &= ~(1u << k);
+            return;
+        }
         if (p < 6u && down && bz_shift_on && bz_pads) {   /* 0.9: a pad + SHIFT: the pad's own rate */
             bz_ppk |= (uint16_t)(1u << k);
             bz_pp_set(p + 2u, 0);
@@ -408,6 +543,8 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
                 bz_fx_key(BZ_SCAT, 1);
             else if (p == BZS9_SPIN)
                 bz_spin_tap();
+            else if (p == BZS9_CAP)
+                bz_cap_tap();                    /* (0.11 LOOP CAPTURE; LENGTH, SAVE: the main loop's) */
             return;                              /* (MORPH's: the main loop's, by bz_shk_held) */
         }
         if (!down && (bz_shk & b)) {
@@ -480,6 +617,9 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
 {
     uint32_t pad, total, r, a;
     bz_now += n;
+    if (bz_drop != BZD_IDLE)                     /* 0.11 DROP (before BACKSPIN: it may ask for it) */
+        bz_drop_block(adv);
+    bz_ev_block(n);                              /* 0.11 PHOSPHOR's events */
     if (bz_spin == BZB_ARMED) {                  /* 0.10 BACKSPIN: the beat: spin (then silent to the next 1) */
         if (bz_spin_left <= adv) {
             pf_spin_cue = 2;

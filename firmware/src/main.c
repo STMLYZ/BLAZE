@@ -109,6 +109,7 @@ static void fm1_main(void)
 #endif
     persist_boot();
 #if FELUCCA_OTA
+    bz_cap_saver = bz_cap_save;                         /* (BLAZE 0.11: SHIFT + white 16 keeps a LOOP CAPTURE) */
     if (flash_ok)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif

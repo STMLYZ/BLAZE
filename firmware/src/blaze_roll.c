@@ -57,6 +57,11 @@ static uint32_t rl_rdown[RL_NRATE];            /* ISR: when (fm1_ms) */
 static volatile uint8_t rl_pp_rate[NLANE];     /* main / ISR: the lane's rate + 1 (0: none) */
 static volatile uint8_t rl_pp_fx[NLANE];       /* main / ISR: the lane's effect (BLAZE's BZ_FX index) + 1 (0: none) */
 static volatile uint16_t rl_pp;                /* ISR: pads rolling at their lane's own rate */
+/* 0.11 ROLL SHAPE (SHIFT + black 4 in BLAZE): the velocities along a roll. FLAT as played; ACCENT 2 / 4 every 2nd /
+ * 4th hit full, the rest at half; FADE down to 30 % over its first bar (then on at that) */
+enum { RLS_FLAT, RLS_ACC2, RLS_ACC4, RLS_FADE, RLS_N };
+static volatile uint8_t rl_shape;              /* main: RLS_* */
+static uint32_t rl_hitn;                       /* ISR: the roll's hits so far (ACCENT) */
 static uint32_t rl_ppn[16];                    /* ISR: samples to each one's next hit */
 
 static uint16_t rl_live(void)
@@ -138,8 +143,10 @@ static void rl_rerun(void)
         else if (rl_nr)
             want = 1u << rl_ord[rl_nr - 1u];
     }
-    if (want && !rl_runs)
+    if (want && !rl_runs) {
         rl_age = 0;                              /* (BUILD: a roll begins) */
+        rl_hitn = 0;                             /* (0.11 SHAPE: from its first hit) */
+    }
     for (r = 0; r < RL_NRATE; r++)
         if (((want >> r) & 1u) && !((rl_runs >> r) & 1u))
             rl_next[r] = rl_wait(r);
@@ -307,6 +314,12 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
     {
         uint32_t bar = 4u * beat_samples(), age = rl_age < bar ? rl_age : bar;
         uint32_t swell = (100u - rl_build) + rl_build * age / (bar ? bar : 1u);   /* 100 - BUILD .. 100 % */
+        uint32_t sh = rl_shape;
+        if (sh == RLS_ACC2 || sh == RLS_ACC4)    /* (0.11 SHAPE: the hits between the accents at half) */
+            swell = (rl_hitn & (sh == RLS_ACC2 ? 1u : 3u)) ? swell / 2u : swell;
+        else if (sh == RLS_FADE)
+            swell = swell * (100u - 70u * age / (bar ? bar : 1u)) / 100u;
+        rl_hitn++;
         for (p = 0; p < 16u; p++)
             if ((held >> p) & 1u) {
                 uint32_t v = rl_vel[p] * swell / 100u;

@@ -324,10 +324,23 @@ static void layer_blaze(void)
                      pad >= 16u || !drum ? RLC_DIM : (((uint32_t)rl_extra | rl_pp | rlu.fl) >> pad) & 1u ? RLC_FILL
                      : pad >= NLANE || rl_pp_rate[l] || rl_pp_fx[l] ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
         } else if (i >= 8u && bz_shift() && !pe) {             /* 0.10: SHIFT: 9 SCATTER, 10 BACKSPIN, 13 / 14 MORPH A / B,
-                                                         * 15 MORPH; 11 12 16 LOOP CAPTURE (0.11) */
-            static const char *const N[8] = {"SCATR", "SPIN", "-", "-", "SET A", "SET B", "MORPH", "-"};
+                                                         * 15 MORPH; 0.11: 11 LOOP CAPTURE (its state), 12 its
+                                                         * LENGTH, 16 SAVE it */
+            static const char *const N[8] = {"SCATR", "SPIN", "CAPT", "-", "SET A", "SET B", "MORPH", "SAVE"};
+            static const char *const CN[8] = {"CAPT", "ARMED", "REC", "SOLO", "MIX", "OUT", "CAPT", "SAVE"};
+            static const char *const LN[5] = {"-", "1 BAR", "2 BAR", "-", "4 BAR"};
             uint32_t j = i - 8u, how = RLC_IDLE;
-            if (j == 0u)
+            const char *lab = N[j];
+            if (j == 2u) {
+                lab = CN[bz_cap & 7u];
+                how = bz_cap == BZC_IDLE || bz_cap == BZC_CLEAR ? RLC_IDLE : bz_cap == BZC_ARMED || bz_cap_pend
+                      ? RLC_TINT : RLC_FILL;
+            } else if (j == 3u) {
+                lab = LN[bz_cap_bars % 5u];
+                how = RLC_IDLE;
+            } else if (j == 7u)
+                how = (bz_cap == BZC_SOLO || bz_cap == BZC_MIX) && !song.playing ? RLC_IDLE : RLC_DIM;
+            else if (j == 0u)
                 how = (fx >> PF_SCAT) & 1u ? RLC_FILL : RLC_IDLE;
             else if (j == 1u)
                 how = bz_spin != BZB_IDLE ? RLC_FILL : RLC_IDLE;
@@ -335,9 +348,7 @@ static void layer_blaze(void)
                 how = bzm.k == j - 3u ? RLC_FILL : (bzm.ok >> (j - 4u)) & 1u ? RLC_TINT : RLC_IDLE;
             else if (j == 6u)
                 how = (bzm.ok & 3u) != 3u ? RLC_DIM : bzm.on ? RLC_FILL : RLC_IDLE;
-            else
-                how = RLC_DIM;
-            bzk_cell(x, y, 14, N[j], j < 2u ? T_ACCENT : j < 7u && j > 3u ? T_THEME : T_MID, how, BZK_W, i + 1u);
+            bzk_cell(x, y, 14, lab, j < 2u ? T_ACCENT : j < 7u && j > 3u ? T_THEME : T_REC, how, BZK_W, i + 1u);
         } else if (i < 8u && bz_shift()) {                     /* 0.7: SHIFT: KIT 1..8 (held: saving / loading; the one
                                                          * loaded tinted; empty dim) */
             char nm[8] = {'K', 'I', 'T', ' ', (char)('1' + i), 0};
@@ -362,7 +373,16 @@ static void layer_blaze(void)
     }
     for (i = 0; i < 11u; i++) {                         /* black keys 1..11: 3 rows of 4 */
         int32_t x = BZX(i % 4u), y = BZD_YB + 18 * (int32_t)(i / 4u), h = i < 8u ? 16 : 14;
-        if (i < 6u && pe)                               /* (0.9: the pad's own rate filled) */
+        if (i < 4u && !pe && bz_shift()) {              /* 0.11: SHIFT: RIDE 8, RIDE 16, DROP, ROLL SHAPE */
+            static const char *const SB[4] = {"RIDE 8", "RIDE16", "DROP", "SHAPE"};
+            static const char *const SH[RLS_N] = {"FLAT", "ACC 2", "ACC 4", "FADE"};
+            uint32_t how = i < 2u ? ((bzm.ok & 3u) != 3u ? RLC_DIM : bzride.on && bzride.bars == (i ? 16u : 8u)
+                                     ? RLC_FILL : RLC_IDLE)
+                           : i == 2u ? (bz_drop == BZD_RUN ? RLC_FILL : bz_drop == BZD_ARMED ? RLC_TINT
+                                        : song.playing ? RLC_IDLE : RLC_DIM)
+                           : rl_shape ? RLC_TINT : RLC_IDLE;
+            bzk_cell(x, y, h, i == 3u ? SH[rl_shape % RLS_N] : SB[i], i == 2u ? T_REC : T_THEME, how, BZK_B, i + 1u);
+        } else if (i < 6u && pe)                        /* (0.9: the pad's own rate filled) */
             bzk_cell(x, y, h, RL_RATE_CELL[i + 1u], T_THEME, rl_pp_rate[pe - 1u] == i + 2u ? RLC_FILL : RLC_IDLE,
                      BZK_B, i + 1u);
         else if (i < 6u)                                /* (0.9: tapped on: tinted; held, playing: filled) */

@@ -65,6 +65,7 @@ static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p
 static int st_erase(uint32_t off) { (void)off; return -1; }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/editor.c"
+#include "../firmware/src/blaze_cap_save.c"         /* BLAZE 0.11: a LOOP CAPTURE kept in a USR slot */
 
 static int check(const char *what, int ok)
 {
@@ -1344,12 +1345,58 @@ static int custom_palette(void)
     return bad;
 }
 
+/* BLAZE 0.11: a LOOP CAPTURE (1 bar at 128 BPM) kept: the first empty USR slot, named CAP1B128, one looped 22.05 kHz
+ * zone that scans as valid, the codes as captured; then the next empty one; all full: a CAP slot again; none: refused */
+static int blaze_cap_saves(void)
+{
+    static int32_t l[CTL], r[CTL], w[CTL];
+    const smp_user_hdr_t *h;
+    uint32_t t = 0, j, codes;
+    int bad = 0, rc, ok;
+    reset();
+    memset(host_samples, 0xFF, sizeof host_samples);
+    song.g[G_BPM] = 128;
+    bz_cap_bars = 1;
+    bz_cap = BZC_ARMED;
+    bz_cap_cd = 1;
+    while (bz_cap != BZC_SOLO && t < 200000u) {
+        for (j = 0; j < CTL; j++) {
+            l[j] = r[j] = (int32_t)(6000.0 * sin((t + j) * 0.0627));
+            w[j] = 0;
+        }
+        bz_cap_mix(l, r, w, CTL);
+        t += CTL;
+    }
+    codes = bz_cap_len;
+    rc = bz_cap_save();
+    h = (const smp_user_hdr_t *)host_samples[0];
+    ok = rc == 1 && usr_nz[0] == 1u && !memcmp(h->name, "CAP1B128", 8) && usr_zone[0][0].n == codes &&
+         usr_zone[0][0].looped && usr_zone[0][0].rate == 32768u && usr_zone[0][0].idx == BZC_IDX0 &&
+         !memcmp(host_samples[0] + SMP_USER_DATA, dly_buf, (codes + 1u) / 2u) && bz_cap == BZC_SOLO;
+    bad += check("BLAZE LOOP CAPTURE saved: USR1 CAP1B128, one looped zone, the codes as captured", ok);
+    rc = bz_cap_save();
+    ok = rc == 2 && usr_nz[1] == 1u;
+    memcpy(host_samples[2], host_samples[1], 512);
+    memcpy(((smp_user_hdr_t *)host_samples[1])->name, "MYKICKS ", 8);
+    memcpy(((smp_user_hdr_t *)host_samples[2])->name, "BREAK   ", 8);
+    usr_nz[2] = 1;
+    rc = bz_cap_save();
+    ok &= rc == 1;                                       /* (all full: the capture's own slot again) */
+    memcpy(((smp_user_hdr_t *)host_samples[0])->name, "VOX     ", 8);
+    ok &= bz_cap_save() == -1;                           /* (no capture's slot: uploads are never written over) */
+    bad += check("  then the next empty slot; all full: a CAP slot again; none: refused", ok);
+    bz_cap = BZC_IDLE;
+    fx_dly_off = 0;
+    memset(dly_buf, 0, sizeof dly_buf);
+    return bad;
+}
+
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
-              learn_protocol() + custom_palette();
+              learn_protocol() + custom_palette() + blaze_cap_saves();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }
