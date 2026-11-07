@@ -697,7 +697,7 @@ static void state(void)                          /* a playing song with steps on
     bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0; bz_set_n = 0; bzkit.k = 0;
     bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0; bz_rb = 0; bz_rb_deck = 0; bz_rb_val[0] = 64;
     memset((void *)rl_pp_rate, 0, sizeof rl_pp_rate); memset((void *)rl_pp_fx, 0, sizeof rl_pp_fx); rl_pp = 0;
-    bz_g_auto = 0; bz_g_mel = 0; bz_g_every = 1; bz_shlock = 0; bz_padl = 0; bz_build = 0; bz_riser = 0; bz_drop = 0; rl_extra = 0; bz_cfg3[BZC3_MAGIC_I] = 0; bz_cfg_apply();
+    bz_g_auto = 0; bz_g_mel = 0; bz_g_every = 1; bz_shlock = 0; bz_padl = 0; bz_build = 0; bz_riser = 0; bz_drop = 0; rl_ready = 0; rd_on = 0; rd_latch = 0; rl_extra = 0; bz_cfg3[BZC3_MAGIC_I] = 0; bz_cfg_apply();
     memset((void *)bz_kfn, 0, sizeof bz_kfn);
     rl_latch = 0; rl_rates = 0; rl_nr = 0; bz_pads = 0; bzm.ok = 0; bzm.on = 0; bzm.pos = 0; bz_spin = 0; perf_latched = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
@@ -819,7 +819,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
        S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_BLAZE_SHLOCK,
-       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_COUNT };   /* BLAZE */
+       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_BLAZE_READY, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -856,7 +856,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
     "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
-    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states"};
+    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states", "blaze_ready"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1372,6 +1372,9 @@ static void setup(int s)
         bz_build = 4u; bz_b_fill = 0; bz_wait = 0; bz_b_total = 4u * bar; bz_age = bz_b_total * 62u / 100u;
         bz_riser = 8u; bz_rs_wait = 0; bz_rs_age = 8u * bar * 40u / 100u; bz_drop = BZD_ARMED; bz_dr_wait = bar / 2u; bz_dr_total = 2u * bar; bz_dr_age = 0;
         ui.layer = LAYER_BLAZE; } break;
+    /* 0.14 READY ROLLS: SNARE 1/16 rolling (tapped on: its dot), CLAP 1/32 held */
+    case S_BLAZE_READY: go_home(); RD_ROW[0] = 0; rd_cfg_apply(); rl_ready = 1; rd_on = 0x0042u; rd_latch = 0x0002u;
+        ui.layer = LAYER_ROLL; break;
     case S_BLAZE_RB: go_home(); bz_rb = 1; bz_rb_deck = 1; bz_rb_val[0] = 90; fm1_in.notes |= 1u << 2;
         ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_PP: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; rl_pp_rate[3] = 7; rl_latch = 1u << 2;

@@ -242,6 +242,7 @@ static void bzm_load(void);                         /* (0.11: MORPH's A and B, k
 /* the settings into the ISR's copies (an unmarked or old setting: the defaults first) */
 static void bz_cfg_apply(void)
 {
+    rd_cfg_apply();                                 /* (0.14 READY ROLLS: blaze_roll_ui.c) */
     uint8_t *c = bz_cfg;
     if (c[BZC_MAGIC_I] != BZ_CFG_MAGIC) {
         c[BZC_TYPE] = BZR_NOISE;

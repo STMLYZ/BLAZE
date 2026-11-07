@@ -238,7 +238,14 @@ static void layer_roll(void)
     uint32_t p, live = rl_live(), lit = (uint32_t)rl_held | rlu.fl, i;
     int drum = drum_track(t), ext = song.g[G_CLOCK] != 0;
     bzk_held_update();
-    for (p = 0; p < 16u; p++) {
+    for (p = 0; rl_ready && p < 16u; p++) {             /* 0.14 READY ROLLS: each key its drum and rate */
+        char nm[16];
+        bzx.lock = (uint8_t)((rd_latch >> p) & 1u);
+        bzk_cell(BZX(p % 4u), RLD_Y0 + (RLD_PH + RLD_GAP) * (int32_t)(p / 4u), RLD_PH, rd_name(p, nm, sizeof nm),
+                 rl_lane_col(rd_lane[p] % NLANE), !drum ? RLC_DIM : (rd_on >> p) & 1u ? RLC_FILL
+                 : rd_acc[p] ? RLC_TINT : RLC_IDLE, BZK_W, p + 1u);
+    }
+    for (p = 0; !rl_ready && p < 16u; p++) {
         uint32_t how = !((live >> p) & 1u) || !drum ? RLC_DIM : (lit >> p) & 1u ? RLC_FILL : rl_pick ? RLC_SEL
                      : p >= NLANE ? RLC_TINT : RLC_IDLE;
         bzk_cell(BZX(p % 4u), RLD_Y0 + (RLD_PH + RLD_GAP) * (int32_t)(p / 4u), RLD_PH, rl_lane_name(t, p % NLANE),

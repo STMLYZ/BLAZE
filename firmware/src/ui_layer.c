@@ -65,7 +65,7 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_EDIT, LK_SET, FAM_HOME, "[EDIT] SET", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
     {B_SEQ, LK_SET, FAM_SEQ, "[SEQ] TOOLS", {{KC_KEYS, "TOOLS"}, {KC_OCTDN, "UNDO"}, {KC_SEQ, "DONE"}}},
     {B_REC, LK_SET, FAM_HOME, "[REC] SET", {{KC_KEYS, "RECORDING"}, {KC_OCTDN, "UNDO"}, {KC_REC, "DONE"}}},
-    {B_ARP, LK_HOLD, FAM_HOME, "[ARP] ROLL", {{KC_KEYS, "ROLL"}, {KC_OCTUP, "GROOVE/LAST"}, {0, 0}}},   /* BLAZE */
+    {B_ARP, LK_HOLD, FAM_HOME, "[ARP] ROLL", {{KC_KEYS, "ROLL"}, {KC_OCTDN, "READY"}, {KC_OCTUP, "GROOVE"}}},   /* BLAZE */
     {B_ENV, LK_HOLD, FAM_HOME, "[ENV] BLAZE", {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "KEYS"}, {KC_OCTUP, "SHIFT"}}},   /* BLAZE */
 };
 static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_REC, KC_ARP, KC_ENV};
@@ -802,9 +802,11 @@ static void layer_oct_open(uint32_t pressed)
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 {
     uint32_t dn = panel.btn[B_OCTDN], up = panel.btn[B_OCTUP], k, mine;
-    if (layer_open() == LAYER_ROLL) {                   /* BLAZE ROLL: OCT+ GROOVE / LAST, OCT- nothing */
+    if (layer_open() == LAYER_ROLL) {                   /* BLAZE ROLL: OCT+ GROOVE / LAST, 0.14 OCT- READY ROLLS */
         if (oct & 2u)
             rl_groove_toggle();
+        if (oct & 1u)
+            rl_ready_toggle();
         lys.oct = 0;
         return 0;
     }

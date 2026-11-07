@@ -5,6 +5,8 @@
  * NUDGE: while held, the tempo 1/32 faster / slower (about 3 %: a jog wheel's push), back when let go: the FM-1
  * pulled back into line with a track by ear. TAP, NUDGE and KNOB 1 work on the internal clock only (an external
  * clock sets the tempo: they say so) */
+static const char *rl_lane_name(const track_t *t, uint32_t l);   /* (blaze_roll_draw.c) */
+static int rd_knob(uint32_t k, int32_t s);                       /* (0.14 READY ROLLS: below) */
 static struct {
     uint32_t nk;                       /* the NUDGE keys held (bits 0..26) */
     int16_t bpm;                       /* the tempo before NUDGE */
@@ -81,6 +83,8 @@ static void rl_knob(uint32_t k, int32_t s)
 {
     track_t *t = rl_track();
     int16_t *vp;
+    if (rd_knob(k, s))                                  /* (0.14 READY ROLLS: a key held, its roll) */
+        return;
     if (k == 0u) {
         if (song.g[G_CLOCK]) {
             ui_message("EXTERNAL CLOCK SETS BPM");
@@ -113,6 +117,11 @@ static void rl_led(uint32_t k, uint32_t *on, uint32_t *can)
     if (!key_black(k)) {
         if (p >= 16u)
             return;
+        if (rl_ready) {                                 /* (0.14 READY ROLLS: rolling lit) */
+            *can = 1;
+            *on = (rd_on >> p) & 1u;
+            return;
+        }
         *can = (live >> p) & 1u;
         *on = *can && ((((uint32_t)rl_held | rlu.fl) >> p) & 1u);
         if (rl_pick && *can)
@@ -132,9 +141,87 @@ static void rl_led(uint32_t k, uint32_t *on, uint32_t *can)
 }
 
 /* the map's header: "[ARP] GROOVE 16 PADS" */
+/* 0.14 READY ROLLS, kept in GRAIN's favourites row (its presets use [0]): [6] 0xD3 when set, [7..22] each key's drum |
+ * rate << 3 | ACCENT << 6. Unset: SNARE 1/8 1/16 1/32 1/16T, CLAP the same, HAT 1/16 1/32 1/16T, OPEN 1/8, KICK 1/8
+ * 1/16, RIM 1/16, TOM 1/16T */
+#define RD_ROW (&favorites.factory[8][6])
+#define RD_MAGIC 0xD3u
+static void rd_cfg_apply(void)
+{
+    static const uint8_t DEF[16] = {1u | 2u << 3, 1u | 4u << 3, 1u | 6u << 3, 1u | 5u << 3,
+                                    2u | 2u << 3, 2u | 4u << 3, 2u | 6u << 3, 2u | 5u << 3,
+                                    3u | 4u << 3, 3u | 6u << 3, 3u | 5u << 3, 4u | 2u << 3,
+                                    0u | 2u << 3, 0u | 4u << 3, 6u | 4u << 3, 5u | 5u << 3};
+    uint8_t *c = RD_ROW;
+    uint32_t i;
+    if (c[0] != RD_MAGIC) {
+        for (i = 0; i < 16u; i++)
+            c[1u + i] = DEF[i];
+        c[0] = RD_MAGIC;
+    }
+    for (i = 0; i < 16u; i++) {
+        uint32_t r = (c[1u + i] >> 3) & 7u;
+        rd_lane[i] = (uint8_t)(c[1u + i] & 7u);
+        rd_rate[i] = (uint8_t)(r >= 1u && r <= 6u ? r : 4u);
+        rd_acc[i] = (uint8_t)((c[1u + i] >> 6) & 1u);
+    }
+}
+/* .. key i's roll as a cell's name: "SNARE 16", "HAT 16T" (the rate's denominator) */
+static const char *rd_name(uint32_t i, char *b, uint32_t n)
+{
+    static const char *const R[7] = {"", "4", "8", "8T", "16", "16T", "32"};
+    static const char *const S[NLANE] = {"KCK", "SNR", "CLP", "HAT", "OPN", "TOM", "RIM", "BEL"};
+    str_cpy(b, rl_lane_name(rl_track(), rd_lane[i % 16u] % NLANE), n);
+    if (str_len(b) + 1u + str_len(R[rd_rate[i % 16u] % 7u]) > 8u)   /* (too long for a cell: "SNR 16T") */
+        str_cpy(b, S[rd_lane[i % 16u] % NLANE], n);
+    str_cpy(b + str_len(b), " ", n - str_len(b));
+    str_cpy(b + str_len(b), R[rd_rate[i % 16u] % 7u], n - str_len(b));
+    return b;
+}
+/* .. the white key held now on READY's page (16: none) */
+static uint32_t rd_held(void)
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++)
+        if (((fm1_in.notes >> k) & 1u) && !key_black(k) && key_place(k) < 16u)
+            return key_place(k);
+    return 16u;
+}
+/* .. a key held + KNOB 1 its DRUM, KNOB 2 its RATE (1/4 .. 1/32), KNOB 3 ACCENT; kept */
+static int rd_knob(uint32_t k, int32_t s)
+{
+    uint32_t i = rd_held(), v;
+    uint8_t *c = RD_ROW;
+    char nm[16];
+    if (!rl_ready || i >= 16u || k > 2u)
+        return 0;
+    rd_cfg_apply();
+    v = c[1u + i];
+    if (k == 0u)
+        v = (v & ~7u) | (((v & 7u) + (s > 0 ? 1u : NLANE - 1u)) % NLANE);
+    else if (k == 1u) {
+        uint32_t r = (v >> 3) & 7u;
+        r = s > 0 ? (r < 6u ? r + 1u : 6u) : (r > 1u ? r - 1u : 1u);
+        v = (v & ~(7u << 3)) | r << 3;
+    } else
+        v = s > 0 ? v | 1u << 6 : v & ~(1u << 6);
+    c[1u + i] = (uint8_t)v;
+    rd_cfg_apply();
+    ui_say(rd_acc[i] ? "ACCENT: " : "READY: ", rd_name(i, nm, sizeof nm));
+    return 1;
+}
+static void rl_ready_toggle(void)
+{
+    rl_ready = (uint8_t)!rl_ready;
+    rd_cfg_apply();
+    ui_message(rl_ready ? "READY ROLLS: TAP ONE, THEN THE NEXT" : "ROLL: PADS AND RATES");
+}
+
 static const char *rl_head(void)
 {
     static char h[28];
+    if (rl_ready)                                       /* (0.14) */
+        return rd_held() < 16u ? "[ARP] READY: DRUM RATE ACC" : "[ARP] READY ROLLS";
     str_cpy(h, rl_groove ? "[ARP] GROOVE " : "[ARP] LAST ", sizeof h);
     str_cpy(h + str_len(h), RL_PADS_NAME[rl_padmode % RL_NPADMODE], sizeof h - str_len(h));
     str_cpy(h + str_len(h), rl_padmode == RL_PADS1 ? " PAD" : " PADS", sizeof h - str_len(h));
@@ -142,10 +229,18 @@ static const char *rl_head(void)
 }
 
 /* the map's signature: what it shows */
+static uint32_t rd_lanes_sig(void)
+{
+    uint32_t i, h = 0;
+    for (i = 0; i < 16u; i++)
+        h = h * 31u + rd_lane[i] + rd_rate[i] * 8u + rd_acc[i] * 64u;
+    return h;
+}
 static uint32_t rl_sig(void)
 {
     track_t *t = rl_track();
     return (uint32_t)rl_held * 31u + (uint32_t)rlu.fl * 131u + (uint32_t)rl_rates * 7919u + rl_latch * 4099u + rl_padmode * 3u +
            (uint32_t)rl_live() * 977u + rl_groove * 5u + rl_pick * 11u + rlu.nk * 13u + (uint32_t)song.g[G_CLOCK] * 17u + fm1_in.notes * 37u +
-           (uint32_t)drum_track(t) * 19u + trk_index(t) * 23u + (uint32_t)t->p[P_E0] * 29u;
+           (uint32_t)drum_track(t) * 19u + trk_index(t) * 23u + (uint32_t)t->p[P_E0] * 29u +
+           rl_ready * 41u + (uint32_t)rd_on * 43u + (uint32_t)rd_latch * 47u + rd_lanes_sig() * 53u;   /* (0.14 READY) */
 }

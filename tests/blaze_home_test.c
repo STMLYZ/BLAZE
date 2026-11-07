@@ -1713,6 +1713,49 @@ int main(void)
     }
 
 
+    /* 0.14 READY ROLLS: key 2 SNARE 1/16 tapped: rolls on, 4 a beat; key 3 SNARE 1/32 held: takes over (one drum, one
+     * rate), let go after a hold: stopped; key 2 again: rolls; ALL OFF: stopped. A key held + KNOB 2: its rate, kept */
+    home_reset();
+    {
+        uint32_t beat = beat_samples(), n16, n32;
+        RD_ROW[0] = 0;
+        rd_cfg_apply();
+        rl_ready = 1;
+        ok = rd_lane[1] == 1u && rd_rate[1] == 4u && rd_lane[2] == 1u && rd_rate[2] == 6u && rd_lane[4] == 2u;
+        rd_key(1, 1);
+        rd_key(1, 0);                                /* (tapped: fm1_ms unchanged) */
+        ok &= rd_on == 2u && rd_latch == 2u;
+        run(beat / CTL, 0, 0);
+        n16 = run(beat / CTL, 0, 0);
+        rd_key(2, 1);
+        ok &= rd_on == 4u && !rd_latch;
+        run(beat / CTL, 0, 0);
+        n32 = run(beat / CTL, 0, 0);
+        fm1_ms += 400u;
+        rd_key(2, 0);
+        ok &= !rd_on;
+        printf("    ready rolls: 1/16 %u a beat, 1/32 %u\n", n16, n32);
+        ok &= n16 == 4u && n32 == 8u;
+        rd_key(1, 1);
+        rd_key(1, 0);
+        bz_release_all();
+        ok &= !rd_on && !rd_latch;
+        bad += check("READY ROLLS (0.14): tapped rolls on, the same drum's next key takes over, held: while held, ALL OFF", ok);
+        rd_key(1, 1);
+        rd_key(1, 0);
+        rd_key(1, 1);
+        ok = !rd_on;
+        rd_key(1, 0);
+        fm1_in.notes = 1u << wk(0);
+        ok &= rd_knob(1, 1) && rd_rate[0] == 3u && ((RD_ROW[1] >> 3) & 7u) == 3u && rd_knob(0, 1) && rd_lane[0] == 2u;
+        fm1_in.notes = 0;
+        ok &= !rd_knob(1, 1);
+        bad += check("  tapped again: stopped; a key held + KNOB 1 / 2: its drum, its rate, kept", ok);
+        RD_ROW[0] = 0;
+        rd_cfg_apply();
+        rl_ready = 0;
+    }
+
     /* 0.13 hands-free rolls: a pad held + a rate tapped rolls on when let go; another rate tapped: the one rate; the
      * pad tapped: stopped (that press silent), the rate let go (the pad plays once again); ALL OFF stops them too */
     home_reset();

@@ -628,6 +628,7 @@ static void bz_release_all(void)
     bz_chord_stop();
     bz_pads = 0;
     bz_padl = 0;                                 /* (0.13: the pads rolling on their own) */
+    rd_on = rd_latch = 0;                        /* (0.14: READY ROLLS) */
     bz_rk_on = 0;
     bz_rx = 0;
     rl_extra = 0;

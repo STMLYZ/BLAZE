@@ -64,6 +64,17 @@ enum { RLS_FLAT, RLS_ACC2, RLS_ACC4, RLS_FADE, RLS_N };
 static volatile uint8_t rl_shape;              /* main: RLS_* */
 static uint32_t rl_hitn;                       /* ISR: the roll's hits so far (ACCENT) */
 static uint32_t rl_ppn[16];                    /* ISR: samples to each one's next hit */
+/* 0.14 READY ROLLS: ROLL's second page (OCT- in ROLL): 16 white keys, each a finished roll, a drum at its own rate
+ * (the main loop keeps them: blaze_roll_ui.c rd_*). Tapped: it rolls on (a dot) until tapped again; held: while held.
+ * One drum rolls at one rate: another key of the same drum takes over (SNARE 1/8 -> SNARE 1/16, nothing switched).
+ * Hits on the rate's own grid (as a rate key's), the velocity played (ACCENT: full). ALL OFF (BLAZE) stops them */
+static volatile uint8_t rl_ready;              /* main: the page shown (the white keys are READY's) */
+static volatile uint8_t rd_lane[16], rd_rate[16], rd_acc[16];   /* main: each key's drum, rate (1 1/4 .. 6 1/32), ACCENT */
+static volatile uint16_t rd_on;                /* ISR: the keys rolling (the main loop reads) */
+static volatile uint16_t rd_latch;             /* ISR: .. tapped on (rolls on when let go) */
+static uint16_t rd_x;                          /* ISR: keys whose press stopped them (their release: nothing) */
+static uint8_t rd_vel[16];                     /* ISR: each one's velocity */
+static uint32_t rd_n[16], rd_dn[16];           /* ISR: samples to its next hit; when (fm1_ms) it was pressed */
 
 static uint16_t rl_live(void)
 {
@@ -231,6 +242,44 @@ static void rl_pp_key(uint32_t p, uint32_t r1, int down)
     rl_pp = (uint16_t)(rl_pp | b);
 }
 
+/* 0.14 READY ROLLS: white key p down / up */
+static void rd_key(uint32_t p, int down)
+{
+    uint16_t b = (uint16_t)(1u << p);
+    uint32_t q, r1 = rd_rate[p] % 7u ? rd_rate[p] % 7u : 4u;
+    if (!down) {
+        if (rd_x & b) {                          /* (its press stopped it) */
+            rd_x = (uint16_t)(rd_x & ~b);
+            return;
+        }
+        if (fm1_ms - rd_dn[p] < RL_TAP_MS)       /* tapped: rolls on */
+            rd_latch = (uint16_t)(rd_latch | b);
+        else                                     /* held: only while held */
+            rd_on = (uint16_t)(rd_on & ~b);
+        return;
+    }
+    if (rd_on & b) {                             /* rolling: this press stops it */
+        rd_on = (uint16_t)(rd_on & ~b);
+        rd_latch = (uint16_t)(rd_latch & ~b);
+        rd_x = (uint16_t)(rd_x | b);
+        return;
+    }
+    for (q = 0; q < 16u; q++)                    /* (one drum, one rate: the same drum's other key lets go) */
+        if (q != p && ((rd_on >> q) & 1u) && rd_lane[q] % NLANE == rd_lane[p] % NLANE) {
+            rd_on = (uint16_t)(rd_on & ~(1u << q));
+            rd_latch = (uint16_t)(rd_latch & ~(1u << q));
+        }
+    rd_vel[p] = (uint8_t)(rd_acc[p] ? 127u : kb_vel);
+    rd_dn[p] = fm1_ms;
+    rd_latch = (uint16_t)(rd_latch & ~b);
+    rd_n[p] = rl_wait(r1);                       /* (r1: ROLL's rate, 1 1/4 .. 6 1/32, RL_DIV's index) */
+    if (!rd_n[p]) {
+        rl_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p]);
+        rd_n[p] = div_samples(RL_DIV[r1]);
+    }
+    rd_on = (uint16_t)(rd_on | b);
+}
+
 /* PADS held: white place p picked for the mode (4: on / off, at most 4; 1: the one) */
 static void rl_pick_pad(uint32_t p)
 {
@@ -267,6 +316,10 @@ static __attribute__((noinline)) void roll_key_press(uint32_t k, int down)
     }
     if (p >= 16u)
         return;
+    if (rl_ready) {                              /* 0.14 READY ROLLS: the white keys are its rolls */
+        rd_key(p, down);
+        return;
+    }
     if (rl_pick) {
         if (down)
             rl_pick_pad(p);
@@ -312,6 +365,19 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
                         rl_ppn[p] += period;
                 }
                 rl_ppn[p] -= adv;
+            }
+    if (rd_on)                                   /* 0.14 READY ROLLS: each at its own rate */
+        for (p = 0; p < 16u; p++)
+            if ((rd_on >> p) & 1u) {
+                uint32_t r1 = rd_rate[p] % 7u ? rd_rate[p] % 7u : 4u, period = div_samples(RL_DIV[r1]);
+                if (!period)
+                    period = 1;
+                if (rd_n[p] < adv) {
+                    rl_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p]);
+                    while (rd_n[p] < adv)
+                        rd_n[p] += period;
+                }
+                rd_n[p] -= adv;
             }
     if (!rl_runs)
         return;
