@@ -57,6 +57,7 @@ static uint32_t rl_rdown[RL_NRATE];            /* ISR: when (fm1_ms) */
 static volatile uint8_t rl_pp_rate[NLANE];     /* main / ISR: the lane's rate + 1 (0: none) */
 static volatile uint8_t rl_pp_fx[NLANE];       /* main / ISR: the lane's effect (BLAZE's BZ_FX index) + 1 (0: none) */
 static volatile uint16_t rl_pp;                /* ISR: pads rolling at their lane's own rate */
+static volatile uint8_t rl_ev_out;             /* main: 0.13 BLAZE opened: each hit's velocity to PHOSPHOR (ch16 CC 49) */
 /* 0.11 ROLL SHAPE (SHIFT + black 4 in BLAZE): the velocities along a roll. FLAT as played; ACCENT 2 / 4 every 2nd /
  * 4th hit full, the rest at half; FADE down to 30 % over its first bar (then on at that) */
 enum { RLS_FLAT, RLS_ACC2, RLS_ACC4, RLS_FADE, RLS_N };
@@ -113,6 +114,8 @@ static void rl_hit(uint32_t p, uint32_t vel)
     rl_offn[l] = (uint8_t)note;
     rl_offc[l] = (uint8_t)mc;
     rl_flash |= (uint16_t)(1u << p);
+    if (rl_ev_out)                               /* 0.13: PHOSPHOR's hit (its velocity) */
+        midi_out_event(0x0Bu | 0xBFu << 8 | 49u << 16 | vel << 24);
 }
 
 /* samples until rate r's first hit: its own grid while the transport plays (at most a beat away), at once stopped */
@@ -175,6 +178,27 @@ static void rl_rate(uint32_t r, int down)
     if (down && rl_nr < RL_NRATE)
         rl_ord[rl_nr++] = (uint8_t)r;
     rl_rates = (uint8_t)(down ? rl_rates | 1u << r : rl_rates & ~(1u << r));
+    rl_rerun();
+}
+
+/* 0.13 BLAZE's RATE knob: rate r the one latched (the others latched let go; a rate key held stays), on its grid */
+static void rl_knob_rate(uint32_t r)
+{
+    uint32_t i, k = 0, q;
+    for (i = 0; i < rl_nr; i++) {
+        q = rl_ord[i];
+        if (q == r || ((rl_latch >> q) & 1u)) {
+            if (q != r)
+                rl_rates = (uint8_t)(rl_rates & ~(1u << q));
+            continue;
+        }
+        rl_ord[k++] = (uint8_t)q;
+    }
+    rl_ord[k++] = (uint8_t)r;
+    rl_nr = (uint8_t)k;
+    rl_latch = (uint8_t)(1u << r);
+    rl_wasl = (uint8_t)(rl_wasl & (1u << r));
+    rl_rates = (uint8_t)(rl_rates | 1u << r);
     rl_rerun();
 }
 

@@ -229,7 +229,13 @@ static const uint8_t BZ_CAP_BARS[3] = {4u, 1u, 2u};
 #define bz_cfg3 (&favorites.factory[ENGI_PHYS][2])
 #define BZ_CFG3_MAGIC 0xC7u
 #define bz_cfg_slot (&favorites.factory[ENGI_SAMPLE][28])
-enum { BZC3_MAGIC_I, BZC3_BUILD, BZC3_SWELL, BZC3_DROP, BZC3_TOP };
+enum { BZC3_MAGIC_I, BZC3_BUILD, BZC3_SWELL, BZC3_DROP, BZC3_TOP, BZC3_RSET };   /* (0.13 [5]: the RATE knob's steps) */
+/* 0.13 the RATE knob's steps (ROLL's rates 1 1/4 .. 6 1/32): EVEN 1/8 1/16 1/32, ALL (triplets too), TRIPLETS */
+static const uint8_t BZ_RK_SET[3][6] = {{2u, 4u, 6u}, {1u, 2u, 3u, 4u, 5u, 6u}, {3u, 5u}};
+static const uint8_t BZ_RK_N[3] = {3u, 6u, 2u};
+static const char *const BZ_RK_NAME[3] = {"EVEN", "ALL", "TRIPLETS"};
+static uint8_t bz_rk_set;                           /* main: BZ_RK_SET's row */
+static void bz_rk_to(uint32_t i);                   /* (below, by bz_knob) */
 static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
 static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
 static void bzm_load(void);                         /* (0.11: MORPH's A and B, kept: below) */
@@ -282,6 +288,7 @@ static void bz_cfg_apply(void)
         c[BZC3_SWELL] = 100u;
         c[BZC3_DROP] = 0u;                          /* (to the phrase, BACKSPIN, nothing on the 1) */
         c[BZC3_TOP] = 70u;
+        c[BZC3_RSET] = 0u;                          /* (0.13: STRAIGHT) */
         c[BZC3_MAGIC_I] = BZ_CFG3_MAGIC;
     }
     bz_b_lane = (uint8_t)(c[BZC3_BUILD] & 7u);
@@ -292,6 +299,7 @@ static void bz_cfg_apply(void)
     bz_d_extra = (uint8_t)((c[BZC3_DROP] >> 2) & 3u);
     bz_d_hit = (uint8_t)((c[BZC3_DROP] >> 4) & 3u);
     bz_d_top = (uint8_t)(c[BZC3_TOP] > 100u ? 100u : c[BZC3_TOP]);
+    bz_rk_set = (uint8_t)(c[BZC3_RSET] % 3u);
     {
         uint32_t i;
         for (i = 0; i < 4u; i++)
@@ -1207,7 +1215,7 @@ static void bz_ui_pass(void)
         ui.force = 1;
     }
     if (bzu.cc_seq != bz_cc_seq) {
-        static uint8_t keyc[11], knob[4] = {255, 255, 255, 255};
+        static uint8_t keyc[11], knob[5] = {255, 255, 255, 255, 255};
         uint32_t i;
         bzu.cc_seq = bz_cc_seq;
         if (bz_cc[12]) {                            /* 0.11.1: RAIL's bar (CC 32), taken once */
@@ -1247,6 +1255,11 @@ static void bz_ui_pass(void)
                 }
                 knob[i] = (uint8_t)v;
             }
+        if (((bz_cc_knob >> 4) & 1u) && bz_cc[34] != knob[4]) {   /* 0.13: RAIL's ROLL RATE (CC 54), first noted */
+            if (knob[4] != 255u)
+                bz_rk_to(bz_cc[34] * BZ_RK_N[bz_rk_set % 3u] / 128u);
+            knob[4] = bz_cc[34];
+        }
         for (i = 0; i < 11u && keyc[i] == bz_cc[i]; i++)
             ;
         if (i < 11u) {                              /* (the key, the SET's song: only when they move) */
@@ -1259,8 +1272,10 @@ static void bz_ui_pass(void)
     bz_ramp_pass();
     bz_shlock_pass();                               /* (0.11.1 SHIFT LOCK) */
     bz_shift_on = (uint8_t)bz_shift();
-    if (ui.layer == LAYER_BLAZE || ui.layer == LAYER_ROLL)
+    if (ui.layer == LAYER_BLAZE || ui.layer == LAYER_ROLL) {
         bz_ev_on = 1;                               /* (0.11 PHOSPHOR: from the first time BLAZE is open) */
+        rl_ev_out = 1;                              /* (0.13: the hits' CC 49 too) */
+    }
     bz_pp_pass();
     {                                               /* 0.9 REKORDBOX: DECK switched (the ISR): said */
         static uint8_t deck;
@@ -1281,6 +1296,41 @@ static void bz_ui_pass(void)
 }
 
 /* KNOB k turned s: the four of the mode (see the top) */
+/* 0.13: the RATE knob's place in its steps: the step at or above the rate it has (the last if none) */
+static uint32_t bz_rk_pos(void)
+{
+    uint32_t i, n = BZ_RK_N[bz_rk_set % 3u];
+    for (i = 0; i < n; i++)
+        if (BZ_RK_SET[bz_rk_set % 3u][i] >= bz_rk_rate)
+            return i;
+    return n - 1u;
+}
+/* .. a rate for it (step i of its steps); the ISR latches it only with a pad held or rolling on its own */
+static void bz_rk_to(uint32_t i)
+{
+    uint32_t n = BZ_RK_N[bz_rk_set % 3u];
+    bz_rk_rate = BZ_RK_SET[bz_rk_set % 3u][i < n ? i : n - 1u];
+    if (bz_pads || bz_padl)
+        bz_rk_req = (uint8_t)(bz_rk_rate + 1u);
+    lys.rp_dirty = 1;
+    ui.force = 1;
+}
+/* .. knob 4 with a pad held or rolling: a step a detent; SHIFT with a pad held: STRAIGHT / ALL / TRIPLETS, kept */
+static void bz_rk_knob(int32_t s)
+{
+    uint32_t p = bz_rk_pos(), n;
+    if (bz_shift() && bz_pads) {
+        bz_cfg_apply();
+        bz_rk_set = (uint8_t)((bz_rk_set + (s > 0 ? 1u : 2u)) % 3u);
+        bz_cfg3[BZC3_RSET] = bz_rk_set;
+        ui_say("ROLL KNOB: ", BZ_RK_NAME[bz_rk_set]);
+        bz_rk_to(bz_rk_pos());
+        return;
+    }
+    n = BZ_RK_N[bz_rk_set % 3u];
+    p = s > 0 ? (p + 1u < n ? p + 1u : p) : (p ? p - 1u : 0u);
+    bz_rk_to(p);
+}
 static void bz_knob(uint32_t k, int32_t s)
 {
     track_t *t = rl_track(), *kt = &trk[bz_ktrk % NTRK];
@@ -1416,6 +1466,10 @@ static void bz_knob(uint32_t k, int32_t s)
         perf_k[3] = (int8_t)clamp(perf_k[3] - accel(EN_K3, s, 100), 0, 100);
         return;
     }
+    if (k == 3u && l == NLANE && bz_padl && !bz_shift()) {   /* 0.13: a pad rolling on its own: RATE */
+        bz_rk_knob(s);
+        return;
+    }
     if (k == 3u && l == NLANE && !bz_shift()) {     /* THROW: the mix into the echo and the reverb */
         perf_k[2] = (int8_t)clamp(perf_k[2] + accel(EN_K4, s, 100), 0, 100);
         return;
@@ -1430,9 +1484,11 @@ static void bz_knob(uint32_t k, int32_t s)
         ui_message("NO DRUM TRACK");
         return;
     }
-    if (l < NLANE) {                                /* a pad held: that drum's TUNE DECAY LEVEL */
-        if (k == 3u)
+    if (l < NLANE) {                                /* a pad held: that drum's TUNE DECAY LEVEL; 0.13: RATE */
+        if (k == 3u) {
+            bz_rk_knob(s);
             return;
+        }
         if (k < 2u) {
             bz_lanes_ready(t);
             vp = &t->p[(k ? BZ_LANE_DECAY : BZ_LANE_TUNE) + l];

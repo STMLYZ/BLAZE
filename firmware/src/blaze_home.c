@@ -126,7 +126,7 @@ static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
 static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
 static uint32_t bz_eo_left;                    /* .. samples left of the state */
 static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
-static volatile uint8_t bz_cc_seq, bz_cc[44], bz_cc_knob;   /* (0.12: CC 20..63; RAIL's knobs 50..53 heard: bits) */  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
+static volatile uint8_t bz_cc_seq, bz_cc[44], bz_cc_knob;   /* (0.12: CC 20..63; RAIL's knobs 50..54 heard: bits) */  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
                                                 * 0: none), 26..30 (RAIL's SET: the song's BPM - 60, KIT + 1, LOOPS
                                                 * 64 + the tracks in, the song's number, how many) on channel 16 */
 static volatile uint8_t bz_set_n;              /* main: the SET's songs (RAIL), 0: none */
@@ -174,6 +174,14 @@ static volatile uint8_t bz_req;
 static volatile uint8_t bz_clk_soft;
 /* 0.12: BLAZE's four pads, each its own (hold one + ALGORITHM: another drum): pad index + 1, 0: ROLL's PADS 4's */
 static volatile uint8_t bz_pad_slot[4];
+/* 0.13 hands-free rolls: a pad held and a rate picked (a rate key, or the RATE knob: knob 4 with a pad held or rolling)
+ * rolls on when let go (bz_padl, white 1..4: bits 0..3), until the pad is tapped again or ALL OFF. A rate picked while
+ * a pad is held or rolling is the one rate (the others latched let go); the last pad stopped lets it go */
+static volatile uint8_t bz_padl;               /* ISR: the pads rolling hands-free */
+static uint8_t bz_rx;                          /* ISR: rate keys (bit r) whose press picked the rate (their release: none) */
+static volatile uint8_t bz_rk_req;             /* main: the RATE knob's rate + 1 for the ISR (0: none) */
+static volatile uint8_t bz_rk_rate = 4u;       /* main: the RATE knob's rate (ROLL's 1..6, 4: 1/16) */
+static uint8_t bz_rk_on;                       /* ISR: a rate latched by the knob (or a double tap) */
 static uint8_t bz_pad_dn[4];                   /* ISR: the pad each white 1..4 held plays (its press's: a swap meanwhile) */
 enum { BZD_IDLE, BZD_ARMED, BZD_RUN };
 static volatile uint8_t bz_drop;               /* ISR: 0.11 DROP: BZD_* */
@@ -534,7 +542,7 @@ static __attribute__((noinline)) void bz_drop_block(uint32_t adv)
  * 43 BACKSPIN (64 armed, 127 spinning), 44 MORPH's place (0 A .. 127 B), 45 LOOP CAPTURE (32 armed, 64 recording,
  * 96 solo, 127 mixed in), 46 SCATTER (127 on), 47 BUILD (1..127 as it goes). Sent when it changes, two a block,
  * once BLAZE (or ROLL) has been opened since power-on (Felucca alone sends nothing new) */
-#define BZ_EV_N 8u
+#define BZ_EV_N 9u                              /* (0.13: CC 48 the roll's rate; CC 49 each hit: blaze_roll.c) */
 static uint8_t bz_ev_sent[BZ_EV_N];             /* (all 0: idle, stopped; nothing sent until something moves) */
 static __attribute__((noinline)) void bz_ev_block(uint32_t n)
 {
@@ -559,6 +567,11 @@ static __attribute__((noinline)) void bz_ev_block(uint32_t n)
     t = bz_b_total;
     v[7] = bz_build && !bz_wait && t ? (uint8_t)(1u + (bz_age < t ? (uint32_t)((uint64_t)bz_age * 126u / t) : 126u))
                                      : 0u;
+    for (v[8] = 0, i = RL_NRATE; i-- > 0u;)        /* 0.13: the fastest rate rolling: 1 (a bar) .. 7 (1/32), 0 none */
+        if ((rl_runs >> i) & 1u) {
+            v[8] = (uint8_t)(i + 1u);
+            break;
+        }
     for (i = 0; i < BZ_EV_N && sent < 2u; i++)
         if (v[i] != bz_ev_sent[i]) {
             bz_ev_sent[i] = v[i];
@@ -614,6 +627,9 @@ static void bz_release_all(void)
     bz_eo_back();
     bz_chord_stop();
     bz_pads = 0;
+    bz_padl = 0;                                 /* (0.13: the pads rolling on their own) */
+    bz_rk_on = 0;
+    bz_rx = 0;
     rl_extra = 0;
     rl_rerun();
     bz_rel = 1;
@@ -645,6 +661,31 @@ static void bz_fx_key(uint32_t i, int down)
     bz_tapfx &= (uint8_t)~m;
 }
 
+/* 0.13: no pad held or rolling: the knob's rate let go (a tap then plays once again) */
+static void bz_rk_let(void)
+{
+    if (bz_rk_on && !bz_pads && !bz_padl) {
+        bz_rk_on = 0;
+        rl_unlatch();
+    } else
+        rl_rerun();
+}
+/* 0.13: rate r picked with a pad held or rolling: the one rate, the pads held roll on when let go */
+static void bz_rk_pick(uint32_t r)
+{
+    bz_rk_on = 1;
+    bz_padl |= (uint8_t)bz_pads;
+    rl_knob_rate(r % RL_NRATE);
+}
+/* 0.13: pad i (white 1..4) rolling on its own: stopped */
+static void bz_pad_unlatch(uint32_t i)
+{
+    uint32_t pad = bz_pad_dn[i] % 16u;
+    bz_padl &= (uint8_t)~(1u << i);
+    rl_pp_key(pad, 0, 0);
+    rl_extra &= (uint16_t)~(1u << pad);
+    bz_rk_let();
+}
 /* a key of the BLAZE layer down / up (k: 0 = F3 .. 26 = G5). noinline: out of keyboard_block's loop */
 /* 0.12: a key of BLAZE's page down (its function f, bz_fn) */
 static __attribute__((noinline)) void bz_fn_down(uint32_t f, uint32_t k)
@@ -652,6 +693,10 @@ static __attribute__((noinline)) void bz_fn_down(uint32_t f, uint32_t k)
     uint32_t pad, i;
     if (f >= BZF_PAD0 && f <= BZF_PAD3) {
         i = f - BZF_PAD0;
+        if ((bz_padl >> i) & 1u) {               /* 0.13: rolling on its own: this press stops it (its release: nothing) */
+            bz_pad_unlatch(i);
+            return;
+        }
         pad = bz_pad_of(i);
         if (pad >= 16u)
             return;
@@ -682,8 +727,15 @@ static __attribute__((noinline)) void bz_fn_down(uint32_t f, uint32_t k)
         bz_cap_tap();                            /* (0.11 LOOP CAPTURE; LENGTH, SAVE: the main loop's) */
     else if (f == BZF_PREV || f == BZF_NEXT)     /* SET: RAIL moves its list and sends the song back */
         midi_out_event(0x0Bu | 0xBFu << 8 | 31u << 16 | (f == BZF_NEXT ? 2u : 1u) << 24);
-    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
-        rl_rate(f - BZF_RATE0 + 1u, 1);          /* (ROLL's rates 1/4 .. 1/32) */
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5) {  /* (ROLL's rates 1/4 .. 1/32) */
+        uint32_t r = f - BZF_RATE0 + 1u;
+        if (bz_pads || bz_padl) {                /* 0.13: a pad held or rolling: picked (it rolls on) */
+            bz_rx |= (uint8_t)(1u << r);
+            bz_rk_rate = (uint8_t)r;
+            bz_rk_pick(r);
+        } else
+            rl_rate(r, 1);
+    }
     else if (f == BZF_ONE)                       /* the nearest step's beat is the 1 */
         bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
     else if (f == BZF_REL)
@@ -709,15 +761,22 @@ static __attribute__((noinline)) void bz_fn_up(uint32_t f, uint32_t k, uint32_t 
         if (rl_pp_fx[pad % NLANE])
             bz_pp_fx_off(i, rl_pp_fx[pad % NLANE]);
         bz_pads &= (uint16_t)~(1u << i);
+        if ((bz_padl >> i) & 1u)                 /* 0.13: rolls on */
+            return;
         rl_pp_key(pad, 0, 0);
         rl_extra &= (uint16_t)~(1u << pad);
-        rl_rerun();
+        bz_rk_let();
     } else if (f >= BZF_FX0 && f <= BZF_FX5)
         bz_fx_key(f - BZF_FX0, 0);
     else if (f == BZF_SCAT)
         bz_fx_key(BZ_SCAT, 0);
-    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
-        rl_rate(f - BZF_RATE0 + 1u, 0);
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5) {
+        uint32_t r = f - BZF_RATE0 + 1u;
+        if ((bz_rx >> r) & 1u)                   /* (0.13: its press picked the rate) */
+            bz_rx &= (uint8_t)~(1u << r);
+        else
+            rl_rate(r, 0);
+    }
     else if (edited)
         return;
     else if (f == BZF_B4 || f == BZF_B8)         /* (0.12: these fire when let go: held, the knobs set them up) */
@@ -910,6 +969,11 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
     if (bz_tx_r != bz_tx_w) {                    /* 0.12: the main loop's MIDI out (one a block) */
         midi_out_event(bz_tx[bz_tx_r % 8u]);
         bz_tx_r = (uint8_t)(bz_tx_r + 1u);
+    }
+    if (bz_rk_req) {                             /* 0.13: the RATE knob (FM-1 knob 4, RAIL's CC 54) */
+        uint32_t r = (bz_rk_req - 1u) % RL_NRATE;
+        bz_rk_req = 0;
+        bz_rk_pick(r);
     }
     if (bz_req) {                                /* 0.12: RAIL's action (channel 16 CC 36) */
         uint32_t q = bz_req;

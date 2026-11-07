@@ -435,7 +435,7 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
                                                                  * song (26..30), 0.11.1 RAIL's bar (32), 0.12 FOLLOW
                                                                  * (33), actions (36), knobs (50..53); any ROUT */
         bz_cc[d1 - 20u] = (uint8_t)d2;
-        if (d1 >= 50u && d1 <= 53u)
+        if (d1 >= 50u && d1 <= 54u)
             bz_cc_knob |= (uint8_t)(1u << (d1 - 50u));
         bz_cc_seq++;
         return;

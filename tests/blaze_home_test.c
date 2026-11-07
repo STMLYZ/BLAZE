@@ -1130,6 +1130,7 @@ int main(void)
         ok = nv == 8u && v[0] == v[2] && v[1] == v[3] && v[2] == v[4] && v[1] * 2u <= v[0] + 1u && v[1] > 0u;
         key_up(bk(3));
         key_up(wk(0));
+        bz_release_all();                           /* (0.13: a rate picked with the pad held: it rolled on) */
         rl_shape = RLS_FADE;
         key_down(wk(0));
         key_down(bk(1));                            /* (1/8: 8 a bar) */
@@ -1142,6 +1143,7 @@ int main(void)
         ok &= nf == 4u && f[0] > f[1] && f[1] > f[2] && f[2] > f[3];
         key_up(bk(1));
         key_up(wk(0));
+        bz_release_all();
         rl_shape = RLS_FLAT;
         bad += check("ROLL SHAPE (0.11): ACCENT 2 halves every other hit; FADE falls along the bar", ok);
     }
@@ -1708,6 +1710,137 @@ int main(void)
         bz_chord = 0;
         song.playing = 0;
         (void)seen;
+    }
+
+
+    /* 0.13 hands-free rolls: a pad held + a rate tapped rolls on when let go; another rate tapped: the one rate; the
+     * pad tapped: stopped (that press silent), the rate let go (the pad plays once again); ALL OFF stops them too */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    {
+        uint32_t beat = beat_samples(), n8, n16, n1;
+        key_down(wk(0));
+        key_down(bk(1));                            /* (1/8) */
+        (key_up)(bk(1));
+        key_up(wk(0));
+        ok = bz_padl == 1u && rl_latch == (1u << 2);
+        n8 = run(beat / CTL, 0, 0);
+        ok &= bz_fn_state(BZF_PAD0, wk(0)) == BZS_FILL;
+        key_down(bk(3));                            /* (1/16, no pad held) */
+        (key_up)(bk(3));
+        run(beat / CTL, 0, 0);                      /* (onto its grid) */
+        n16 = run(beat / CTL, 0, 0);
+        ok &= rl_latch == (1u << 4) && (rl_runs == 1u << 4);
+        n1 = vage;
+        key_down(wk(0));                            /* (the pad: stops) */
+        n1 = vage - n1 + run(4u, 0, 0);
+        (key_up)(wk(0));
+        printf("    hands-free: 1/8 %u a beat, 1/16 %u, the stop press %u\n", n8, n16, n1);
+        ok &= !bz_padl && !rl_latch && !rl_runs && n1 == 0u;
+        ok &= n8 == 2u && n16 == 4u;
+        n1 = vage;
+        key_down(wk(0));
+        n1 = vage - n1 + run(beat / CTL, 0, 0);
+        (key_up)(wk(0));
+        ok &= n1 == 1u;
+        bad += check("HANDS-FREE ROLL (0.13): pad + rate tapped rolls on; 1/16 tapped: 4 a beat; the pad: stops", ok);
+        key_down(wk(1));
+        key_down(bk(5));                            /* (1/32) */
+        (key_up)(bk(5));
+        key_up(wk(1));
+        ok = bz_padl == 2u;
+        key_down(bk(9));                            /* (ALL OFF) */
+        (key_up)(bk(9));
+        ok &= !bz_padl && !rl_runs && !rl_latch;
+        bad += check("  ALL OFF: the pads rolling on their own stopped", ok);
+    }
+
+    /* 0.13 the RATE knob (knob 4 with a pad held or rolling): EVEN steps 1/8 1/16 1/32 a detent each, the pad rolls on;
+     * SHIFT + a pad held: ALL, kept; rolling with no pad held: knob 4 RATE, not THROW */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    bz_cfg3[BZC3_MAGIC_I] = 0;
+    bz_cfg_apply();
+    {
+        int8_t throw0;
+        bz_rk_rate = 4;
+        key_down(wk(0));
+        bz_knob(3, 1);
+        ok = bz_rk_rate == 6u && bz_rk_req == 7u;
+        home_block(CTL, CTL);
+        ok &= rl_latch == (1u << 6) && bz_padl == 1u;
+        bz_knob(3, 1);
+        ok &= bz_rk_rate == 6u;                     /* (the top: stays) */
+        bz_knob(3, -1);
+        bz_knob(3, -1);
+        home_block(CTL, CTL);
+        ok &= bz_rk_rate == 2u && rl_latch == (1u << 2);
+        bad += check("RATE KNOB (0.13): a pad held: 1/16 -> 1/32 (top stays) -> 1/16 -> 1/8, latched", ok);
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];
+        bz_knob(3, 1);
+        ok = bz_rk_set == 1u && bz_cfg3[BZC3_RSET] == 1u;
+        bz_knob(3, 1);
+        ok &= bz_rk_set == 2u;
+        bz_knob(3, -1);
+        bz_knob(3, -1);
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        ok &= bz_rk_set == 0u;
+        bad += check("  SHIFT + a pad held: EVEN -> ALL -> TRIPLETS -> back, kept", ok);
+        key_up(wk(0));
+        throw0 = perf_k[2];
+        ok = bz_padl == 1u;
+        bz_knob(3, 1);
+        home_block(CTL, CTL);
+        ok &= perf_k[2] == throw0 && rl_latch == (1u << bz_rk_rate);
+        bz_release_all();
+        bz_knob(3, 1);
+        ok &= perf_k[2] != throw0 && !bz_rk_req;
+        bad += check("  rolling, no pad held: knob 4 RATE (THROW untouched); stopped: THROW again", ok);
+        perf_k[2] = 0;
+        bz_cfg3[BZC3_MAGIC_I] = 0;
+        bz_cfg_apply();
+    }
+
+    /* 0.13 RAIL's ROLL RATE (CC 54): the first value noted; then across the steps (EVEN: 127 1/32); PHOSPHOR: CC 48 the
+     * rate rolling (1/32: 7), CC 49 each hit's velocity */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    {
+        uint32_t mo, cc48 = 0, cc49 = 0, m;
+        bz_rk_rate = 4;
+        midi_event(0xB0u, 15u, 54u, 10u);
+        bz_ui_pass();
+        ok = bz_rk_rate == 4u;
+        midi_event(0xB0u, 15u, 54u, 127u);
+        bz_ui_pass();
+        ok &= bz_rk_rate == 6u && !bz_rk_req;       /* (no pad: only kept for the next) */
+        key_down(wk(0));
+        midi_event(0xB0u, 15u, 54u, 64u);
+        bz_ui_pass();
+        ok &= bz_rk_rate == 4u && bz_rk_req == 5u;
+        key_up(wk(0));
+        bad += check("RAIL ROLL RATE (0.13): CC 54 first noted, then across EVEN's steps; a pad held: picked", ok);
+        bz_ev_on = 1;
+        rl_ev_out = 1;
+        usb.config = 1;
+        bz_rk_req = 7u;                             /* (1/32) */
+        key_down(wk(0));
+        mo_r = mo_w;                                /* (the queue drained: nothing reads it here) */
+        mo = mo_w;
+        run(beat_samples() / CTL, 0, 0);
+        for (i = mo; i != mo_w; i++) {
+            m = midi_out_q[i % MQ];
+            if ((m & 0xFFFFFFu) == (0x0Bu | 0xBFu << 8 | 48u << 16))
+                cc48 = m >> 24;
+            if ((m & 0xFFFFFFu) == (0x0Bu | 0xBFu << 8 | 49u << 16))
+                cc49++;
+        }
+        key_up(wk(0));
+        bz_release_all();
+        printf("    PHOSPHOR: CC 48 %u, CC 49 x %u\n", cc48, cc49);
+        ok = cc48 == 7u && cc49 >= 8u;
+        bad += check("PHOSPHOR (0.13): CC 48 the rate rolling (1/32: 7), CC 49 a hit's velocity each hit", ok);
+        rl_ev_out = 0;
     }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");

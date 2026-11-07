@@ -460,3 +460,17 @@ four knobs, and has FOLLOW and **Song BPM** (the Link tempo to the SET song's BP
 
 **PRESETS on the CHORD page** changes the CHORD track's sound and shows its name, as it does on KEYS. The generator's
 MELO line plays on the KEYS track: change its sound on the KEYS page.
+
+## 0.13 — hands-free snare rolls, the RATE knob
+
+**Hands-free roll.** Hold a pad and pick a rate (tap a rate key, or turn KNOB 4): the pad keeps rolling when you let go.
+Pick another rate while it rolls (a rate key, or KNOB 4) and it switches, on the beat grid. Tap the pad again: it
+stops. ALL OFF stops everything. A rate tapped *before* a pad still works as in 0.9: the pad then rolls only while held.
+
+**RATE knob.** KNOB 4 is RATE while a pad is held or rolling on its own (THROW the rest of the time). It steps through
+**EVEN** 1/8, 1/16, 1/32 by default. Hold a pad + SHIFT + KNOB 4 to pick the steps: EVEN, ALL (1/4 1/8 1/8T 1/16 1/16T
+1/32) or TRIP (1/8T 1/16T). Kept with the settings.
+
+**RAIL v9.** A learnable ROLL RATE knob (CC 54 on channel 16, across the same steps; its first value only noted).
+
+**PHOSPHOR events.** CC 48: the fastest rate rolling (1 a bar .. 7 1/32, 0 none). CC 49: every roll hit, its velocity.

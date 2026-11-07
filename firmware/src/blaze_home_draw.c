@@ -427,6 +427,17 @@ static void bz_card127(uint32_t c, const char *label, int32_t v, int sign, uint3
     draw_column(c, label, val, sign ? "" : "%", VAL(c), v * 1000 / 127, icon);
 }
 
+/* 0.13 KNOB 4's card with a pad held or rolling: RATE (its rate); a pad held + SHIFT: the knob's steps */
+static void bz_rk_card(int held)
+{
+    static const char *const SET[3] = {"EVEN", "ALL", "TRIP"};
+    uint32_t n = BZ_RK_N[bz_rk_set % 3u], p = bz_rk_pos();
+    if (held && bz_shift())
+        draw_column(3, "STEPS", SET[bz_rk_set % 3u], "", VAL(3u), -1, ICON_STEPS);
+    else
+        draw_column(3, "RATE", RL_RATE_CELL[bz_rk_rate % RL_NRATE], "", VAL(3u), n > 1u ? (int32_t)(p * 1000u / (n - 1u)) : 1000,
+                    ICON_RATE);
+}
 static void bz_cards(void)
 {
     track_t *t = rl_track();
@@ -555,7 +566,7 @@ static void bz_cards(void)
         bz_card127(1, "DECAY", bz_lane_get(t, BZ_LANE_DECAY + l), 0, ICON_DECAY);
         param_format(&TP[P_LN0 + l], t->p[P_LN0 + l], val, &unit);
         draw_column(2, "LEVEL", val, unit, VAL(2u), t->p[P_LN0 + l] * 1000 / 127, ICON_LEVEL);
-        draw_column(3, rl_lane_name(t, l), "", "", T_DIM, -1, ICON_DRUM);
+        bz_rk_card(1);
         return;
     }
     if (bz_shift()) {                                   /* 0.12 SHIFT: PITCH DECAY TONE DRIVE (the kit) */
@@ -587,6 +598,10 @@ static void bz_cards(void)
     fmt_int(val, 100 - perf_k[3]);
     draw_column(2, (perf_held | perf_latched) & PF_BIT(PF_SCAT) ? "WILD" : "DEPTH", val, "%", VAL(2u),
                 (100 - perf_k[3]) * 10, ICON_MIX);
+    if (bz_padl) {                                      /* 0.13: a pad rolling on its own: KNOB 4 is RATE */
+        bz_rk_card(0);
+        return;
+    }
     fmt_int(val, perf_k[2]);
     draw_column(3, "THROW", perf_k[2] ? val : "OFF", perf_k[2] ? "%" : "", perf_k[2] ? VAL(3u) : T_DIM,
                 perf_k[2] * 10, ICON_DELAY);
