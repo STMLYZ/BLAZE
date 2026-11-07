@@ -269,6 +269,18 @@ static void bz_spin_tap(void)
     bz_spin = BZB_ARMED;
 }
 
+/* 0.11.1: RAIL's bar (channel 16 CC 32): 1..32 the bar playing now is that bar of the phrase (16 bars: 17..32 wrap),
+ * the beat inside it kept; 64 the nearest bar line is the 1 (RAIL's P, as THE ONE but to the bar). Builds, the riser,
+ * DROP, LOOPS and SLICE's points count from the new 1 */
+static void bz_bar_set(uint32_t v)
+{
+    uint32_t in = (bz_s16 - bz_org) % 16u;
+    if (v >= 1u && v <= 32u)
+        bz_org = bz_s16 - in - ((v - 1u) % BZ_PHRASE) * 16u;
+    else if (v == 64u)
+        bz_org = bz_s16 - in + (in >= 8u ? 16u : 0u);   /* (past the bar's middle: the next bar line) */
+}
+
 #include "blaze_cap.c"                           /* 0.11 LOOP CAPTURE (bz_to_bar above) */
 
 /* 0.11 DROP (SHIFT + black 3, playing): from the next bar to the phrase's next 1 (fewer than 2 bars left: the one

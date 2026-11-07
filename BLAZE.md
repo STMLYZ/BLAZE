@@ -359,3 +359,11 @@ KITS, and the knobs are TONE SNAP DRIVE THROW. **One tap of OCT+** unlocks; so d
 BLAZE. While locked, white 1–8 are KIT 1–8 and black 1–4 RIDE / DROP / SHAPE, so the pads and the first four rates
 are not there: unlock to roll. A tap is a press under 0.3 s with no key pressed meanwhile; the second must come within
 0.4 s of the first.
+
+### RAIL's bar (RAIL v7)
+
+RAIL v7 can correct the phrase counter: click the bar you're actually on, or `[` / `]` for one bar back / on, or P
+(this is a 1). It sends channel 16 **CC 32**: 1–32 = the bar playing now is that bar (the beat inside it kept; a
+32-bar phrase's 17–32 land on 1–16), 64 = the nearest bar line is the 1. BLAZE's counter, and everything that counts
+from it (BUILD, RISER, DROP, LOOPS, SLICE's QUANTIZE), moves with it. RAIL v7's tempo buttons set the Link tempo
+through RAIL BRIDGE v5; the FM-1 follows the clock as before.

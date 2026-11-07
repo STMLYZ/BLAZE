@@ -437,6 +437,10 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
         bz_cc_seq++;
         return;
     }
+    if (st == 0xB0u && ch == 15u && d1 == 32u) {   /* BLAZE 0.11.1: RAIL's bar (the phrase counter) */
+        bz_bar_set(d2);
+        return;
+    }
     if (song.g[G_ROUTE] != 1 && !midi_in_block(ch))
         return;
     if (st == 0x90u || st == 0x80u) {
