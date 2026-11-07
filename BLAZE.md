@@ -474,3 +474,39 @@ stops. ALL OFF stops everything. A rate tapped *before* a pad still works as in 
 **RAIL v9.** A learnable ROLL RATE knob (CC 54 on channel 16, across the same steps; its first value only noted).
 
 **PHOSPHOR events.** CC 48: the fastest rate rolling (1 a bar .. 7 1/32, 0 none). CC 49: every roll hit, its velocity.
+
+## 0.14 — the new look, READY ROLLS, keeping a capture
+
+**Font:** Barlow Semi Condensed everywhere (narrower than Inter Tight at the same height: CAPTURE and SCATTER fit in
+full). MENU > LARGE stays for bigger values.
+
+**Palettes:** MENU > COLOR lists CHROME (the default), NEON, ACID, SUNSET, ORANGE, then Felucca's PAPER, MONO, SUN and
+HI-CON. The others (GREY GREEN AMBER ICE VIOLET ROSE NIGHT BOOTH CAMERA) are no longer listed; a saved one shows as
+CHROME. The five new ones light BLAZE's cells with their own fill (CHROME chrome, ACID chrome, ORANGE gloss, SUNSET
+gold to magenta, NEON flat) and their own colours for the effects and the transitions; the Felucca ones stay flat.
+
+**Key cells (every BLAZE page and ROLL):**
+
+| State | Looks |
+|---|---|
+| Ready | dark, a line in its group's colour under the name |
+| On (latched) | lit, a dot in the corner (an effect, a rate, a pad rolling, MORPH) |
+| Running | lit, a bar along the foot filling to its end (BUILD, FILL, RISER, DROP) |
+| Waiting | outlined, the outline breathing on the beat, a badge with the bars to go |
+| Held | a dashed edge |
+| Not now | hatched |
+
+BUILD, RISER, DROP and SPIN carry an icon. The phrase strip marks the bar the DROP lands on, and the header says
+**DROP IN n**.
+
+**READY ROLLS:** on the ROLL page (hold ARP), **OCT−** flips to READY ROLLS: 16 keys, each a finished roll (a drum at its
+own rate): SNARE 1/8 1/16 1/32 1/16T, CLAP the same, HAT 1/16 1/32 1/16T, OPEN 1/8, KICK 1/8 1/16, RIM 1/16, TOM 1/16T.
+Tap one: it rolls on (a dot) until tapped again; hold: only while held. A key of the same drum takes over (SNARE 1/8 ->
+SNARE 1/16, nothing to switch). Hold a key + KNOB 1 DRUM, KNOB 2 RATE, KNOB 3 ACCENT: kept. ALL OFF stops them. RAIL v10
+plays keys 1..8 from MiniLab pads (channel 16 CC 37: n down, n + 64 up).
+
+**Keeping a capture:** CAPTURE also on the CHORD and SLICE pages: **SHIFT + white 13**. When the FM-1 stops with a loop
+held it asks **SAVE THE LOOP?** (OCT+ yes, OCT- no); saved (or SHIFT + white 12 on BLAZE's page), it asks **LOAD AS SLICE
+PATTERN?**: yes makes a track (the SLICE track, else the selected one, else T3) SLICE of that USR slot with a pattern
+playing the slices in order (16 a bar; 32 for 4 bars), a pattern for a SONG; no asks **LOAD INTO SAMPLER?**: yes puts the
+loop on the keys (SAMPLE). UNDO brings the track back.

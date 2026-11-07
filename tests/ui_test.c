@@ -1617,8 +1617,7 @@ static int test_display_preferences(void)
                  (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "SUN") && ux.light) &&
                  (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "HI-CON") && !ux.light) &&
                  (turn(EN_K1, 1), settings.palette == UI_PAL_DEFAULT) && str_eq(UI_PALETTES[UI_PAL_DEFAULT].name, "CHROME") &&
-                 palette_n() == 9u && !palette_listed(UI_GREY_INDEX) &&
-                 palette_from_stored(UI_PAL_TAG + UI_GREY_INDEX) == UI_PAL_DEFAULT);
+                 palette_n() == 9u && !palette_listed(UI_GREY_INDEX));
     settings.lowcut = 2;
     ui.menu_sel = MI_LOWCUT;
     press(B_OCTUP);

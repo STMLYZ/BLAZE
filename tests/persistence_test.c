@@ -437,24 +437,24 @@ int main(void)
         const uint8_t amber[] = {0, 2};
         song.playing = 1;
         bad += check("editor display change while playing is applied and reports deferred saving",
-                      ed_ui_set(amber, sizeof amber) == 4 && settings.palette == 2u && persist_pending == 1 && !erases);
+                      ed_ui_set(amber, sizeof amber) == 4 && settings.palette == UI_PAL_MENU[2] && persist_pending == 1 && !erases);
         song.playing = 0;
         settings_poll();
         bad += check("STOP commits the deferred palette setting",
-                      !persist_pending && erases == 1 && persist_saved.palette == palette_to_stored(2));
+                      !persist_pending && erases == 1 && persist_saved.palette == palette_to_stored(UI_PAL_MENU[2]));   /* (0.14: COLOR's 3rd) */
         before = erases;
         bad += check("repeating an unchanged editor preference succeeds without erasing",
                       ed_ui_set(amber, sizeof amber) == 0 && erases == before);
         erase_error = 1;
         const uint8_t mono[] = {0, 0};
         bad += check("editor reports failed saving while preserving the previous flash setting",
-                      ed_ui_set(mono, sizeof mono) == 3 && settings.palette == 0u && persist_pending == 2 &&
-                      persist_saved.palette == palette_to_stored(2));
+                      ed_ui_set(mono, sizeof mono) == 3 && settings.palette == UI_PAL_MENU[0] && persist_pending == 2 &&
+                      persist_saved.palette == palette_to_stored(UI_PAL_MENU[2]));
         erase_error = 0;
         fm1_ms += 1000;
         settings_poll();
         bad += check("failed editor preference retries through the existing persistence path",
-                      !persist_pending && persist_saved.palette == palette_to_stored(0));
+                      !persist_pending && persist_saved.palette == palette_to_stored(UI_PAL_MENU[0]));
         const uint8_t bold[] = {1, 1};
         bad += check("the retired font weight is refused without a write", ed_ui_set(bold, sizeof bold) == 2);
     }

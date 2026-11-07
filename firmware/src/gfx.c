@@ -198,12 +198,12 @@ static int palette_listed(uint32_t i)
             return 1;
     return 0;
 }
-/* settings store a tagged id; ids below 20 are the palettes of earlier firmware; 0.14: one not listed: the default */
+/* settings store a tagged id; ids below 20 are the palettes of earlier firmware (0.14: one MENU > COLOR no longer lists
+ * is read as it is; settings_init then shows the default, panel.c) */
 static uint32_t palette_from_stored(uint32_t v)
 {
-    uint32_t i = v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES ? v - UI_PAL_TAG
-               : v < 20u ? UI_PALETTE_MIGRATE[v] : UI_PAL_DEFAULT;
-    return palette_listed(i) ? i : UI_PAL_DEFAULT;
+    if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
+    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_GREY_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
 static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }

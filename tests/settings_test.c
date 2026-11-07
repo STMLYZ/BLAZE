@@ -34,7 +34,7 @@ int main(void)
     original.favorites.user = 1u << 31; original.favorites.filter = 1;
     p = original;
     assert(settings_import(&p, sizeof p) == 1); settings_init();
-    assert(settings.palette == UI_GREY_INDEX && fx_lowcut && settings.zoom && panel.enc[0] == 3);
+    assert(settings.palette == UI_PAL_DEFAULT && fx_lowcut && settings.zoom && panel.enc[0] == 3);   /* (BLAZE 0.14: GREY no longer listed: CHROME) */
     assert(p.palette == palette_to_stored(UI_GREY_INDEX));        /* migrated in place */
     {   /* every old id maps to a palette; tagged ids round trip; anything else is GREY */
         persist_t q = original;
