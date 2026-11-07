@@ -477,9 +477,9 @@ static inline void pb_at(uint32_t s, uint32_t n, int32_t *l, int32_t *r)
     const int16_t *p = &sl_buf[0][0] + 2u * (f & (PB_FRAMES - 1u));
     const int16_t *q;                               /* a frame is the mean of samples 2f, 2f + 1: sample s */
     if (s & 1u)                                     /* lies a quarter frame from it, towards f + 1 or f - 1 */
-        q = f + 1u < n ? p + 2 : p;
-    else
-        q = f ? p - 2 : p;
+        q = f + 1u < n ? &sl_buf[0][0] + 2u * ((f + 1u) & (PB_FRAMES - 1u)) : p;   /* (the ring wraps: */
+    else                                                                          /* never past its end) */
+        q = f ? &sl_buf[0][0] + 2u * ((f - 1u) & (PB_FRAMES - 1u)) : p;
     *l = (3 * p[0] + q[0]) >> 1;
     *r = (3 * p[1] + q[1]) >> 1;
 }
