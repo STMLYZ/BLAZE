@@ -1350,6 +1350,48 @@ int main(void)
         bz_cap_bars = 4;
     }
 
+    /* 0.11.1 SHIFT LOCK: OCT+ double-tapped on BLAZE's page locks SHIFT (BACKSPIN with one press); one tap unlocks;
+     * slow taps, long holds or a key pressed with it do not; another BLAZE page drops it */
+    home_reset();
+    {
+        uint32_t sh = 1u << panel.btn[B_OCTUP], ly = ui.layer;
+#define OCT_TAP(ms_down, ms_after) do { fm1_in.buttons |= sh; bz_ui_pass(); fm1_ms += (ms_down); \
+        fm1_in.buttons &= ~sh; bz_ui_pass(); fm1_ms += (ms_after); } while (0)
+        ui.layer = LAYER_BLAZE;
+        bz_spin = BZB_IDLE;
+        fm1_ms = 100000;
+        OCT_TAP(80, 600);
+        OCT_TAP(80, 100);
+        ok = !bz_shlock;                            /* (too slow: two single taps) */
+        OCT_TAP(400, 100);
+        OCT_TAP(400, 100);
+        ok &= !bz_shlock;                           /* (held: SHIFT used, not tapped) */
+        OCT_TAP(80, 150);
+        OCT_TAP(80, 100);
+        bz_ui_pass();
+        ok &= bz_shlock && bz_shift() && bz_shift_on && !(fm1_in.buttons & sh);
+        bad += check("SHIFT LOCK (0.11.1): OCT+ double-tapped locks SHIFT; slow taps and holds do not", ok);
+        key_down(wk(9));                            /* (white 10, SHIFT's BACKSPIN, one press) */
+        (key_up)(wk(9));
+        ok = bz_spin == BZB_ARMED;
+        bz_spin_off();
+        OCT_TAP(80, 600);
+        bz_ui_pass();
+        ok &= !bz_shlock && !bz_shift_on;
+        bad += check("  locked: white 10 is BACKSPIN with no OCT+ held; one tap unlocks", ok);
+        OCT_TAP(80, 150);
+        OCT_TAP(80, 100);
+        ok = bz_shlock;
+        bz_keys = 1;                                /* (KEYS: another BLAZE page) */
+        bz_ui_pass();
+        ok &= !bz_shlock;
+        bz_keys = 0;
+        bz_ui_pass();
+        bad += check("  another BLAZE page: unlocked", ok);
+        ui.layer = ly;
+#undef OCT_TAP
+    }
+
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;
 }

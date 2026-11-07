@@ -350,3 +350,12 @@ For visuals: BLAZE sends what it's doing as CC on channel 16 (USB and DIN), only
 
 PHOSPHOR (v5.2) can MIDI-learn any of them today with the FM-1 as its MIDI input; so can any visuals app.
 
+
+## 0.11.1 — SHIFT LOCK
+
+On BLAZE's own page, **double-tap OCT+** (two quick taps) and SHIFT stays on without holding it: the header reads
+SHIFT LOCK and the footer OCT+ OFF. Every SHIFT key is one press: SCATTER, BACKSPIN, CAPTURE, DROP, RIDE, MORPH, the
+KITS, and the knobs are TONE SNAP DRIVE THROW. **One tap of OCT+** unlocks; so does going to KEYS (OCT−) or leaving
+BLAZE. While locked, white 1–8 are KIT 1–8 and black 1–4 RIDE / DROP / SHAPE, so the pads and the first four rates
+are not there: unlock to roll. A tap is a press under 0.3 s with no key pressed meanwhile; the second must come within
+0.4 s of the first.

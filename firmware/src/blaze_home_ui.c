@@ -122,7 +122,50 @@ static const char *const BZ_BLACK_NAME[5] = {"TAP", "SLOWER", "FASTER", "ALL OFF
 enum { BZK_ARP = 4u, BZK_LATCH, BZK_R8, BZK_R16, BZK_R32, BZK_ODN, BZK_OUP };   /* KEYS' black places (0..3: T1..T4) */
 static const char *const BZ_KEYS_NAME[7] = {"ARP", "LATCH", "1/8", "1/16", "1/32", "OCT-", "OCT+"};
 
-static int bz_shift(void) { return ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) != 0u; }
+/* SHIFT: OCT+ held; 0.11.1 SHIFT LOCK: OCT+ double-tapped on BLAZE's own page keeps it on (one tap: off; leaving the
+ * page: off), so its keys (BACKSPIN, DROP, CAPTURE, ...) are one press each. The knobs are SHIFT's too while locked */
+static uint8_t bz_shlock;
+static int bz_shift_held(void) { return ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) != 0u; }
+static int bz_shift(void) { return bz_shlock || bz_shift_held(); }
+#define BZ_TAP_MS 300u                              /* a tap: let go within this, nothing pressed meanwhile */
+#define BZ_DTAP_MS 400u                             /* a double tap: the second press within this of the first release */
+static void bz_shlock_pass(void)
+{
+    static uint8_t was, used;
+    static uint32_t t_dn, t_up;
+    uint32_t now = (uint32_t)bz_shift_held();
+    if (ui.layer != LAYER_BLAZE || bz_keys || bz_chord || bz_loops || bz_slice || bz_rb) {
+        if (bz_shlock) {
+            bz_shlock = 0;
+            ui.force = 1;
+        }
+        was = (uint8_t)now;
+        t_up = 0;
+        return;
+    }
+    if (now && !was) {
+        used = fm1_in.notes != 0u;                  /* (a pad held first: SHIFT for a PAD PRESET, not a tap) */
+        t_dn = fm1_ms;
+    } else if (now && fm1_in.notes)
+        used = 1;                                   /* (a key pressed with it: SHIFT used, not tapped) */
+    else if (!now && was) {
+        if (!used && fm1_ms - t_dn < BZ_TAP_MS) {
+            if (bz_shlock) {
+                bz_shlock = 0;
+                t_up = 0;
+                ui_message("SHIFT UNLOCKED");
+            } else if (t_up && t_dn - t_up < BZ_DTAP_MS) {
+                bz_shlock = 1;
+                t_up = 0;
+                ui_message("SHIFT LOCKED: TAP OCT+ TO UNLOCK");
+            } else
+                t_up = fm1_ms;
+            ui.force = 1;
+        } else
+            t_up = 0;
+    }
+    was = (uint8_t)now;
+}
 /* the lane a held pad edits (its white key the lowest held), NLANE none */
 static uint32_t bz_held_lane(void)
 {
@@ -987,6 +1030,7 @@ static void bz_ui_pass(void)
         bz_song();
     }
     bz_ramp_pass();
+    bz_shlock_pass();                               /* (0.11.1 SHIFT LOCK) */
     bz_shift_on = (uint8_t)bz_shift();
     if (ui.layer == LAYER_BLAZE || ui.layer == LAYER_ROLL)
         bz_ev_on = 1;                               /* (0.11 PHOSPHOR: from the first time BLAZE is open) */
@@ -1273,7 +1317,7 @@ static const char *bz_head(void)
     char nm[16];
     str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
-               : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
+               : bz_shlock ? "[ENV] SHIFT LOCK" : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
         str_cpy(h + str_len(h), "  ", sizeof h - str_len(h));   /* (BLAZE: the key in the header, the strip is the phrase) */
         fmt_int(nm, (int32_t)cam);
@@ -1311,7 +1355,7 @@ static uint32_t bz_sig(void)
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
     h = h * 379u + bz_spin * 383u + bz_shk_held * 389u + bzm.on * 397u + bzm.pos * 401u + bzm.ok * 409u +
         (uint32_t)bzm.k * 419u;                     /* (0.10: BACKSPIN, SHIFT 9..16, MORPH) */
-    h = h * 421u + bz_cap * 431u + bz_cap_pend * 433u + bz_drop * 439u + rl_shape * 443u + bzride.on * 449u +
+    h = h * 421u + bz_shlock * 463u + bz_cap * 431u + bz_cap_pend * 433u + bz_drop * 439u + rl_shape * 443u + bzride.on * 449u +
         bz_cap_bars * 457u;                         /* (0.11) */
     h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +
         bz_rb_val[2] * 367u + bz_rb_val[3] * 373u;   /* (0.9 REKORDBOX) */
