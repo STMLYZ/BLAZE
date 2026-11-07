@@ -193,6 +193,7 @@ def main():
                 state = f"note: {(r['cost'] / b - 1) * 100:.0f} % (BUDGET_UPDATE=1 to keep it)"
         print(f"target: {n:15s} {r['insns']:5d} instructions, {r['loop']:4d} in loops, {r['div']} divides, "
               f"{r['call']:2d} calls there: cost {r['cost']:5d} (budget {b if b is not None else '-'}) {state}")
+    os.environ.setdefault("TB_DUMP", "fm1_alnk0_irq")
     if os.environ.get("TB_DUMP") in fns:
         dump(os.environ["TB_DUMP"], fns[os.environ["TB_DUMP"]])
     return 1 if fail else 0
