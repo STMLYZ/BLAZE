@@ -1026,6 +1026,10 @@ static void bz_ui_pass(void)
     }
     if (bzu.cc_seq != bz_cc_seq) {
         bzu.cc_seq = bz_cc_seq;
+        if (bz_cc[12]) {                            /* 0.11.1: RAIL's bar (CC 32), taken once */
+            bz_bar_set(bz_cc[12]);
+            bz_cc[12] = 0;
+        }
         bz_key_apply();
         bz_song();
     }

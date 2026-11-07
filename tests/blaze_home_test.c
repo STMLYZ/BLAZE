@@ -1398,13 +1398,17 @@ int main(void)
         bz_org = 1000;
         bz_s16 = 1000 + 16u * 9u + 3u;              /* (bar 10, its 4th 16th) */
         midi_event(0xB0u, 15u, 32u, 5u);
+        bz_ui_pass();
         ok = (bz_s16 - bz_org) / 16u % BZ_PHRASE == 4u && (bz_s16 - bz_org) % 16u == 3u;
-        midi_event(0xB0u, 15u, 32u, 20u);           /* (a 32-bar phrase's bar 20: bar 4 of 16) */
+        midi_event(0xB0u, 15u, 32u, 20u);
+        bz_ui_pass();           /* (a 32-bar phrase's bar 20: bar 4 of 16) */
         ok &= (bz_s16 - bz_org) / 16u % BZ_PHRASE == 3u && (bz_s16 - bz_org) % 16u == 3u;
         midi_event(0xB0u, 15u, 32u, 64u);           /* (early in the bar: this bar is the 1) */
+        bz_ui_pass();
         ok &= bz_s16 - bz_org == 3u;
         bz_s16 += 8u;                               /* (late in the bar: the next bar line is the 1) */
-        midi_event(0xB0u, 15u, 32u, 64u);
+        midi_event(0xB0u, 15u, 32u, 64u);           /* (the same value again: taken again) */
+        bz_ui_pass();
         ok &= (bz_s16 - bz_org) % 256u == 256u - 5u;
         bad += check("RAIL BAR (0.11.1): CC 32 sets the phrase's bar (the beat kept); 64: the nearest bar line is the 1", ok);
         bz_org = bz_s16 = 0;

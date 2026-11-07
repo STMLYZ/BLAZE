@@ -85,7 +85,7 @@ static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
 static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
 static uint32_t bz_eo_left;                    /* .. samples left of the state */
 static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
-static volatile uint8_t bz_cc_seq, bz_cc[11];  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
+static volatile uint8_t bz_cc_seq, bz_cc[13];  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
                                                 * 0: none), 26..30 (RAIL's SET: the song's BPM - 60, KIT + 1, LOOPS
                                                 * 64 + the tracks in, the song's number, how many) on channel 16 */
 static volatile uint8_t bz_set_n;              /* main: the SET's songs (RAIL), 0: none */
@@ -269,7 +269,7 @@ static void bz_spin_tap(void)
     bz_spin = BZB_ARMED;
 }
 
-/* 0.11.1: RAIL's bar (channel 16 CC 32): 1..32 the bar playing now is that bar of the phrase (16 bars: 17..32 wrap),
+/* 0.11.1: RAIL's bar (channel 16 CC 32, bz_cc[12]; the main loop's, so the MIDI path in the IRQ stays as it was): 1..32 the bar playing now is that bar of the phrase (16 bars: 17..32 wrap),
  * the beat inside it kept; 64 the nearest bar line is the 1 (RAIL's P, as THE ONE but to the bar). Builds, the riser,
  * DROP, LOOPS and SLICE's points count from the new 1 */
 static void bz_bar_set(uint32_t v)
