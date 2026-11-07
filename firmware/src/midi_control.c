@@ -434,6 +434,11 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
     if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 63u) {   /* BLAZE: RAIL's key, the next one (23..25), the SET's
                                                                  * song (26..30), 0.11.1 RAIL's bar (32), 0.12 FOLLOW
                                                                  * (33), actions (36), knobs (50..53); any ROUT */
+        if (d1 == 37u && d2 && (d2 & 63u) >= 1u && (d2 & 63u) <= 16u) {   /* 0.14 READY ROLLS from RAIL: 1..16 a key down,
+                                                                         * 65..80 let go (as its key: tap / hold) */
+            rd_key((d2 & 63u) - 1u, d2 < 64u);
+            return;
+        }
         bz_cc[d1 - 20u] = (uint8_t)d2;
         if (d1 >= 50u && d1 <= 54u)
             bz_cc_knob |= (uint8_t)(1u << (d1 - 50u));

@@ -1754,6 +1754,15 @@ int main(void)
         bad += check("  tapped again: stopped; a key held + KNOB 1 / 2: its drum, its rate, kept", ok);
         RD_ROW[0] = 0;
         rd_cfg_apply();
+        midi_event(0xB0u, 15u, 37u, 5u);           /* (RAIL: key 5 down, at once up: tapped) */
+        midi_event(0xB0u, 15u, 37u, 69u);
+        ok = rd_on == (1u << 4) && rd_latch == (1u << 4);
+        midi_event(0xB0u, 15u, 37u, 5u);
+        midi_event(0xB0u, 15u, 37u, 69u);
+        ok &= !rd_on;
+        bad += check("  RAIL's CC 37: 5 then 69 taps key 5 (CLAP 1/8) on; again: off", ok);
+        RD_ROW[0] = 0;
+        rd_cfg_apply();
         rl_ready = 0;
     }
 
