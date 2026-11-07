@@ -877,6 +877,62 @@ static __attribute__((noinline)) void kb_layer_key(uint32_t k, int down, uint32_
         perf_key_press(k, 0);
 }
 
+/* one key down or up (keyboard_block): BLAZE 0.11.1 took the body out of the loop, so a jump the compiler lays out
+ * inside it can never count as one more loop around the key handling (target_budget.py); lay fx roll home: the layers'
+ * buttons as keyboard_block read them, mute: the keys that never sound here */
+static __attribute__((noinline)) void kb_key(uint32_t k, uint32_t down, uint32_t lay, uint32_t fx, uint32_t roll,
+                                             uint32_t home, uint32_t mute)
+{
+    if (down) {                               /* the selected track; the key-up goes to the same one */
+        kb_trk[k] = song.sel;
+        if (kb_asleep) {                      /* (SCREEN OFF: the wake press is swallowed) */
+            kb_note[k] = KB_SILENT;
+            return;
+        }
+        if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
+            kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
+            kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], key_place(k));
+            kb_bzn |= 1u << k;
+            kb_raw = 1;
+            key_on(k, &trk[kb_trk[k]]);
+            kb_raw = 0;
+            return;
+        }
+        if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
+            kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
+            kb_layer |= 1u << k;
+            kb_layer_key(k, 1, roll, home, fx);
+            return;
+        }
+        if ((mute >> k) & 1u)                 /* NAME (ui_name.c): every key types, none sounds; SONG: A..D */
+            kb_note[k] = KB_SILENT;
+        else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
+            kb_note[k] = grid_key_note(k);
+        else
+            kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
+        if (kb_note[k] == KB_SILENT)
+            return;
+        key_on(k, &trk[kb_trk[k]]);
+#ifdef FM1_INPUT_LAT
+        kb_lat(k);
+#endif
+    } else {
+        if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
+            kb_bzn &= ~(1u << k);
+            key_off(k, &trk[kb_trk[k] % NTRK]);
+            return;
+        }
+        if ((kb_layer >> k) & 1u) {
+            kb_layer &= ~(1u << k);
+            kb_layer_key(k, 0, 0, 0, 0);
+            return;
+        }
+        if (kb_note[k] == KB_SILENT)
+            return;
+        key_off(k, &trk[kb_trk[k] % NTRK]);
+    }
+}
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -900,58 +956,9 @@ static void keyboard_block(void)
     mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
     if ((bz_slice && lay && home && !kb_asleep) || kb_bzs)   /* BLAZE SLICE (0.8): its keys first */
         ch = kb_slice_keys(ch, cur, bz_slice && lay && home && !kb_asleep);
-    for (k = 0; k < 27u; k++) {
-        if (!((ch >> k) & 1u))
-            continue;
-        if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
-            kb_trk[k] = song.sel;
-            if (kb_asleep) {                      /* (SCREEN OFF: the wake press is swallowed) */
-                kb_note[k] = KB_SILENT;
-                continue;
-            }
-            if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
-                kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
-                kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], key_place(k));
-                kb_bzn |= 1u << k;
-                kb_raw = 1;
-                key_on(k, &trk[kb_trk[k]]);
-                kb_raw = 0;
-                continue;
-            }
-            if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
-                kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
-                kb_layer |= 1u << k;
-                kb_layer_key(k, 1, roll, home, fx);
-                continue;
-            }
-            if ((mute >> k) & 1u)                 /* NAME (ui_name.c): every key types, none sounds; SONG: A..D */
-                kb_note[k] = KB_SILENT;
-            else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
-                kb_note[k] = grid_key_note(k);
-            else
-                kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
-            if (kb_note[k] == KB_SILENT)
-                continue;
-            key_on(k, &trk[kb_trk[k]]);
-#ifdef FM1_INPUT_LAT
-            kb_lat(k);
-#endif
-        } else {
-            if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
-                kb_bzn &= ~(1u << k);
-                key_off(k, &trk[kb_trk[k] % NTRK]);
-                continue;
-            }
-            if ((kb_layer >> k) & 1u) {
-                kb_layer &= ~(1u << k);
-                kb_layer_key(k, 0, 0, 0, 0);
-                continue;
-            }
-            if (kb_note[k] == KB_SILENT)
-                continue;
-            key_off(k, &trk[kb_trk[k] % NTRK]);
-        }
-    }
+    for (k = 0; k < 27u; k++)
+        if ((ch >> k) & 1u)
+            kb_key(k, (cur >> k) & 1u, lay, fx, roll, home, mute);
     kb_prev = cur;
 }
 
