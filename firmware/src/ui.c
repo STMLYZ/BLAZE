@@ -230,7 +230,8 @@ static struct {
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_ERASE_PROJ, CF_CLEAN_SOUND,
-       CF_CLEAR_ALL, CF_LOAD_PROJ, CF_LEARN_CLEAR };
+       CF_CLEAR_ALL, CF_LOAD_PROJ, CF_LEARN_CLEAR,
+       CF_CAP_SAVE, CF_CAP_SLICE, CF_CAP_SAMPLE };   /* (BLAZE 0.14: LOOP CAPTURE's questions, blaze_home_ui.c) */
                                   /* ui.confirm: TOOLS' clears; SAVE over a used slot; a pattern over the user's steps;
                                    * USER ERASE; PROJECT ERASE (1.5.5, #199); CLEAN INIT (1.5.5, #190);
                                    * MENU > SYSTEM > CLEAR ALL (1.8, #266); PROJECT LOAD over changes not saved (1.8) */

@@ -633,6 +633,8 @@ static int live_rec_sel(void)
 }
 
 /* the OCT- / OCT+ dialog (ui_draw.c draws it); trk: the track or the slot it is about */
+static void bz_cap_yes(uint32_t kind, uint32_t arg);   /* (BLAZE 0.14: blaze_home_ui.c) */
+static int bz_cap_no(uint32_t kind, uint32_t arg);
 static void confirm_open(uint32_t kind, uint32_t trk)
 {
     ui.confirm = (uint8_t)kind;
@@ -1706,6 +1708,8 @@ static void ui_input(void)
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {
                 if (!chain_busy()) { set_engine(TSEL->eng_req); ui_message("SOUND INIT"); }
+            } else if (kind == CF_CAP_SAVE || kind == CF_CAP_SLICE || kind == CF_CAP_SAMPLE) {
+                bz_cap_yes(kind, ui.confirm_trk);       /* (BLAZE 0.14: LOOP CAPTURE kept, loaded) */
             } else if (kind == CF_LEARN_CLEAR) {
                 ui_message(ml_clear_all() ? "LEARN CLEARED" : "NOTHING LEARNED");
             } else if (kind == CF_LOAD_PROJ) {
@@ -1730,8 +1734,10 @@ static void ui_input(void)
                 }
             }
         } else if (oct & 1u) {
+            uint32_t kind = ui.confirm;
             ui.confirm = 0;
             ui.force = 1;
+            (void)bz_cap_no(kind, ui.confirm_trk);      /* (BLAZE 0.14: NO to SLICE asks SAMPLE) */
         }
         ui.pg_down = 0;
         enc_drop();

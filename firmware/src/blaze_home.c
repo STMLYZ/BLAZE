@@ -825,7 +825,7 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         return;
     }
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
-        if (!key_black(k) && down)
+        if (!key_black(k) && down && !(bz_shift_on && p == 12u))   /* (0.14 SHIFT + white 13: CAPTURE, the main loop's) */
             bz_chord_key(p);
         return;
     }

@@ -759,6 +759,91 @@ static void bz_cap_say(void)
     ui_message(m);
 }
 static int (*bz_cap_saver)(void);                   /* blaze_cap_save.c (the device: main.c sets it), 0: none */
+/* 0.14: the track a kept loop loads onto: the SLICE page's SLICE track, else the selected one unless DRUM, else T3 */
+static uint32_t bz_cap_target(void)
+{
+    uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        if (bz_slice_trk(&trk[(bz_strk + i) % NTRK]))
+            return (bz_strk + i) % NTRK;
+    return !drum_track(&trk[song.sel % NTRK]) ? song.sel % NTRK : 2u;
+}
+/* .. the bars a kept loop holds (its name: CAP<bars>B<bpm>; 1 if not one) */
+static uint32_t bz_cap_bars_of(uint32_t slot)
+{
+    const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip((slot - 1u) % SMP_USER_SLOTS);
+    uint32_t b = h->name[0] == 'C' && h->name[1] == 'A' && h->name[2] == 'P' ? (uint32_t)(h->name[3] - '0') : 1u;
+    return b == 2u || b == 4u ? b : 1u;
+}
+/* .. LOAD AS SLICE PATTERN: track ti a SLICE of USR slot (1..3), 16 slices a bar or two, 32 for four, and a pattern
+ * playing them in order (1 bar: one a step; 2 and 4: one every 2 steps, tied), so it is a pattern for a SONG */
+static void bz_cap_load_slice(uint32_t slot, uint32_t ti)
+{
+    track_t *t = &trk[ti % NTRK];
+    uint32_t bars = bz_cap_bars_of(slot), nsl = bars == 4u ? 32u : 16u, steps = 16u * bars, per = steps / nsl, i, j;
+    char m[40];
+    set_engine_of(t, 13u);                          /* (SLICE: UNDO brings its sound and pattern back) */
+    load_begin(t, UNDO_PAT);
+    t->p[P_E0] = (int16_t)(slot % 4u);              /* SRC: USR1..3 */
+    t->p[P_E1] = (int16_t)(nsl == 32u ? 3 : 2);     /* DIV: 32 / 16 */
+    track_defaults_steps(t);
+    t->p[P_SLEN] = (int16_t)steps;
+    for (i = 0; i < nsl; i++) {
+        step_t *s = &t->step[i * per];
+        s->note[0] = (uint8_t)clamp(60 + t->p[P_ROOT] + (int32_t)i, 0, 127);
+        s->n = 1;
+        s->time = ST_NOTE;
+        s->vel = 100;
+        for (j = 1; j < per; j++)
+            t->step[i * per + j].time = ST_TIE;
+    }
+    load_end(t);
+    str_cpy(m, "T1: THE LOOP AS A PATTERN (SLICE)", sizeof m);
+    m[1] = (char)('1' + ti % NTRK);
+    ui_message(m);
+}
+/* .. LOAD INTO SAMPLER: track ti SAMPLE playing USR slot (1..3) across the keys */
+static void bz_cap_load_sample(uint32_t slot, uint32_t ti)
+{
+    track_t *t = &trk[ti % NTRK];
+    char m[40];
+    set_engine_of(t, ENGI_SAMPLE);
+    t->p[P_E0] = (int16_t)(SMP_NSETS + (slot - 1u) % SMP_USER_SLOTS);   /* SET: USR1..3 */
+    str_cpy(m, "T1: THE LOOP ON THE KEYS (SAMPLE)", sizeof m);
+    m[1] = (char)('1' + ti % NTRK);
+    ui_message(m);
+}
+static void bz_cap_save_key(void);
+/* .. the questions' answers (ui_input.c): YES */
+static void bz_cap_yes(uint32_t kind, uint32_t arg)
+{
+    if (kind == CF_CAP_SAVE)
+        bz_cap_save_key();                          /* (saved: LOAD AS SLICE PATTERN? next) */
+    else if (kind == CF_CAP_SLICE)
+        bz_cap_load_slice(arg >> 4, arg & 15u);
+    else if (kind == CF_CAP_SAMPLE)
+        bz_cap_load_sample(arg >> 4, arg & 15u);
+}
+/* .. NO: to SLICE, the sampler asked; 1 when a question follows */
+static int bz_cap_no(uint32_t kind, uint32_t arg)
+{
+    if (kind != CF_CAP_SLICE)
+        return 0;
+    confirm_open(CF_CAP_SAMPLE, arg);
+    return 1;
+}
+/* .. the dialog's two lines */
+static void bz_cap_text(uint32_t kind, uint32_t arg, char *a, char *b)
+{
+    if (kind == CF_CAP_SAVE) {
+        str_cpy(a, "SAVE THE LOOP?", 24);
+        str_cpy(b, "INTO A USR SLOT", 24);
+    } else {
+        str_cpy(a, kind == CF_CAP_SLICE ? "LOAD AS SLICE PATTERN?" : "LOAD INTO SAMPLER?", 24);
+        str_cpy(b, kind == CF_CAP_SLICE ? "T1 BECOMES SLICE" : "T1 BECOMES SAMPLE", 24);
+        b[1] = (char)('1' + (arg & 15u) % NTRK);
+    }
+}
 static void bz_cap_save_key(void)                   /* SHIFT + white 16: the loop into a USR slot */
 {
     int rc;
@@ -783,14 +868,21 @@ static void bz_cap_save_key(void)                   /* SHIFT + white 16: the loo
     if (rc > 0) {
         str_cpy(m, "LOOP SAVED TO USR", sizeof m);
         fmt_int(m + str_len(m), rc);
-        str_cpy(m + str_len(m), ": SAMPLE / SLICE", sizeof m - str_len(m));
         ui_message(m);
+        confirm_open(CF_CAP_SLICE, (uint32_t)rc << 4 | bz_cap_target());   /* 0.14: LOAD AS SLICE PATTERN? */
     } else
         ui_message(rc == -1 ? "SAVE: USR SLOTS FULL (CLEAR ONE IN THE EDITOR)" : "SAVE FAILED");
 }
 static void bz_cap_pass(void)
 {
-    static uint8_t last;
+    static uint8_t last, playing, asked;
+    if (bz_cap != BZC_SOLO && bz_cap != BZC_MIX)    /* 0.14: stopped with a loop held: SAVE THE LOOP? (once a loop) */
+        asked = 0;
+    else if (playing && !song.playing && !asked && !bz_cap_pend && !ui.confirm && !ui.menu && bz_cap_saver) {
+        asked = 1;
+        confirm_open(CF_CAP_SAVE, 0);
+    }
+    playing = song.playing;
     if (bz_cap == BZC_CLEAR) {                      /* (the loop gone: the line silent, then the echo again) */
         memset(dly_buf, 0, sizeof dly_buf);
         fx.dly_lp = 0;
@@ -1121,6 +1213,11 @@ static void bz_ui_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     track_t *t;
+    if ((bz_chord || bz_slice) && bz_shift() && !key_black(k) && p == 12u) {   /* 0.14: SHIFT + white 13: CAPTURE */
+        bz_req = 7u;                                /* (the ISR's: as RAIL's CC 36 7) */
+        ui_message(bz_cap == BZC_SOLO || bz_cap == BZC_MIX ? "CAPTURE: NEXT STAGE" : "CAPTURE: FROM THE NEXT BAR");
+        return;
+    }
     if (bz_rb) {                                    /* 0.9 REKORDBOX: what the key sends (the ISR sends it) */
         char m[40];
         uint32_t ch;

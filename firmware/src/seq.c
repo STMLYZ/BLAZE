@@ -840,7 +840,8 @@ static __attribute__((noinline)) uint32_t kb_slice_keys(uint32_t ch, uint32_t cu
         b = 1u << k;
         if (!(ch & b))
             continue;
-        if ((cur & b) && on && !key_black(k)) {
+        if ((cur & b) && on && !key_black(k) && !(bz_shift_on && key_place(k) == 12u)) {   /* (BLAZE 0.14: SHIFT +
+                                                  * white 13 is CAPTURE) */
             kb_slice_press(k);
             ch &= ~b;
         } else if (!(cur & b) && (kb_bzs & b)) {

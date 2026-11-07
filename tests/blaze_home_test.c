@@ -131,6 +131,7 @@ static void clk_feed(double *t, uint32_t bpm10, uint32_t n, uint32_t jit, uint32
     }
 }
 
+static int fake_save(void) { return 2; }   /* (0.14: a capture kept in USR 2) */
 int main(void)
 {
     int bad = 0, ok;
@@ -1754,6 +1755,41 @@ int main(void)
         RD_ROW[0] = 0;
         rd_cfg_apply();
         rl_ready = 0;
+    }
+
+    /* 0.14 LOOP CAPTURE kept and loaded: stopped with a loop held: SAVE THE LOOP?; YES saves (USR 2 here), then LOAD AS
+     * SLICE PATTERN?; NO: LOAD INTO SAMPLER?; YES: T3 plays USR2 as SAMPLE. LOAD AS SLICE: 16 slices, one a step */
+    ui_power_on();
+    {
+        int (*was)(void) = bz_cap_saver;
+        track_t *t3 = &trk[2];
+        uint32_t i;
+        bz_cap_saver = fake_save;
+        song.sel = 0;
+        trk[0].eng_req = ENGI_DRUM;                    /* (the selected track DRUM: T3 is the one) */
+        bz_cap = BZC_SOLO;
+        song.playing = 1;
+        bz_cap_pass();
+        song.playing = 0;
+        bz_cap_pass();
+        ok = ui.confirm == CF_CAP_SAVE;
+        press(B_OCTUP);
+        ok &= ui.confirm == CF_CAP_SLICE && (ui.confirm_trk >> 4) == 2u && (ui.confirm_trk & 15u) == 2u;
+        press(B_OCTDN);
+        ok &= ui.confirm == CF_CAP_SAMPLE;
+        press(B_OCTUP);
+        ok &= !ui.confirm && t3->eng_req == ENGI_SAMPLE && t3->p[P_E0] == (int16_t)(SMP_NSETS + 1u);
+        bz_cap_pass();
+        ok &= !ui.confirm;                           /* (asked once a loop) */
+        bad += check("CAPTURE (0.14): stopped: SAVE THE LOOP?; then SLICE PATTERN? NO: SAMPLER? YES: T3 plays USR2", ok);
+        bz_cap_load_slice(1, 2);
+        ok = t3->eng_req == 13u && t3->p[P_E0] == 1 && t3->p[P_E1] == 2 && t3->p[P_SLEN] == 16;
+        for (i = 0; i < 16u; i++)
+            ok &= t3->step[i].n == 1u && t3->step[i].time == ST_NOTE &&
+                  t3->step[i].note[0] == (uint8_t)(60 + t3->p[P_ROOT] + (int32_t)i);
+        bad += check("  LOAD AS SLICE PATTERN: T3 SLICE of USR1, 16 slices, a pattern of them in order", ok);
+        bz_cap = BZC_IDLE;
+        bz_cap_saver = was;
     }
 
     /* 0.13 hands-free rolls: a pad held + a rate tapped rolls on when let go; another rate tapped: the one rate; the

@@ -819,7 +819,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
        S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_BLAZE_SHLOCK,
-       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_BLAZE_READY, S_COUNT };   /* BLAZE */
+       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_BLAZE_READY, S_BLAZE_CAPSAVE, S_BLAZE_CAPSLICE, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -856,7 +856,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
     "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
-    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states", "blaze_ready"};
+    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states", "blaze_ready", "blaze_capsave", "blaze_capslice"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1710,6 +1710,8 @@ static void setup(int s)
     /* 1.5.5 (#190): SAVE > TOOLS with KNOB 2 turned on past INIT (CLEAN INIT picked); its dialog */
     case S_TOOLS_CLEAN: go_page(GR_TOOLS); ui.act = 2; ui.tl_clean = 1; break;
     case S_CONFIRM_CLEAN: ui.confirm = CF_CLEAN_SOUND; ui.confirm_trk = 0; break;
+    case S_BLAZE_CAPSAVE: ui.confirm = CF_CAP_SAVE; ui.confirm_trk = 0; break;           /* (0.14 LOOP CAPTURE) */
+    case S_BLAZE_CAPSLICE: ui.confirm = CF_CAP_SLICE; ui.confirm_trk = 2u << 4 | 2u; break;
     case S_DRUM_LOCKS: case S_DRUM_LOCK_HELD:
         drum(0); go_page(GR_ROLL); ui.cursor = 4; ui.lane = 1; trk[3].seq_idx = 9;
         motion_set_lock(TSEL, 2, P_E1, 90); motion_set_lock(TSEL, 4, P_REV, 100); motion_set_lock(TSEL, 4, P_DLY, 70);

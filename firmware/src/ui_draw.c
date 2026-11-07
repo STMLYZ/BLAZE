@@ -1486,6 +1486,7 @@ static void draw_countin(void)
 #define DLG_Y 62
 #define DLG_W 208
 #define DLG_H 116
+static void bz_cap_text(uint32_t kind, uint32_t arg, char *a, char *b);   /* (BLAZE 0.14: blaze_home_ui.c) */
 static void confirm_text(char *a, char *b)
 {
     uint32_t k = ui.confirm_trk;
@@ -1538,6 +1539,9 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "LOAD PROJECT A?", 24);
         a[13] = (char)('A' + (k & 3u));
         str_cpy(b, "CHANGES NOT SAVED GO", 24);
+        break;
+    case CF_CAP_SAVE: case CF_CAP_SLICE: case CF_CAP_SAMPLE:   /* BLAZE 0.14: LOOP CAPTURE */
+        bz_cap_text(ui.confirm, k, a, b);
         break;
     case CF_CLEAR_ALL:                               /* 1.8 (#266): MENU > SYSTEM */
         str_cpy(a, "CLEAR ALL?", 24);
