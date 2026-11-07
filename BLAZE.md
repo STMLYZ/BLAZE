@@ -455,3 +455,8 @@ RAIL → FM-1: **CC 33** FOLLOW (127 on, 1 off); **CC 36** an action (1 BUILD 4,
 a knob's first value is only noted, so nothing jumps). FM-1 → RAIL: **CC 33** FOLLOW's state, **CC 34** the SELECT
 nudge (64 ± tenths of a BPM). RAIL v8 learns MiniLab pads for the actions and knobs for tempo (fine, coarse) and the
 four knobs, and has FOLLOW and **Song BPM** (the Link tempo to the SET song's BPM).
+
+## 0.12.1
+
+**PRESETS on the CHORD page** changes the CHORD track's sound and shows its name, as it does on KEYS. The generator's
+MELO line plays on the KEYS track: change its sound on the KEYS page.

@@ -1601,14 +1601,15 @@ static void ui_input(void)
         }
         if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
             fx_default();                               /* .. EDIT: its default back */
-        if (s && ui.ly == LAYER_BLAZE && bz_keys) {     /* BLAZE 0.12 KEYS: the KEYS track's sound (elsewhere in a
-                                                         * layer a stray turn loads none) */
+        if (s && ui.ly == LAYER_BLAZE && (bz_keys || bz_chord)) {   /* BLAZE 0.12 KEYS, 0.12.1 CHORD: that page's
+                                                         * track's sound (elsewhere in a layer a stray turn loads none) */
             char nm[16];
-            if (song.sel != bz_ktrk % NTRK)
-                track_select(bz_ktrk % NTRK);
+            uint32_t t = (bz_keys ? bz_ktrk : bz_ctrk) % NTRK;
+            if (song.sel != t)
+                track_select(t);
             preset_step(s);
             sound_name(TSEL, nm);
-            ui_say("KEYS: ", nm);
+            ui_say(bz_keys ? "KEYS: " : "CHORD: ", nm);
             combo = 1;
         }
         if ((s = panel_enc(EN_ALGO)) != 0 && ui.ly == LAYER_BLAZE) {   /* BLAZE: the KIT (KEYS: the arp's MODE) */

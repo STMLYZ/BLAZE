@@ -1654,6 +1654,14 @@ int main(void)
         ok = c1 != c0 && TSEL == &trk[0] && !strncmp(ui.msg, "KEYS: ", 6);
         bad += check("  PRESETS: the KEYS track's next sound, named", ok);
         bz_keys = 0;
+        bz_chord = 1;
+        frame();
+        track_select(0);
+        c0 = preset_pos(&tot0);
+        turn(EN_PRESET, 1);
+        ok = TSEL == &trk[bz_ctrk % NTRK] && !strncmp(ui.msg, "CHORD: ", 7) && trk[0].p[P_SCALE] == 2;
+        bad += check("  CHORD (0.12.1): PRESETS: the CHORD track's next sound, named", ok);
+        bz_chord = 0;
         frame();
     }
     btn_up(B_ENV);
