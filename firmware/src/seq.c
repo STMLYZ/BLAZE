@@ -852,6 +852,31 @@ static __attribute__((noinline)) uint32_t kb_slice_keys(uint32_t ch, uint32_t cu
     return ch;
 }
 
+/* a layer's key down / up (BLAZE ROLL, BLAZE, FX): out of keyboard_block's loop (BLAZE 0.11.1: the compiler had merged
+ * the press's and the release's roll_key_press into one call site, a jump back the target analyser counts as one more
+ * loop around the key handling; the dispatch here keeps one call site per function and the loop as before) */
+static __attribute__((noinline)) void kb_layer_key(uint32_t k, int down, uint32_t roll, uint32_t home, uint32_t fx)
+{
+    uint32_t b = 1u << k;
+    if (down) {
+        if (roll) {                               /* BLAZE ROLL: a pad, a rate, PADS (blaze_roll.c) */
+            kb_roll |= b;
+            roll_key_press(k, 1);
+        } else if (home) {                        /* BLAZE: pads, rates, effects, BUILD (blaze_home.c) */
+            kb_bz |= b;
+            home_key_press(k, 1);
+        } else if (fx)
+            perf_key_press(k, 1);
+    } else if (kb_roll & b) {
+        kb_roll &= ~b;
+        roll_key_press(k, 0);
+    } else if (kb_bz & b) {
+        kb_bz &= ~b;
+        home_key_press(k, 0);
+    } else
+        perf_key_press(k, 0);
+}
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -896,14 +921,7 @@ static void keyboard_block(void)
             if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
                 kb_note[k] = KB_SILENT;           /* (ui_layer.c), with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
-                if (roll) {                       /* BLAZE ROLL: a pad, a rate, PADS (blaze_roll.c) */
-                    kb_roll |= 1u << k;
-                    roll_key_press(k, 1);
-                } else if (home) {                /* BLAZE: pads, rates, effects, BUILD (blaze_home.c) */
-                    kb_bz |= 1u << k;
-                    home_key_press(k, 1);
-                } else if (fx)
-                    perf_key_press(k, 1);
+                kb_layer_key(k, 1, roll, home, fx);
                 continue;
             }
             if ((mute >> k) & 1u)                 /* NAME (ui_name.c): every key types, none sounds; SONG: A..D */
@@ -926,14 +944,7 @@ static void keyboard_block(void)
             }
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                if ((kb_roll >> k) & 1u) {
-                    kb_roll &= ~(1u << k);
-                    roll_key_press(k, 0);
-                } else if ((kb_bz >> k) & 1u) {
-                    kb_bz &= ~(1u << k);
-                    home_key_press(k, 0);
-                } else
-                    perf_key_press(k, 0);
+                kb_layer_key(k, 0, 0, 0, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
