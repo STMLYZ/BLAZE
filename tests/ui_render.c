@@ -697,6 +697,8 @@ static void state(void)                          /* a playing song with steps on
     bz_chord = 0; bz_ch_sel = 0; bz_eo = 0; bz_loops = 0; bz_blend = 0; bz_set_n = 0; bzkit.k = 0;
     bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0; bz_rb = 0; bz_rb_deck = 0; bz_rb_val[0] = 64;
     memset((void *)rl_pp_rate, 0, sizeof rl_pp_rate); memset((void *)rl_pp_fx, 0, sizeof rl_pp_fx); rl_pp = 0;
+    bz_g_auto = 0; bz_g_mel = 0; bz_g_every = 1; bz_shlock = 0; bz_cfg3[BZC3_MAGIC_I] = 0; bz_cfg_apply();
+    memset((void *)bz_kfn, 0, sizeof bz_kfn);
     rl_latch = 0; rl_rates = 0; rl_nr = 0; bz_pads = 0; bzm.ok = 0; bzm.on = 0; bzm.pos = 0; bz_spin = 0; perf_latched = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
     seq_fill = 0;                                /* (1.5.5: GLO's FILL, held in layer_glo_fill only; */
@@ -816,7 +818,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_RISER_EDIT, S_BLAZE_RISER_SYNTH, S_BLAZE_EOUT, S_BLAZE_CHORD, S_BLAZE_CHORD7,
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
-       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_BLAZE_SHLOCK, S_COUNT };   /* BLAZE */
+       S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_BLAZE_SHLOCK,
+       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -853,7 +856,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
     "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
-    "blaze_morph", "blaze_drop", "blaze_shlock"};
+    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1316,8 +1319,8 @@ static void setup(int s)
     /* RISER held (TONE; SYNTH on T2), ECHO OUT running, CHORD in A minor (Am latched, HOLD; with sevenths, 1/8 stabs) */
     case S_BLAZE_RISER_EDIT: case S_BLAZE_RISER_SYNTH: go_home(); rl_live4 = 0x001Eu;
         bz_cfg[BZC_MAGIC_I] = 0; bz_cfg_apply(); bz_cfg[BZC_TYPE] = s == S_BLAZE_RISER_EDIT ? BZR_TONE : BZR_SYNTH;
-        bz_cfg_apply(); { uint32_t k; for (k = 0; k < 27u; k++) if (!key_black(k) && key_place(k) == BZ_RISER)
-        fm1_in.notes = 1u << k; } ui.layer = LAYER_BLAZE; break;
+        bz_cfg_apply(); { uint32_t k; for (k = 0; k < 27u; k++) if (!key_black(k) && key_place(k) == BZ_RISER) {
+        fm1_in.notes = 1u << k; bz_kfn[k] = BZF_RISER; } } ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_EOUT: go_home(); rl_live4 = 0x001Eu; song.sel = 0; TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = 2;
         bz_eo = BZE_TAIL; bz_riser = 8; bz_rs_wait = 0; ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_CHORD: case S_BLAZE_CHORD7: go_home(); song.sel = 2; trk[2].p[P_ROOT] = 9; trk[2].p[P_SCALE] = 2;
@@ -1343,6 +1346,21 @@ static void setup(int s)
     /* 0.11.1: SHIFT LOCK (OCT+ double-tapped): SHIFT's page with OCT+ up */
     case S_BLAZE_SHLOCK: go_home(); bz_cap = BZC_IDLE; bz_cap_pend = 0; bz_drop = BZD_IDLE; bzride.on = 0;
         song.playing = 1; fm1_in.buttons = 0; bz_shlock = 1; ui.layer = LAYER_BLAZE; break;
+    /* 0.12: BUILD 4 held (CLAP, 1/8 > 1/32, SWELL 60, FILTER); DROP held (TOP 60, 8 BARS, BUILD, CRASH); CHORD's
+     * generator (AUTO every 2 bars, MELODY on); CHORD with MELODY held (DENSITY, RANGE) */
+    case S_BLAZE_BUILDSET: case S_BLAZE_DROPSET: go_home(); rl_live4 = 0x001Eu; bz_cfg3[BZC3_MAGIC_I] = 0; bz_cfg_apply();
+        bz_cfg3[BZC3_BUILD] = (uint8_t)(2u | BZBC_EIGHTHS << 3 | BZBX_FILTER << 5); bz_cfg3[BZC3_SWELL] = 60;
+        bz_cfg3[BZC3_DROP] = (uint8_t)(BZDL_8 | BZDX_BUILD << 2 | BZDH_CRASH << 4); bz_cfg3[BZC3_TOP] = 60; bz_cfg_apply();
+        { uint32_t k, w = s == S_BLAZE_BUILDSET ? BZ_B4 : BZ_DROPK;
+          for (k = 0; k < 27u; k++) if (!key_black(k) && key_place(k) == w) { fm1_in.notes = 1u << k;
+              bz_kfn[k] = (uint8_t)(s == S_BLAZE_BUILDSET ? BZF_B4 : BZF_DROP); } }
+        ui.layer = LAYER_BLAZE; break;
+    case S_BLAZE_GEN: case S_BLAZE_MELODY: go_home(); song.sel = 2; trk[2].p[P_ROOT] = 9; trk[2].p[P_SCALE] = 2;
+        bz_chord = 1; bz_ctrk = 2; bz_ch_sel = 4; bz_ch_7th = 0; bz_ch_style = 0; bz_ch_inv = 0; bz_ch_oct = 0;
+        bz_g_auto = 1; bz_g_every = 2; bz_g_mel = 1; bz_g_keep = 0; bz_g_dens = 55; bz_g_range = 2;
+        if (s == S_BLAZE_MELODY) { uint32_t k; for (k = 0; k < 27u; k++) if (!key_black(k) && key_place(k) == 13u)
+            fm1_in.notes = 1u << k; }
+        ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_RB: go_home(); bz_rb = 1; bz_rb_deck = 1; bz_rb_val[0] = 90; fm1_in.notes |= 1u << 2;
         ui.layer = LAYER_BLAZE; break;
     case S_BLAZE_PP: go_home(); rl_pp_rate[1] = 5; rl_pp_fx[1] = 1; rl_pp_rate[3] = 7; rl_latch = 1u << 2;

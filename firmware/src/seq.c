@@ -1472,9 +1472,12 @@ static void events_block(uint32_t n)
     uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
     if (midi_clock.mode != clock_mode) {
-        seq_stop();
+        if (!bz_clk_soft || !song.playing)
+            seq_stop();                             /* (BLAZE 0.12 FOLLOW: the transport plays on through it) */
+        bz_clk_soft = 0;
         memset(&midi_clock, 0, sizeof midi_clock);
         midi_clock.mode = (uint8_t)clock_mode;
+        midi_clock.start_ms = fm1_ms;               /* (a clock coming back: from now, not lost) */
         midi_beat_samples = 0;
     }
     if (cin_left && !clock_mode)

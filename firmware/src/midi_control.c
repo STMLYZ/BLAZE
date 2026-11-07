@@ -431,9 +431,12 @@ static uint32_t bz_lock_note(uint32_t ch, uint32_t note, uint32_t on)
 
 static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint32_t d1, uint32_t d2)
 {
-    if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 32u) {   /* BLAZE: RAIL's key, the next one (23..25), the SET's
-                                                                 * song (26..30), 0.11.1 RAIL's bar (32), any ROUT */
+    if (st == 0xB0u && ch == 15u && d1 >= 20u && d1 <= 63u) {   /* BLAZE: RAIL's key, the next one (23..25), the SET's
+                                                                 * song (26..30), 0.11.1 RAIL's bar (32), 0.12 FOLLOW
+                                                                 * (33), actions (36), knobs (50..53); any ROUT */
         bz_cc[d1 - 20u] = (uint8_t)d2;
+        if (d1 >= 50u && d1 <= 53u)
+            bz_cc_knob |= (uint8_t)(1u << (d1 - 50u));
         bz_cc_seq++;
         return;
     }

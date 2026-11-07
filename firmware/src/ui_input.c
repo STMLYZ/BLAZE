@@ -299,6 +299,8 @@ static uint32_t step_leds(void)
 }
 
 static int bz_groups_on(void);                        /* BLAZE (blaze_home_ui.c): the key lights by fours */
+static int bz_select_turn(int32_t s);                 /* BLAZE 0.12: SELECT following RAIL: the Link tempo (1: taken) */
+static void sound_name(const track_t *t, char *b);    /* (ui_draw.c) */
 static void bz_groups(uint32_t can, uint32_t *lo, uint32_t *hi);
 static uint32_t bz_waiting_keys(void);
 /* 1: the keys show a map of their own (NAME, a layer's map: SCL's scale, FX; the DRUM grid, SLICES), lit or
@@ -1592,12 +1594,23 @@ static void ui_input(void)
         for (k = 0; k < 4u; k++)                        /* KNOB 1..4: the layer's (ui_layer.c layer_knob) */
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0)
                 combo = 1;
-        if ((s = panel_enc(EN_PRESET)) != 0 && ui.ly == LAYER_FX) {   /* (a stray turn would load another sound) */
+        s = panel_enc(EN_PRESET);                       /* (one read: a turn taken is gone) */
+        if (s && ui.ly == LAYER_FX) {                   /* (a stray turn would load another sound) */
             fx_assign(s);                               /* FX: the white key held takes the next effect */
             combo = 1;
         }
         if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
             fx_default();                               /* .. EDIT: its default back */
+        if (s && ui.ly == LAYER_BLAZE && bz_keys) {     /* BLAZE 0.12 KEYS: the KEYS track's sound (elsewhere in a
+                                                         * layer a stray turn loads none) */
+            char nm[16];
+            if (song.sel != bz_ktrk % NTRK)
+                track_select(bz_ktrk % NTRK);
+            preset_step(s);
+            sound_name(TSEL, nm);
+            ui_say("KEYS: ", nm);
+            combo = 1;
+        }
         if ((s = panel_enc(EN_ALGO)) != 0 && ui.ly == LAYER_BLAZE) {   /* BLAZE: the KIT (KEYS: the arp's MODE) */
             bz_algo(s);
             combo = 1;
@@ -1822,6 +1835,7 @@ static void ui_input(void)
                                                          * letting go, LFO is held (MOMENTARY) or steps are held */
             for (k = (uint32_t)(s > 0 ? s : -s); k && !lay && !kq && !mom_down() && !lock_held(); k--)
                 page_turn(s);
+        } else if (!glo && bz_select_turn(s)) {        /* BLAZE 0.12: following RAIL's clock: the Link tempo */
         } else if (glo || !(ui_prefs & PREF_BPM_LOCK)) {
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
             ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */

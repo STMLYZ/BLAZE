@@ -175,10 +175,12 @@ int main(void)
     key_up(wk(BZ_FX0));
     ok &= !(perf_latched & PF_BIT(PF_ETHR)) && !(perf_held & PF_BIT(PF_ETHR));
     bad += check("  tapped again: off (its release does nothing)", ok);
-    key_down(wk(BZ_FX0 + 4u));                         /* FREEZE */
+    bz_shift_on = 1;                                   /* (0.12: FREEZE is SHIFT + white 10) */
+    key_down(wk(9));                                   /* FREEZE */
+    bz_shift_on = 0;
     run(500, 0, 0);                                    /* (~750 ms: a hold) */
     ok = (perf_held & PF_BIT(PF_FRZ)) != 0u;
-    key_up(wk(BZ_FX0 + 4u));
+    key_up(wk(9));
     ok &= !(perf_held & PF_BIT(PF_FRZ)) && !(perf_latched & PF_BIT(PF_FRZ));
     bad += check("  FREEZE held: on while held, off when let go (not latched)", ok);
 
@@ -289,7 +291,7 @@ int main(void)
     click_tick(0);
     for (i = 0; i < 37u; i++)
         click_tick(div_samples(2));                    /* bar 3, beat 2, its 2nd step (step 37) */
-    key_down(bk(BZK_ONE)); key_up(bk(BZK_ONE));
+    key_down(bk(BZB_ONE)); key_up(bk(BZB_ONE));
     {
         uint32_t beat;
         int32_t br = bz_phrase(&beat);
@@ -342,24 +344,24 @@ int main(void)
     frame();
     bad += check("  ENV tapped again: the lock closes", !ui.lock && !(kb_lock & 8u));
 
-    /* the knobs: COLOR; SHIFT (OCT+ held): TONE; a pad held: that drum's TUNE and LEVEL; ALGO: the KIT */
+    /* the knobs: COLOR; SHIFT (OCT+ held): 0.12 KNOB 1 PITCH; a pad held: that drum's TUNE and LEVEL; ALGO: the KIT */
     ui_power_on();
     btn_down(B_ENV);
     frames(800);
     {
         track_t *d = &trk[3];
-        int16_t tone = d->p[P_E0 + 2], kit = d->p[P_E0];
+        int16_t tone = d->p[P_E0 + 1], kit = d->p[P_E0];
         perf_k[0] = 0;
         turn(EN_K1, 3);
-        ok = perf_k[0] > 0 && d->p[P_E0 + 2] == tone;
+        ok = perf_k[0] > 0 && d->p[P_E0 + 1] == tone;
         btn_down(B_OCTUP);
         frame();
         turn(EN_K1, 3);
-        ok &= d->p[P_E0 + 2] > tone && !strncmp(bz_head(), "[ENV] BLAZE SHIFT", 17);
+        ok &= d->p[P_E0 + 1] > tone && !strncmp(bz_head(), "[ENV] BLAZE SHIFT", 17);
         btn_up(B_OCTUP);
         frame();
         ok &= song.octave == 0;
-        bad += check("knobs: COLOR; OCT+ held (SHIFT): TONE instead, no octave", ok);
+        bad += check("knobs: COLOR; OCT+ held (SHIFT): PITCH instead, no octave", ok);
         d->p[BZ_LANE_MARK] = 127;                       /* (a sound from before: no lane values) */
         key_down(wk(0));                                /* SNARE held */
         frame();
@@ -562,10 +564,9 @@ int main(void)
     ok = !strncmp(bz_head(), "[ENV] RISER SOUND", 17) && bz_cfg[BZC_MAGIC_I] == BZ_CFG_MAGIC && bz_rs_type != BZR_NOISE &&
          bz_rs_type == bz_cfg[BZC_TYPE] && bz_rs_lvl < 100u && lys.rp_dirty;
     key_up(wk(BZ_RISER));
-    key_down(wk(BZ_RISER)); key_up(wk(BZ_RISER));       /* (a tap toggles it: stop the one the hold started) */
-    bz_riser = 0;
+    ok &= !bz_riser;                                    /* (0.12: held to set it up: let go, nothing starts) */
     frame();
-    bad += check("UI: RISER held: KNOB 1 its TYPE, KNOB 3 its LEVEL, kept in the settings", ok);
+    bad += check("UI: RISER held: KNOB 1 its TYPE, KNOB 3 its LEVEL, kept; let go after: no riser", ok);
     btn_up(B_ENV);
     frame();
 
@@ -1017,39 +1018,30 @@ int main(void)
     }
 
 
-    /* 0.10: SHIFT + white 9 SCATTER (tap: on; again: off), SHIFT + white 10 BACKSPIN (on the next beat, off at the 1),
-     * MORPH: hold 13 / 14 saves A / B, 15 on, KNOB 2 slides COLOR and the tracks' LEVEL between them */
+    /* 0.10 / 0.12: white 15 SCATTER (tap: on; again: off), white 16 BACKSPIN (on the next beat, off at the 1),
+     * MORPH: SHIFT + hold 13 / 14 saves A / B, black 8 on, KNOB 2 slides COLOR and the tracks' LEVEL between them */
     home_reset();
     {
         uint32_t sh = 1u << panel.btn[B_OCTUP], i;
-        fm1_in.buttons |= sh;
-        bz_ui_pass();
-        key_down(wk(8));
-        (key_up)(wk(8));
+        key_down(wk(BZ_SCATK));
+        (key_up)(wk(BZ_SCATK));
         ok = (perf_latched & PF_BIT(PF_SCAT)) != 0u && !(perf_held & PF_BIT(PF_SCAT));
-        key_down(wk(8));
-        (key_up)(wk(8));
+        key_down(wk(BZ_SCATK));
+        (key_up)(wk(BZ_SCATK));
         ok &= !(perf_latched & PF_BIT(PF_SCAT));
-        key_down(wk(8));
+        key_down(wk(BZ_SCATK));
         ok &= (perf_held & PF_BIT(PF_SCAT)) != 0u;
         bz_now += BZ_TAP_MS * 441u / 10u + 1u;      /* (held past a tap: the effects time it in samples) */
-        key_up(wk(8));                              /* (held: off when let go) */
-        ok &= !((perf_held | perf_latched) & PF_BIT(PF_SCAT)) && !bz_shk;
-        fm1_in.buttons &= ~sh;
-        bz_ui_pass();
-        key_down(wk(8));                            /* (no SHIFT: FREEZE as before) */
-        ok &= (perf_held & PF_BIT(PF_FRZ)) != 0u;
-        key_up(wk(8));
-        bad += check("SCATTER (0.10): SHIFT + white 9 tapped on / off, held while held; white 9 alone still FREEZE", ok);
+        key_up(wk(BZ_SCATK));                       /* (held: off when let go) */
+        ok &= !((perf_held | perf_latched) & PF_BIT(PF_SCAT));
+        bad += check("SCATTER (0.12: white 15): tapped on / off, held while held", ok);
 
         seq_start();
         song.playing = 1;
         click_tick(0);
         click_tick(div_samples(2));                 /* (a 1/16 in: the next beat 3/16 away) */
-        fm1_in.buttons |= sh;
-        bz_ui_pass();
-        key_down(wk(9));
-        key_up(wk(9));
+        key_down(wk(BZ_SPINK));
+        key_up(wk(BZ_SPINK));
         ok = bz_spin == BZB_ARMED && (perf_held & PF_BIT(PF_SPIN)) && pf_spin_cue == 1u;
         home_block(CTL, 3u * div_samples(2) - CTL);
         ok &= pf_spin_cue == 1u;
@@ -1057,13 +1049,15 @@ int main(void)
         ok &= bz_spin == BZB_SPUN && pf_spin_cue == 2u && bz_spin_left > beat_samples() / 2u;
         home_block(CTL, bz_spin_left + CTL);
         ok &= bz_spin == BZB_IDLE && !(perf_held & PF_BIT(PF_SPIN)) && !pf_spin_cue;
-        bad += check("BACKSPIN (0.10): armed, spins on the next beat (a quarter beat on at least), off at the next 1", ok);
+        bad += check("BACKSPIN (0.12: white 16): armed, spins on the next beat (a quarter beat on at least), off at the next 1", ok);
         song.playing = 0;
 
         for (i = 0; i < NTRK; i++)
             trk[i].p[P_LEVEL] = 100;
         perf_k[0] = -50;
         fm1_ms = 10000;
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
         key_down(wk(12));
         bz_ui_key(wk(12));
         fm1_ms = 10800;
@@ -1084,11 +1078,11 @@ int main(void)
         key_up(wk(13));
         bz_ui_pass();
         ok &= bzm.ok == 3u;
-        key_down(wk(14));
-        bz_ui_key(wk(14));
-        key_up(wk(14));
         fm1_in.buttons &= ~sh;
         bz_ui_pass();
+        key_down(bk(BZB_MORPH));                    /* (0.12: black 8, no SHIFT) */
+        bz_ui_key(bk(BZB_MORPH));
+        key_up(bk(BZB_MORPH));
         ok &= bzm.on;
         bzm.pos = 0;
         bz_knob(1, 0);
@@ -1099,7 +1093,7 @@ int main(void)
         bzm.pos = 100;
         bzm_apply();
         ok &= perf_k[0] == 80 && trk[2].p[P_LEVEL] == 20;
-        bad += check("MORPH (0.10): held 13 / 14 save A / B (a short hold does not), 15 on, KNOB 2 halfway: halfway", ok);
+        bad += check("MORPH: SHIFT + held 13 / 14 save A / B (a short hold does not), black 8 on, KNOB 2 halfway: halfway", ok);
         bzm.on = 0;
         bzm.ok = 0;
         perf_k[0] = 0;
@@ -1164,12 +1158,10 @@ int main(void)
         perf_k[0] = -20;
         bz_spin = BZB_IDLE;
         bz_ev_on = 1;                               /* (BLAZE opened: PHOSPHOR's events out) */
-        fm1_in.buttons |= sh;
-        bz_ui_pass();
-        key_down(bk(2));
-        key_up(bk(2));
+        (void)sh;
+        key_down(wk(BZ_DROPK));                     /* (0.12: white 12; it arms when let go) */
+        key_up(wk(BZ_DROPK));
         ok = bz_drop == BZD_ARMED && bz_dr_bars == 15u && !(rl_runs | rl_latch);
-        bz_ui_key(bk(2));
         home_block(CTL, 15u * div_samples(2) + CTL);
         tot = 15u * 16u * div_samples(2);
         ok &= bz_drop == BZD_RUN && bz_riser == 15u && perf_k[0] <= -19;
@@ -1189,18 +1181,19 @@ int main(void)
             seen |= midi_out_q[i % MQ] == (0x0Bu | 0xBFu << 8 | 41u << 16 | 127u << 24);
         ok &= bz_drop == BZD_IDLE && perf_k[0] == -20 && !bz_riser && seen;
         bad += check("DROP (0.11): to the phrase's 1: RISER over the bars, COLOR up, BACKSPIN on the last beat, back on the 1", ok);
-        key_down(bk(2));                            /* (again while armed: off) */
-        key_up(bk(2));
+        key_down(wk(BZ_DROPK));                     /* (again while armed: off) */
+        key_up(wk(BZ_DROPK));
         ok = bz_drop == BZD_ARMED;
-        key_down(bk(2));
-        key_up(bk(2));
+        key_down(wk(BZ_DROPK));
+        key_up(wk(BZ_DROPK));
         ok &= bz_drop == BZD_IDLE;
-        fm1_in.buttons &= ~sh;
-        bz_ui_pass();
-        key_down(bk(2));                            /* (no SHIFT: the 1/8 rate as before) */
-        ok &= bz_drop == BZD_IDLE && (rl_rates >> 3) & 1u;
-        key_up(bk(2));
-        bad += check("  tapped again: off; black 3 without SHIFT: its rate", ok);
+        key_down(wk(BZ_DROPK));                     /* (held + a knob: set up, nothing armed) */
+        bz_knob(1, 1);
+        key_up(wk(BZ_DROPK));
+        ok &= bz_drop == BZD_IDLE && bz_d_len == BZDL_4;
+        bz_cfg3[BZC3_DROP] = 0;
+        bz_cfg_apply();
+        bad += check("  tapped again: off; held + a knob: its LENGTH, nothing armed", ok);
         mo = mo_w;
         bz_s16 = bz_org + 16u * 4u + 3u;            /* (bar 5) */
         for (i = 0; i < 8u; i++)
@@ -1232,12 +1225,10 @@ int main(void)
              favorites.factory[ENGI_PHYS][8] == BZM_MAGIC && favorites.factory[ENGI_SAMPLE][8] == BZM_MAGIC;
         bad += check("MORPH (0.11): A and B kept with the settings, back after a power-off", ok);
         song.playing = 0;
-        fm1_in.buttons |= sh;
-        bz_ui_pass();
         fm1_ms = 50000;
-        key_down(bk(0));
-        bz_ui_key(bk(0));
-        key_up(bk(0));
+        key_down(bk(BZB_RIDE));                     /* (0.12: black 7, no SHIFT) */
+        bz_ui_key(bk(BZB_RIDE));
+        key_up(bk(BZB_RIDE));
         len = bzride.len;
         ok = bzride.on && bzm.on && bzride.to == 100u && !(rl_rates | rl_latch) && len > 15000u && len < 17000u;
         fm1_ms += len / 2u;
@@ -1246,7 +1237,9 @@ int main(void)
         fm1_ms += len;
         bz_ui_pass();
         ok &= !bzride.on && bzm.pos == 100u && perf_k[0] == 40 && bz_ev_morph == 127u;
-        bad += check("RIDE (0.11): SHIFT + black 1 slides A -> B over 8 bars, then stops on B", ok);
+        bad += check("RIDE (0.12: black 7) slides A -> B over 8 bars, then stops on B", ok);
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
         key_down(bk(3));                            /* SHIFT + black 4: ROLL SHAPE, kept */
         bz_ui_key(bk(3));
         key_up(bk(3));
@@ -1276,15 +1269,17 @@ int main(void)
         ok = bz_cap_bars == 4u;
         fm1_in.buttons |= sh;
         bz_ui_pass();
-        key_down(wk(11));
-        bz_ui_key(wk(11));
-        (key_up)(wk(11));
+        key_down(wk(10));                           /* (0.12: SHIFT + white 11) */
+        bz_ui_key(wk(10));
+        (key_up)(wk(10));
         ok &= bz_cap_bars == 1u && bz_cfg2[BZC2_CAPLEN] == 1u;
         song.g[G_BPM] = 60;
         ok &= bz_cap_fit(4) == 2u && bz_cap_fit(2) == 2u;
         song.g[G_BPM] = 120;
-        key_down(wk(10));
-        (key_up)(wk(10));
+        fm1_in.buttons &= ~sh;                      /* (0.12: CAPTURE is white 13, no SHIFT) */
+        bz_ui_pass();
+        key_down(wk(BZ_CAPK));
+        (key_up)(wk(BZ_CAPK));
         ok &= bz_cap == BZC_ARMED && !fx_dly_off;
         len = 16u * div_samples(2);
         for (i = 0; i < 2u * 44100u; i++)
@@ -1319,8 +1314,8 @@ int main(void)
         ok = 10.0 * log10(p / (e + 1.0)) > 20.0 && w[0] == 0;
         printf("  (capture: %.1f dB)\n", 10.0 * log10(p / (e + 1.0)));
         bad += check("  SOLO: the loop alone, as recorded (ADPCM within 20 dB)", ok);
-        key_down(wk(10));
-        (key_up)(wk(10));
+        key_down(wk(BZ_CAPK));
+        (key_up)(wk(BZ_CAPK));
         ok = bz_cap == BZC_SOLO && bz_cap_pend == BZC_MIX;
         for (t = 0; t < 512u; t += CTL) {
             for (j = 0; j < CTL; j++) {
@@ -1339,9 +1334,11 @@ int main(void)
         bz_ui_pass();
         ok &= bz_cap == BZC_IDLE && !fx_dly_off && !dly_buf[100] && !dly_buf[20000];
         bad += check("  RELEASE: the loop out, the line cleared, the echo back", ok);
-        key_down(wk(15));                           /* (SAVE: no loop: says so, nothing changes) */
-        bz_ui_key(wk(15));
-        (key_up)(wk(15));
+        fm1_in.buttons |= sh;
+        bz_ui_pass();
+        key_down(wk(11));                           /* (SAVE, SHIFT + white 12: no loop: says so, nothing changes) */
+        bz_ui_key(wk(11));
+        (key_up)(wk(11));
         ok = bz_cap == BZC_IDLE;
         bad += check("  SAVE without a loop: nothing", ok);
         fm1_in.buttons &= ~sh;
@@ -1371,14 +1368,16 @@ int main(void)
         bz_ui_pass();
         ok &= bz_shlock && bz_shift() && bz_shift_on && !(fm1_in.buttons & sh);
         bad += check("SHIFT LOCK (0.11.1): OCT+ double-tapped locks SHIFT; slow taps and holds do not", ok);
-        key_down(wk(9));                            /* (white 10, SHIFT's BACKSPIN, one press) */
+        key_down(wk(9));                            /* (0.12: SHIFT's FREEZE on white 10, one press: latched) */
         (key_up)(wk(9));
-        ok = bz_spin == BZB_ARMED;
-        bz_spin_off();
+        ok = (perf_latched & PF_BIT(PF_FRZ)) != 0u;
+        key_down(wk(9));
+        (key_up)(wk(9));
+        ok &= !(perf_latched & PF_BIT(PF_FRZ));
         OCT_TAP(80, 600);
         bz_ui_pass();
         ok &= !bz_shlock && !bz_shift_on;
-        bad += check("  locked: white 10 is BACKSPIN with no OCT+ held; one tap unlocks", ok);
+        bad += check("  locked: white 10 is FREEZE with no OCT+ held; one tap unlocks", ok);
         OCT_TAP(80, 150);
         OCT_TAP(80, 100);
         ok = bz_shlock;
@@ -1412,6 +1411,295 @@ int main(void)
         ok &= (bz_s16 - bz_org) % 256u == 256u - 5u;
         bad += check("RAIL BAR (0.11.1): CC 32 sets the phrase's bar (the beat kept); 64: the nearest bar line is the 1", ok);
         bz_org = bz_s16 = 0;
+    }
+
+    /* 0.12 FILL (black 11): stopped, one bar of BUILD's drum, 1/8 1/16 1/32 1/32 a beat each (2 + 4 + 8 + 8), then it
+     * stops; again while it runs: stopped */
+    home_reset();
+    bz_cfg3[BZC3_MAGIC_I] = 0;
+    bz_cfg_apply();
+    {
+        uint32_t bar4 = 4u * beat_samples();
+        key_down(bk(BZB_FILL));
+        (key_up)(bk(BZB_FILL));
+        ok = bz_build == 1u && bz_b_fill;
+        n = run(bar4 / CTL + 4u, 0, 0);
+        ok &= n == 22u && !bz_build && !bz_b_fill;
+        printf("    fill hits: %u\n", n);
+        bad += check("FILL (0.12): stopped: a bar of 1/8 1/16 1/32 1/32 on BUILD's drum (22 hits), then stops", ok);
+        key_down(bk(BZB_FILL));
+        (key_up)(bk(BZB_FILL));
+        run(10, 0, 0);
+        key_down(bk(BZB_FILL));
+        (key_up)(bk(BZB_FILL));
+        bad += check("  again while it runs: stopped", !bz_build);
+    }
+
+    /* 0.12 BUILD held + the knobs: DRUM, SPEED, SWELL, WITH, kept; let go after: nothing starts. A tap: EIGHTHS
+     * (1/8 1/8 1/16 1/32: 8 + 8 + 16 + 32), SWELL 0 (all 127), FILTER (COLOR up, back after) */
+    home_reset();
+    bz_cfg3[BZC3_MAGIC_I] = 0;
+    bz_cfg_apply();
+    {
+        uint32_t bar4 = 4u * beat_samples(), lo = 127, hi = 0;
+        int8_t kmax = -100;
+        key_down(wk(BZ_B4));
+        bz_knob(0, 1);                              /* (SNARE -> CLAP) */
+        bz_knob(1, 1);                              /* (1/4 > 1/32 -> 1/8 > 1/32) */
+        bz_knob(3, 1);                              /* (none -> FILTER) */
+        key_up(wk(BZ_B4));
+        ok = !bz_build && bz_b_lane == 2u && bz_b_curve == BZBC_EIGHTHS && bz_b_fx == BZBX_FILTER &&
+             bz_cfg3[BZC3_MAGIC_I] == BZ_CFG3_MAGIC && bz_cfg3[BZC3_BUILD] == (2u | BZBC_EIGHTHS << 3 | BZBX_FILTER << 5);
+        bad += check("BUILD (0.12): held + KNOB 1 / 2 / 4: DRUM CLAP, SPEED 1/8 > 1/32, WITH FILTER, kept; nothing starts", ok);
+        bz_cfg3[BZC3_SWELL] = 0;
+        bz_cfg_apply();
+        perf_k[0] = -30;
+        key_down(wk(BZ_B4));
+        (key_up)(wk(BZ_B4));
+        n = 0;
+        for (b = 0; b < 4u * bar4 / CTL + 4u; b++) {
+            v0 = vage;
+            home_block(CTL, CTL);
+            if (vage != v0) {
+                n += vage - v0;
+                lo = rl_vel_last < lo ? rl_vel_last : lo;
+                hi = rl_vel_last > hi ? rl_vel_last : hi;
+            }
+            kmax = perf_k[0] > kmax ? perf_k[0] : kmax;
+            if (!bz_build)
+                break;
+        }
+        ok = n == 64u && lo == 127u && hi == 127u && kmax >= 55 && perf_k[0] == -30 && !bz_build;
+        printf("    build: %u hits, velocity %u..%u, COLOR to %d, back %d\n", n, lo, hi, kmax, perf_k[0]);
+        bad += check("  a tap: 1/8 1/8 1/16 1/32 (64 hits), SWELL 0 all 127, FILTER: COLOR up, back after", ok);
+        bz_cfg3[BZC3_MAGIC_I] = 0;
+        bz_cfg_apply();
+    }
+
+    /* 0.12 DROP set up: LENGTH 4 bars, WITH BUILD (no BACKSPIN), ON THE 1 CRASH; TOP 0: COLOR stays */
+    home_reset();
+    bz_cfg3[BZC3_MAGIC_I] = 0;
+    bz_cfg_apply();
+    {
+        uint32_t tot, v1;
+        bz_cfg3[BZC3_DROP] = (uint8_t)(BZDL_4 | BZDX_BUILD << 2 | BZDH_CRASH << 4);
+        bz_cfg3[BZC3_TOP] = 0;
+        bz_cfg_apply();
+        seq_start();
+        song.playing = 1;
+        click_tick(0);
+        click_tick(div_samples(2));
+        perf_k[0] = -20;
+        bz_spin = BZB_IDLE;
+        key_down(wk(BZ_DROPK));
+        key_up(wk(BZ_DROPK));
+        ok = bz_drop == BZD_ARMED && bz_dr_bars == 4u;
+        home_block(CTL, 15u * div_samples(2) + CTL);
+        ok &= bz_drop == BZD_RUN && bz_build == 4u && !bz_b_fill;
+        tot = 4u * 16u * div_samples(2);
+        for (b = 0; b < tot / CTL - 2u; b++)
+            home_block(CTL, CTL);
+        ok &= perf_k[0] == -20 && bz_spin == BZB_IDLE && bz_drop == BZD_RUN;
+        v1 = vage;
+        for (b = 0; b < 8u && bz_drop != BZD_IDLE; b++)
+            home_block(CTL, CTL);
+        ok &= bz_drop == BZD_IDLE && vage > v1 && rl_vel_last == 127u && !bz_build && perf_k[0] == -20;
+        bad += check("DROP (0.12): LENGTH 4 bars, WITH BUILD (no BACKSPIN), TOP 0 (COLOR stays), CRASH on the 1", ok);
+        bz_cfg3[BZC3_MAGIC_I] = 0;
+        bz_cfg_apply();
+        song.playing = 0;
+    }
+
+    /* 0.12 a pad held + ALGO: that pad another drum, none the other pads have, kept; the key plays it */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    memset((void *)bz_pad_slot, 0, sizeof bz_pad_slot);
+    for (i = 0; i < 4u; i++)
+        bz_cfg_slot[i] = 0;
+    {
+        uint32_t p0 = bz_pad_of(0), p1 = bz_pad_of(1), p2 = bz_pad_of(2), p3 = bz_pad_of(3), q;
+        key_down(wk(0));
+        bz_algo(1);
+        q = bz_pad_of(0);
+        key_up(wk(0));
+        ok = q != p0 && q != p1 && q != p2 && q != p3 && q < NLANE && bz_pad_of(1) == p1 && bz_cfg_slot[0] == q + 1u &&
+             bz_cfg_slot[1] == p1 + 1u;
+        bz_cfg_apply();
+        ok &= bz_pad_of(0) == q;
+        printf("    pad 1: lane %u -> %u (the others %u %u %u)\n", p0, q, p1, p2, p3);
+        bad += check("PAD SWAP (0.12): pad held + ALGO: another drum, none the others have, kept", ok);
+        memset((void *)bz_pad_slot, 0, sizeof bz_pad_slot);
+        for (i = 0; i < 4u; i++)
+            bz_cfg_slot[i] = 0;
+    }
+
+    /* 0.12 FOLLOW (SHIFT + black 5, RAIL's CC 33): off: the clock internal at the tempo it had, still playing, CC 33 0
+     * out; RAIL's 127: back on */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    {
+        uint32_t bpm;
+        song.g[G_CLOCK] = 1;
+        events_block(CTL);
+        seq_start();
+        song.playing = 1;
+        bz_tx_r = bz_tx_w;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* (SHIFT held) */
+        bz_ui_pass();
+        key_down(bk(4));
+        bz_ui_key(bk(4));
+        (key_up)(bk(4));
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        bz_ui_pass();
+        bpm = (FS * 60u + beat_samples() / 2u) / beat_samples();
+        ok = !song.g[G_CLOCK] && song.g[G_BPM] == (int16_t)bpm && bz_clk_soft && bz_tx_w == (uint8_t)(bz_tx_r + 1u) &&
+             bz_tx[bz_tx_r % 8u] == (0x0Bu | 0xBFu << 8 | 33u << 16);
+        events_block(CTL);
+        ok &= song.playing && !bz_clk_soft && midi_clock.mode == 0u;
+        bad += check("FOLLOW (0.12): SHIFT + black 5: off, the FM-1's own clock at its tempo, playing on, CC 33 0 to RAIL", ok);
+        midi_event(0xB0u, 15u, 33u, 127u);
+        bz_ui_pass();
+        ok = song.g[G_CLOCK] == 1;
+        events_block(CTL);
+        ok &= song.playing;
+        midi_event(0xB0u, 15u, 33u, 1u);
+        bz_ui_pass();
+        ok &= !song.g[G_CLOCK];
+        bad += check("  RAIL's CC 33: 127 on (still playing), 1 off", ok);
+        song.playing = 0;
+        song.g[G_CLOCK] = 0;
+        events_block(CTL);
+    }
+
+    /* 0.12 RAIL: CC 36 actions (9 FILL), CC 50..53 knobs (the first value only taken as where it is); the SELECT knob
+     * following: CC 34 64 + tenths out */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    {
+        uint32_t mo, seen = 0;
+        midi_event(0xB0u, 15u, 36u, 9u);
+        bz_ui_pass();
+        home_block(CTL, CTL);
+        ok = bz_build == 1u && bz_b_fill;
+        midi_event(0xB0u, 15u, 36u, 8u);
+        bz_ui_pass();
+        home_block(CTL, CTL);
+        ok &= !bz_build;
+        bad += check("RAIL ACTIONS (0.12): CC 36 9 FILL, 8 ALL OFF", ok);
+        for (i = 0; i < 4u; i++)                    /* (ALL OFF's COLOR and DEPTH home, settled) */
+            bz_ui_pass();
+        perf_k[0] = perf_k[2] = 0;
+        perf_k[3] = 50;
+        midi_event(0xB0u, 15u, 50u, 40u);
+        midi_event(0xB0u, 15u, 52u, 40u);
+        midi_event(0xB0u, 15u, 53u, 40u);
+        bz_ui_pass();
+        ok = perf_k[0] == 0 && perf_k[2] == 0 && perf_k[3] == 50;
+        midi_event(0xB0u, 15u, 50u, 127u);
+        midi_event(0xB0u, 15u, 52u, 127u);
+        midi_event(0xB0u, 15u, 53u, 127u);
+        bz_ui_pass();
+        ok &= perf_k[0] == 100 && perf_k[3] == 0 && perf_k[2] == 100;
+        midi_event(0xB0u, 15u, 50u, 0u);
+        bz_ui_pass();
+        ok &= perf_k[0] == -100;
+        bad += check("RAIL KNOBS (0.12): CC 50 COLOR, 52 DEPTH, 53 THROW; the first value only noted", ok);
+        perf_k[0] = perf_k[2] = 0;
+        perf_k[3] = 100;
+        song.g[G_CLOCK] = 1;
+        bz_ev_on = 1;
+        usb.config = 1;
+        mo = mo_w;
+        ok = bz_select_turn(1);
+        home_block(CTL, 0);
+        for (i = mo; i != mo_w; i++) {
+            uint32_t m = midi_out_q[i % MQ];
+            seen |= (m & 0xFFFFFFu) == (0x0Bu | 0xBFu << 8 | 34u << 16) && (m >> 24) > 64u;
+        }
+        song.g[G_CLOCK] = 0;
+        ok &= seen && !bz_select_turn(1);
+        bad += check("SELECT (0.12): following: CC 34 (64 + tenths) to RAIL; on its own clock: not taken", ok);
+    }
+
+    /* 0.12 KEYS: white keys by degree: home lit, its 3rd and 5th brighter, the rest low; PRESETS: the KEYS track's sound */
+    ui_power_on();
+    btn_down(B_ENV);
+    frames(800);
+    {
+        uint32_t on, can, lo, hi, cm = 0, tot0, c0, c1;
+        trk[0].p[P_ROOT] = 9;
+        trk[0].p[P_SCALE] = 2;
+        bz_ktrk = 0;
+        bz_keys = 1;
+        frame();
+        for (i = 0; i < 27u; i++) {
+            bz_led(i, &on, &can);
+            cm |= can << i;
+        }
+        bz_groups(cm, &lo, &hi);
+        bz_led(wk(0), &on, &can);
+        ok = on;
+        bz_led(wk(7), &on, &can);
+        ok &= on;
+        bz_led(wk(1), &on, &can);
+        ok &= !on;
+        ok &= ((hi >> wk(2)) & 1u) && ((hi >> wk(4)) & 1u) && ((hi >> wk(9)) & 1u) && ((lo >> wk(1)) & 1u) &&
+              ((lo >> wk(3)) & 1u) && !((hi | lo) >> bk(0) & 1u);
+        bad += check("KEYS (0.12): home lit, the 3rd and 5th brighter, the rest of the scale low, black keys apart", ok);
+        song.sel = 1;
+        track_select(0);
+        c0 = preset_pos(&tot0);
+        turn(EN_PRESET, 1);
+        c1 = preset_pos(&tot0);
+        ok = c1 != c0 && TSEL == &trk[0] && !strncmp(ui.msg, "KEYS: ", 6);
+        bad += check("  PRESETS: the KEYS track's next sound, named", ok);
+        bz_keys = 0;
+        frame();
+    }
+    btn_up(B_ENV);
+    frame();
+
+    /* 0.12 CHORD's generator: AUTO plays the progression a bar a chord (playing); MELODY plays the KEYS track over it */
+    home_reset();
+    {
+        uint32_t sel[4], seen = 0, notes = 0, bar4 = 4u * beat_samples(), j;
+        trk[0].p[P_ROOT] = 9;
+        trk[0].p[P_SCALE] = 2;
+        trk[1].p[P_ROOT] = 9;
+        trk[1].p[P_SCALE] = 2;
+        bz_ctrk = 1;
+        bz_ktrk = 0;
+        bz_chord = 1;
+        seq_start();
+        song.playing = 1;
+        click_tick(0);
+        bz_org = bz_s16 = 0;
+        bz_gen_key(0);                              /* (AUTO) */
+        bz_gen_key(5);                              /* (MELODY) */
+        ok = bz_g_auto && bz_g_mel;
+        for (j = 0; j < 4u; j++) {
+            for (b = 0; b < bar4 / CTL; b++) {
+                uint32_t on0 = bzg_on;
+                chord_block(CTL);
+                notes += bzg_on && !on0;
+                if (b % 2u == 0u)
+                    bz_s16 = (j * bar4 + b * CTL) / div_samples(2);
+            }
+            sel[j] = bz_ch_sel;
+            seen |= 1u << (bz_ch_sel & 15u);
+            bz_s16 = (j + 1u) * 16u;
+        }
+        ok &= sel[0] && sel[0] != sel[1] && notes >= 4u;
+        printf("    AUTO chords %u %u %u %u, melody notes %u\n", sel[0], sel[1], sel[2], sel[3], notes);
+        bad += check("CHORD GENERATOR (0.12): AUTO a chord a bar from the progression; MELODY notes over it", ok);
+        bz_gen_key(0);
+        bz_gen_key(5);
+        chord_block(CTL);
+        ok = !bz_g_auto && !bz_g_mel;
+        bad += check("  AUTO and MELODY again: off", ok);
+        bz_chord = 0;
+        song.playing = 0;
+        (void)seen;
     }
 
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");

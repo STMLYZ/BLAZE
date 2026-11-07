@@ -127,7 +127,7 @@ static const char *const BZ_KEYS_NAME[7] = {"ARP", "LATCH", "1/8", "1/16", "1/32
 static uint8_t bz_shlock;
 static int bz_shift_held(void) { return ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) != 0u; }
 static int bz_shift(void) { return bz_shlock || bz_shift_held(); }
-#define BZ_TAP_MS 300u                              /* a tap: let go within this, nothing pressed meanwhile */
+#define BZ_SHL_TAP_MS 300u                          /* a tap: let go within this, nothing pressed meanwhile */
 #define BZ_DTAP_MS 400u                             /* a double tap: the second press within this of the first release */
 static void bz_shlock_pass(void)
 {
@@ -149,7 +149,7 @@ static void bz_shlock_pass(void)
     } else if (now && fm1_in.notes)
         used = 1;                                   /* (a key pressed with it: SHIFT used, not tapped) */
     else if (!now && was) {
-        if (!used && fm1_ms - t_dn < BZ_TAP_MS) {
+        if (!used && fm1_ms - t_dn < BZ_SHL_TAP_MS) {
             if (bz_shlock) {
                 bz_shlock = 0;
                 t_up = 0;
@@ -223,6 +223,13 @@ static const uint8_t BZ_CAP_BARS[3] = {4u, 1u, 2u};
  * (low 4 bits), the effect + 1 (high 4) */
 #define bz_cfg_pp (&favorites.factory[ENGI_DRUM][8])
 #define BZ_PP_MAGIC 0x5Au
+/* 0.12: BUILD's and DROP's settings, 6 bytes of the PHYS row (2..7, past its 9 presets; MORPH A takes 8..27): [0]
+ * marked, [1] BUILD drum (low 3 bits) curve (3..4) effect (5..6), [2] BUILD SWELL %, [3] DROP length (0..1) with
+ * (2..3) hit (4..5), [4] DROP TOP %. And BLAZE's pads (hold one + ALGORITHM): the SAMPLE row's 28..31, a pad + 1 each */
+#define bz_cfg3 (&favorites.factory[ENGI_PHYS][2])
+#define BZ_CFG3_MAGIC 0xC7u
+#define bz_cfg_slot (&favorites.factory[ENGI_SAMPLE][28])
+enum { BZC3_MAGIC_I, BZC3_BUILD, BZC3_SWELL, BZC3_DROP, BZC3_TOP };
 static const char *const BZR_NAME[BZR_NTYPE] = {"NOISE", "AIR", "SIREN", "TONE", "SYNTH"};
 static const uint8_t BZ_EO_BARS[3] = {1u, 2u, 4u};
 static void bzm_load(void);                         /* (0.11: MORPH's A and B, kept: below) */
@@ -269,6 +276,27 @@ static void bz_cfg_apply(void)
     rl_shape = (uint8_t)(c[BZC2_SHAPE] % RLS_N);
     bz_cap_bars = BZ_CAP_BARS[c[BZC2_CAPLEN] % 3u];
     bzm_load();
+    c = bz_cfg3;                                    /* (0.12: BUILD's, DROP's) */
+    if (c[BZC3_MAGIC_I] != BZ_CFG3_MAGIC) {
+        c[BZC3_BUILD] = 1u;                         /* (SNARE, 1/4 > 1/32, no effect) */
+        c[BZC3_SWELL] = 100u;
+        c[BZC3_DROP] = 0u;                          /* (to the phrase, BACKSPIN, nothing on the 1) */
+        c[BZC3_TOP] = 70u;
+        c[BZC3_MAGIC_I] = BZ_CFG3_MAGIC;
+    }
+    bz_b_lane = (uint8_t)(c[BZC3_BUILD] & 7u);
+    bz_b_curve = (uint8_t)((c[BZC3_BUILD] >> 3) & 3u);
+    bz_b_fx = (uint8_t)((c[BZC3_BUILD] >> 5) & 3u);
+    bz_b_swell = (uint8_t)(c[BZC3_SWELL] > 100u ? 100u : c[BZC3_SWELL]);
+    bz_d_len = (uint8_t)(c[BZC3_DROP] & 3u);
+    bz_d_extra = (uint8_t)((c[BZC3_DROP] >> 2) & 3u);
+    bz_d_hit = (uint8_t)((c[BZC3_DROP] >> 4) & 3u);
+    bz_d_top = (uint8_t)(c[BZC3_TOP] > 100u ? 100u : c[BZC3_TOP]);
+    {
+        uint32_t i;
+        for (i = 0; i < 4u; i++)
+            bz_pad_slot[i] = (uint8_t)(bz_cfg_slot[i] <= 16u ? bz_cfg_slot[i] : 0u);
+    }
 }
 
 static const char *rl_lane_name(const track_t *t, uint32_t l);   /* (blaze_roll_draw.c) */
@@ -438,27 +466,165 @@ static void bzm_apply(void)                         /* the state at pos, between
 }
 static void bz_cap_say(void);                       /* (0.11 LOOP CAPTURE: below) */
 static void bz_cap_save_key(void);
-static void bz_shift_white(uint32_t k, uint32_t p)  /* SHIFT + white 9..16 pressed (the ISR plays SCATTER, BACKSPIN) */
+/* 0.12 RIDE (black 7): MORPH glides from where it is to B (past halfway: to A) over 8 bars from the next bar;
+ * tapped again quickly: 16; later: stopped */
+static uint32_t bzride_tk;
+static void bz_ride_key(void)
 {
-    if (p == BZS9_SCAT)
-        ui_message("SCATTER: KNOB 4 SETS HOW WILD");
-    else if (p == BZS9_SPIN)
+    char m[48];
+    uint32_t in = (bz_s16 - bz_org) % 16u;
+    if (bzride.on && bzride.bars == 8u && fm1_ms - bzride_tk < BZ_DTAP_MS) {
+        bzride.bars = 16;                           /* (a double tap: 16 bars, from the same start) */
+        bzride.len *= 2u;
+        ui_message(bzride.to ? "RIDE TO B OVER 16 BARS" : "RIDE TO A OVER 16 BARS");
+        return;
+    }
+    if (bzride.on) {
+        bzride.on = 0;
+        ui_message("RIDE STOPPED");
+        return;
+    }
+    if ((bzm.ok & 3u) != 3u) {
+        ui_message("RIDE: SAVE MORPH A AND B FIRST (SHIFT + WHITE 13, 14)");
+        return;
+    }
+    bzride_tk = fm1_ms;
+    bzride.bars = 8;
+    bzride.from = bzm.pos;
+    bzride.to = (uint8_t)(bzm.pos < 50u ? 100u : 0u);
+    bzride.s0 = bz_s16 + (in || clk_pos ? 16u - in : 0u);
+    bzride.t0 = fm1_ms;
+    bzride.len = (uint32_t)bzride.bars * 4u * beat_samples() / 441u * 10u;   /* (ms; 32-bit: the main loop's code has
+                                                                             * no 64-bit divide) */
+    bzride.on = 1;
+    bzm.on = 1;
+    str_cpy(m, bzride.to ? "RIDE TO B OVER 8 BARS" : "RIDE TO A OVER 8 BARS", sizeof m);
+    str_cpy(m + str_len(m), song.playing ? " FROM THE NEXT BAR" : "", sizeof m - str_len(m));
+    ui_message(m);
+}
+
+/* 0.12 FOLLOW (SHIFT + black 5, or RAIL's): on, the FM-1 runs on the clock from RAIL's bridge (rekordbox's Link);
+ * off, on its own at the tempo it had, playing on. Back on: the clock's tempo again (the bars may sit apart from
+ * rekordbox's: RAIL's Start on next 1 lines them up). RAIL hears it (CC 33 on channel 16: 127 on, 0 off) */
+static uint8_t bz_follow_src = 1;                   /* the external clock FOLLOW goes back to (USB 1, TRS 2) */
+static void bz_tx_cc(uint32_t cc, uint32_t v)       /* a CC on channel 16 out, by the ISR */
+{
+    if ((uint8_t)(bz_tx_w - bz_tx_r) >= 8u)
+        return;
+    bz_tx[bz_tx_w % 8u] = 0x0Bu | 0xBFu << 8 | (cc & 127u) << 16 | (v & 127u) << 24;
+    bz_tx_w = (uint8_t)(bz_tx_w + 1u);
+}
+static void bz_follow_set(int on)
+{
+    if (on == (song.g[G_CLOCK] != 0))
+        return;
+    bz_clk_soft = 1;                                /* (seq.c: the switch keeps playing) */
+    if (!on) {
+        uint32_t b = beat_samples();
+        bz_follow_src = (uint8_t)song.g[G_CLOCK];
+        if (b)
+            song.g[G_BPM] = (int16_t)clamp((int32_t)((FS * 60u + b / 2u) / b), GP[G_BPM].min, GP[G_BPM].max);
+        song.g[G_CLOCK] = 0;
+    } else
+        song.g[G_CLOCK] = (int16_t)(bz_follow_src ? bz_follow_src : 1u);
+    bz_tx_cc(33u, on ? 127u : 0u);
+    ui_message(on ? "FOLLOW ON: THE FM-1 FOLLOWS REKORDBOX" : "FOLLOW OFF: THE FM-1 PLAYS ON ITS OWN");
+    ui.force = 1;
+}
+
+/* 0.12 CHORD's white 9..16: AUTO, NEW (progression), every 1 / 2 / 4 bars, MELODY, NEW (line), KEEP */
+static void bz_gen_key(uint32_t i)
+{
+    static const char *const EV[3] = {"AUTO: A CHORD EVERY BAR", "AUTO: A CHORD EVERY 2 BARS",
+                                      "AUTO: A CHORD EVERY 4 BARS"};
+    if (i == 0u) {
+        bz_g_auto = (uint8_t)!bz_g_auto;
+        ui_message(bz_g_auto ? "AUTO ON: THE CHORDS PLAY THEMSELVES" : "AUTO OFF");
+    } else if (i == 1u) {
+        bz_g_prog = (uint8_t)((bz_g_prog + 1u) % BZG_NPROG);
+        bz_g_auto = 1;
+        ui_message("A NEW PROGRESSION");
+    } else if (i <= 4u) {
+        bz_g_every = (uint8_t)(1u << (i - 2u));
+        ui_message(EV[i - 2u]);
+    } else if (i == 5u) {
+        bz_g_mel = (uint8_t)!bz_g_mel;
+        ui_message(!bz_g_mel ? "MELODY OFF" : bz_notes_track(&trk[bz_ktrk % NTRK])
+                   ? "MELODY ON THE KEYS TRACK: HOLD + KNOBS 1 / 2 FOR DENSITY, RANGE" : "MELODY: THE KEYS TRACK PLAYS NO NOTES");
+    } else if (i == 6u) {
+        bz_g_new = 1;
+        bz_g_mel = 1;
+        ui_message("A NEW MELODY");
+    } else {
+        bz_g_keep = (uint8_t)!bz_g_keep;
+        ui_message(bz_g_keep ? "KEEP: THIS MELODY REPEATS" : "KEEP OFF: A NEW ONE EACH 2 BARS");
+    }
+    ui.force = 1;
+}
+
+/* 0.12: SELECT while the FM-1 follows an external clock (and BLAZE has been opened: RAIL is there): a nudge of the
+ * Link tempo to RAIL, CC 34 on channel 16, 64 + tenths of a BPM (RAIL's bridge sets it; rekordbox and the FM-1
+ * follow). 1: taken */
+static int bz_select_turn(int32_t s)
+{
+    int32_t d;
+    char m[24];
+    if (!song.g[G_CLOCK] || !bz_ev_on)
+        return 0;
+    d = accel(EN_SELECT, s, 200);                   /* (tenths: a detent 0.1, fast 1 and more) */
+    d = clamp(d, -63, 63);
+    bz_tx_cc(34u, (uint32_t)(64 + d));
+    str_cpy(m, "LINK TEMPO ", sizeof m);
+    str_cpy(m + str_len(m), d > 0 ? "+" : "-", sizeof m - str_len(m));
+    fmt_int(m + str_len(m), (d < 0 ? -d : d) / 10);
+    str_cpy(m + str_len(m), ".", sizeof m - str_len(m));
+    fmt_int(m + str_len(m), (d < 0 ? -d : d) % 10);
+    ui_message(m);
+    return 1;
+}
+
+/* 0.12: a key of BLAZE's own page pressed, doing f (bz_fn): what the main loop does, what it says */
+static const char *const RLS_NAME[RLS_N] = {"FLAT", "ACCENT 2", "ACCENT 4", "FADE"};
+static void bz_home_key(uint32_t k, uint32_t f)
+{
+    if (f >= BZF_KIT0 && f <= BZF_KIT7) {           /* 0.7: a KIT (bz_kit_pass: held, saved; let go, loaded) */
+        bzkit.k = (uint8_t)(f - BZF_KIT0 + 1u);
+        bzkit.key = (uint8_t)k;
+        bzkit.saved = 0;
+        bzkit.t = fm1_ms;
+    } else if (f >= BZF_FX0 && f <= BZF_FX5)
+        ui_message(BZ_FX_NAME[f - BZF_FX0]);
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
+        ui_say("ROLL ", RL_RATE_NAME[f - BZF_RATE0 + 1u]);
+    else if (f == BZF_B4 || f == BZF_B8)
+        ui_message("BUILD: LET GO TO START IT, HOLD + KNOBS TO SET IT UP");
+    else if (f == BZF_RISER)
+        ui_message("RISER: LET GO TO START IT, HOLD + KNOBS FOR ITS SOUND");
+    else if (f == BZF_DROP)
+        ui_message(song.playing ? "DROP: LET GO TO ARM IT, HOLD + KNOBS TO SET IT UP"
+                                : "DROP: PLAY FIRST (IT LANDS ON THE PHRASE); HOLD + KNOBS TO SET IT UP");
+    else if (f == BZF_EOUT)
+        ui_message("EXIT: LET GO FOR THE ECHO OUT, HOLD + KNOB 1 FOR ITS BARS");
+    else if (f == BZF_SCAT)
+        ui_message("SCATTER: KNOB 3 SETS HOW WILD");
+    else if (f == BZF_SPIN)
         ui_message(bz_spin != BZB_IDLE ? "BACKSPIN ON THE NEXT BEAT, BACK ON THE 1" : "BACKSPIN OFF");
-    else if (p == BZS9_MA || p == BZS9_MB) {
-        bzm.k = (uint8_t)(p == BZS9_MA ? 1u : 2u);
+    else if (f == BZF_CAP)
+        bz_cap_say();
+    else if (f == BZF_MA || f == BZF_MB) {
+        bzm.k = (uint8_t)(f == BZF_MA ? 1u : 2u);
         bzm.key = (uint8_t)k;
         bzm.saved = 0;
         bzm.t = fm1_ms;
-    } else if (p == BZS9_MORPH) {
-        if ((bzm.ok & 3u) != 3u) {
-            ui_message(!(bzm.ok & 1u) ? "MORPH: HOLD WHITE 13 TO SAVE A FIRST" : "MORPH: HOLD WHITE 14 TO SAVE B FIRST");
-            return;
+    } else if (f == BZF_MORPH) {
+        if ((bzm.ok & 3u) != 3u)
+            ui_message(!(bzm.ok & 1u) ? "MORPH: SHIFT + HOLD WHITE 13 TO SAVE A FIRST"
+                                     : "MORPH: SHIFT + HOLD WHITE 14 TO SAVE B FIRST");
+        else {
+            bzm.on = (uint8_t)!bzm.on;
+            ui_message(bzm.on ? "MORPH ON: KNOB 2 SLIDES A -> B" : "MORPH OFF: KNOB 2 IS PITCH");
         }
-        bzm.on = (uint8_t)!bzm.on;
-        ui_message(bzm.on ? "MORPH ON: KNOB 2 SLIDES A -> B" : "MORPH OFF: KNOB 2 IS PITCH");
-    } else if (p == BZS9_CAP)
-        bz_cap_say();
-    else if (p == BZS9_CAPLEN) {
+    } else if (f == BZF_CAPLEN) {
         uint32_t c = (bz_cfg2[BZC2_CAPLEN] + 1u) % 3u;
         char m[40];
         bz_cfg2[BZC2_CAPLEN] = (uint8_t)c;
@@ -470,53 +636,76 @@ static void bz_shift_white(uint32_t k, uint32_t p)  /* SHIFT + white 9..16 press
         if (bz_cap_fit(bz_cap_bars) < bz_cap_bars)
             str_cpy(m + str_len(m), " (TOO SLOW: FEWER)", sizeof m - str_len(m));
         ui_message(m);
-    } else if (p == BZS9_CAPSAVE)
+    } else if (f == BZF_CAPSAVE)
         bz_cap_save_key();
-    ui.force = 1;
-}
-
-/* 0.11 SHIFT + black 1..4 (no pad held): RIDE 8, RIDE 16, DROP (the ISR's: said here), ROLL SHAPE */
-static const char *const RLS_NAME[RLS_N] = {"FLAT", "ACCENT 2", "ACCENT 4", "FADE"};
-static void bz_shift_black(uint32_t p)
-{
-    char m[48];
-    if (p == 2u) {
-        if (bz_drop == BZD_IDLE)
-            ui_message(song.playing ? "DROP OFF" : "DROP: PLAY FIRST (IT LANDS ON THE PHRASE)");
-        else {
-            str_cpy(m, "DROP IN ", sizeof m);
-            fmt_int(m + str_len(m), bz_dr_bars);
-            str_cpy(m + str_len(m), " BARS: ON THE PHRASE'S 1", sizeof m - str_len(m));
-            ui_message(m);
-        }
-    } else if (p == 3u) {
+    else if (f == BZF_PREV || f == BZF_NEXT)
+        ui_message(!bz_set_n ? "NO SET: LOAD ONE IN RAIL" : f == BZF_NEXT ? "NEXT SONG" : "PREVIOUS SONG");
+    else if (f == BZF_RIDE)
+        bz_ride_key();
+    else if (f == BZF_ONE)
+        ui_message("THE ONE: BAR 1 OF THE PHRASE");
+    else if (f == BZF_TAP)
+        glo_tap();
+    else if (f == BZF_NDN || f == BZF_NUP)
+        rl_nudge(k, f == BZF_NUP);
+    else if (f == BZF_SHAPE) {
         rl_shape = (uint8_t)((rl_shape + 1u) % RLS_N);
         bz_cfg2[BZC2_SHAPE] = rl_shape;
         lys.rp_dirty = 1;
         ui_say("ROLL SHAPE ", RLS_NAME[rl_shape]);
-    } else if (bzride.on) {
-        bzride.on = 0;
-        ui_message("RIDE STOPPED");
-    } else if ((bzm.ok & 3u) != 3u) {
-        ui_message("RIDE: SAVE MORPH A AND B FIRST (SHIFT + WHITE 13, 14)");
-    } else {
-        uint32_t in = (bz_s16 - bz_org) % 16u;
-        bzride.bars = (uint8_t)(p ? 16u : 8u);
-        bzride.from = bzm.pos;
-        bzride.to = (uint8_t)(bzm.pos < 50u ? 100u : 0u);
-        bzride.s0 = bz_s16 + (in || clk_pos ? 16u - in : 0u);
-        bzride.t0 = fm1_ms;
-        bzride.len = (uint32_t)bzride.bars * 4u * beat_samples() / 441u * 10u;   /* (ms; 32-bit: the main loop's
-                                                                                 * code has no 64-bit divide) */
-        bzride.on = 1;
-        bzm.on = 1;
-        str_cpy(m, bzride.to ? "RIDE TO B OVER " : "RIDE TO A OVER ", sizeof m);
-        fmt_int(m + str_len(m), bzride.bars);
-        str_cpy(m + str_len(m), song.playing ? " BARS FROM THE NEXT BAR" : " BARS", sizeof m - str_len(m));
-        ui_message(m);
-    }
+    } else if (f == BZF_FOLLOW)
+        bz_follow_set(song.g[G_CLOCK] == 0);
     ui.force = 1;
 }
+
+/* 0.12: what the ISR started or stopped on a key's release (BUILD RISER DROP EXIT FILL), said */
+static void bz_fire_say(void)
+{
+    static uint8_t b, r, d, e;
+    char m[48];
+    if (bz_build != b) {
+        if (!bz_build)
+            ui_message(b == 1u ? "FILL DONE" : "BUILD DONE");
+        else if (bz_b_fill)
+            ui_message("FILL: SNARE ROLL TO THE 1");
+        else if (bz_drop == BZD_IDLE) {
+            str_cpy(m, "BUILD ", sizeof m);
+            fmt_int(m + str_len(m), bz_build);
+            str_cpy(m + str_len(m), " BARS FROM THE NEXT BAR", sizeof m - str_len(m));
+            ui_message(m);
+        }
+        b = bz_build;
+        ui.force = 1;
+    }
+    if (bz_riser != r) {
+        if (bz_drop == BZD_IDLE && !bz_build)
+            ui_message(!bz_riser ? "RISER DONE" : bz_riser == 16u ? "RISER 16 BARS" : "RISER 8 BARS FROM THE NEXT BAR");
+        r = bz_riser;
+        ui.force = 1;
+    }
+    if (bz_drop != d) {
+        if (bz_drop == BZD_ARMED) {
+            str_cpy(m, "DROP IN ", sizeof m);
+            fmt_int(m + str_len(m), bz_dr_bars);
+            str_cpy(m + str_len(m), " BARS (AGAIN: CANCEL)", sizeof m - str_len(m));
+            ui_message(m);
+        } else if (bz_drop == BZD_IDLE && d == BZD_RUN)
+            ui_message("DROP!");
+        else if (bz_drop == BZD_IDLE)
+            ui_message("DROP CANCELLED");
+        d = bz_drop;
+        ui.force = 1;
+    }
+    if (bz_eo != e) {
+        if (bz_eo == BZE_ARMED)
+            ui_message("ECHO OUT FROM THE NEXT BAR");
+        else if (bz_eo == BZE_IDLE && e == BZE_ARMED)
+            ui_message("ECHO OUT CANCELLED");
+        e = bz_eo;
+        ui.force = 1;
+    }
+}
+
 static void bz_ride_pass(void)                      /* each pass: RIDE moves MORPH; PHOSPHOR hears where it is */
 {
     if (bzride.on) {
@@ -755,8 +944,30 @@ static int bz_white_held(uint32_t p)
             return (int)((fm1_in.notes >> k) & 1u);
     return 0;
 }
-static int bz_riser_held(void) { return !bz_keys && !bz_chord && bz_white_held(BZ_RISER); }
-static int bz_eo_held(void) { return !bz_keys && !bz_chord && bz_white_held(BZ_EOUT); }
+/* 0.12: BLAZE's own page up (not KEYS CHORD LOOPS SLICE REKORDBOX) */
+static int bz_home(void) { return !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb; }
+/* a key held now doing f (its press's, the ISR's bz_kfn): its number + 1, 0 none */
+static uint32_t bz_fn_held(uint32_t f)
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++)
+        if (((fm1_in.notes >> k) & 1u) && bz_kfn[k] == f)
+            return k + 1u;
+    return 0;
+}
+static int bz_riser_held(void) { return bz_home() && bz_fn_held(BZF_RISER); }
+static int bz_eo_held(void) { return bz_home() && bz_fn_held(BZF_EOUT); }
+static int bz_build_held(void) { return bz_home() && (bz_fn_held(BZF_B4) || bz_fn_held(BZF_B8)); }
+static int bz_drop_held(void) { return bz_home() && bz_fn_held(BZF_DROP); }
+/* a knob turned while one of these is held: its release fires nothing (the ISR's bz_fn_up) */
+static void bz_mark_edit(void)
+{
+    static const uint8_t F[5] = {BZF_B4, BZF_B8, BZF_RISER, BZF_DROP, BZF_EOUT};
+    uint32_t i, k;
+    for (i = 0; i < 5u; i++)
+        if ((k = bz_fn_held(F[i])) != 0u)
+            bz_ked |= 1u << (k - 1u);
+}
 
 /* CHORD: chord degree d's name on track t ("Am", "G7", "Bdim", "Cmaj7"; root position) */
 static void bz_chord_name(const track_t *t, uint32_t d, char *out, uint32_t len)
@@ -937,6 +1148,8 @@ static void bz_ui_key(uint32_t k)
     if (bz_chord) {                                 /* CHORD: the black keys (the white ones: the ISR's) */
         if (key_black(k))
             bz_chord_black(p);
+        else if (p >= 8u && p < 16u)                /* 0.12: the generator */
+            bz_gen_key(p - 8u);
         else if (p < 7u && !bzc_fits(&trk[bz_ctrk % NTRK], p))
             ui_message("NOT IN THE NEXT KEY: IT WOULD CLASH");
         else
@@ -975,38 +1188,7 @@ static void bz_ui_key(uint32_t k)
         ui.force = 1;
         return;
     }
-    if (key_black(k)) {
-        if (p < 4u && bz_shift() && !bz_pads)       /* 0.11: SHIFT + black 1..4 */
-            bz_shift_black(p);
-        else if (p < 6u)
-            ui_say("ROLL ", RL_RATE_NAME[p + 1u]);
-        else if (p == BZK_TAP)
-            glo_tap();
-        else if (p == BZK_NDN || p == BZK_NUP)
-            rl_nudge(k, p == BZK_NUP);
-        else if (p == BZK_ONE)
-            ui_message("THE ONE: BAR 1 OF THE PHRASE");
-        return;
-    }
-    if (p < 8u && bz_shift()) {                     /* 0.7: SHIFT + white 1..8: a KIT (bz_kit_pass) */
-        bzkit.k = (uint8_t)(p + 1u);
-        bzkit.key = (uint8_t)k;
-        bzkit.saved = 0;
-        bzkit.t = fm1_ms;
-        ui.force = 1;
-    } else if (p >= 8u && p < 16u && bz_shift() && !bz_pads) {   /* 0.10: SHIFT + white 9..16 */
-        bz_shift_white(k, p);
-    } else if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX)
-        ui_message(BZ_FX_NAME[p - BZ_FX0]);
-    else if (p == BZ_B4 || p == BZ_B8)
-        ui_message(!bz_build ? "BUILD STOPPED" : p == BZ_B4 ? "BUILD 4 BARS FROM THE NEXT BAR"
-                                                           : "BUILD 8 BARS FROM THE NEXT BAR");
-    else if (p == BZ_RISER)
-        ui_message(!bz_riser ? "RISER STOPPED" : bz_riser == 16u ? "RISER 16 BARS" : "RISER 8 BARS FROM THE NEXT BAR");
-    else if (p == BZ_EOUT)
-        ui_message(bz_eo == BZE_IDLE ? "BACK IN" : "ECHO OUT FROM THE NEXT BAR");
-    else if (p == BZ_SPREV || p == BZ_SNEXT)
-        ui_message(!bz_set_n ? "NO SET: LOAD ONE IN RAIL" : p == BZ_SNEXT ? "NEXT SONG" : "PREVIOUS SONG");
+    bz_home_key(k, bz_fn(k, (uint32_t)bz_shift(), bz_pads != 0u));
 }
 
 /* each pass: RELEASE's knobs, RAIL's key, RISER's 16 said */
@@ -1025,13 +1207,54 @@ static void bz_ui_pass(void)
         ui.force = 1;
     }
     if (bzu.cc_seq != bz_cc_seq) {
+        static uint8_t keyc[11], knob[4] = {255, 255, 255, 255};
+        uint32_t i;
         bzu.cc_seq = bz_cc_seq;
         if (bz_cc[12]) {                            /* 0.11.1: RAIL's bar (CC 32), taken once */
             bz_bar_set(bz_cc[12]);
             bz_cc[12] = 0;
         }
-        bz_key_apply();
-        bz_song();
+        if (bz_cc[13]) {                            /* 0.12: RAIL's FOLLOW (CC 33: 127 on, 1 off), taken once */
+            bz_follow_set(bz_cc[13] >= 64u);
+            bz_cc[13] = 0;
+        }
+        if (bz_cc[16]) {                            /* 0.12: RAIL's action (CC 36), taken once */
+            if (bz_cc[16] == 11u) {                 /* (SHIFT LOCK: here) */
+                bz_shlock = (uint8_t)!bz_shlock;
+                ui_message(bz_shlock ? "SHIFT LOCKED (RAIL)" : "SHIFT UNLOCKED (RAIL)");
+                ui.force = 1;
+            } else
+                bz_req = bz_cc[16];
+            bz_cc[16] = 0;
+        }
+        for (i = 0; i < 4u; i++)                    /* 0.12: RAIL's knobs (CC 50..53): COLOR MORPH DEPTH THROW;
+                                                     * a knob's first value only noted (no jump to where it sits) */
+            if (((bz_cc_knob >> i) & 1u) && bz_cc[30u + i] != knob[i]) {
+                uint32_t v = bz_cc[30u + i];
+                if (knob[i] != 255u) {
+                    if (i == 0u)
+                        perf_k[0] = (int8_t)clamp((int32_t)v * 200 / 127 - 100, -100, 100);
+                    else if (i == 1u && (bzm.ok & 3u) == 3u) {
+                        bzm.on = 1;
+                        bzm.pos = (uint8_t)(v * 100u / 127u);
+                        bzm_apply();
+                        bzride.on = 0;
+                    } else if (i == 2u)
+                        perf_k[3] = (int8_t)(100 - (int32_t)(v * 100u / 127u));
+                    else if (i == 3u)
+                        perf_k[2] = (int8_t)(v * 100u / 127u);
+                    ui.force = 1;
+                }
+                knob[i] = (uint8_t)v;
+            }
+        for (i = 0; i < 11u && keyc[i] == bz_cc[i]; i++)
+            ;
+        if (i < 11u) {                              /* (the key, the SET's song: only when they move) */
+            for (i = 0; i < 11u; i++)
+                keyc[i] = bz_cc[i];
+            bz_key_apply();
+            bz_song();
+        }
     }
     bz_ramp_pass();
     bz_shlock_pass();                               /* (0.11.1 SHIFT LOCK) */
@@ -1053,11 +1276,8 @@ static void bz_ui_pass(void)
     bzm_pass();
     bz_ride_pass();                                 /* (0.11) */
     bz_cap_pass();
-    if (rs != bz_riser) {
-        if (bz_riser == 16u && rs == 8u)
-            ui_message("RISER 16 BARS");
-        rs = bz_riser;
-    }
+    bz_fire_say();                                  /* (0.12) */
+    (void)rs;
 }
 
 /* KNOB k turned s: the four of the mode (see the top) */
@@ -1066,8 +1286,47 @@ static void bz_knob(uint32_t k, int32_t s)
     track_t *t = rl_track(), *kt = &trk[bz_ktrk % NTRK];
     uint32_t l = bz_held_lane();
     int16_t *vp;
+    if (bz_build_held()) {                          /* 0.12 BUILD held: DRUM CURVE SWELL WITH, kept */
+        uint8_t *c = bz_cfg3;
+        int32_t d = s > 0 ? 1 : -1;
+        uint32_t lane = c[BZC3_BUILD] & 7u, cur = (c[BZC3_BUILD] >> 3) & 3u, fx = (c[BZC3_BUILD] >> 5) & 3u;
+        bz_cfg_apply();
+        if (k == 0u)
+            lane = (lane + (uint32_t)(d + NLANE)) % NLANE;
+        else if (k == 1u)
+            cur = (uint32_t)clamp((int32_t)cur + d, 0, BZBC_N - 1);
+        else if (k == 2u)
+            c[BZC3_SWELL] = (uint8_t)clamp((int32_t)c[BZC3_SWELL] + accel(EN_K3, s, 100), 0, 100);
+        else
+            fx = (uint32_t)clamp((int32_t)fx + d, 0, BZBX_N - 1);
+        c[BZC3_BUILD] = (uint8_t)(lane | cur << 3 | fx << 5);
+        bz_cfg_apply();
+        bz_mark_edit();
+        lys.rp_dirty = 1;
+        return;
+    }
+    if (bz_drop_held()) {                           /* 0.12 DROP held: TOP LENGTH WITH ON THE 1, kept */
+        uint8_t *c = bz_cfg3;
+        int32_t d = s > 0 ? 1 : -1;
+        uint32_t len = c[BZC3_DROP] & 3u, ex = (c[BZC3_DROP] >> 2) & 3u, hit = (c[BZC3_DROP] >> 4) & 3u;
+        bz_cfg_apply();
+        if (k == 0u)
+            c[BZC3_TOP] = (uint8_t)clamp((int32_t)c[BZC3_TOP] + accel(EN_K1, s, 100), 0, 100);
+        else if (k == 1u)
+            len = (uint32_t)clamp((int32_t)len + d, 0, BZDL_N - 1);
+        else if (k == 2u)
+            ex = (uint32_t)clamp((int32_t)ex + d, 0, BZDX_N - 1);
+        else
+            hit = (uint32_t)clamp((int32_t)hit + d, 0, BZDH_N - 1);
+        c[BZC3_DROP] = (uint8_t)(len | ex << 2 | hit << 4);
+        bz_cfg_apply();
+        bz_mark_edit();
+        lys.rp_dirty = 1;
+        return;
+    }
     if (bz_riser_held()) {                          /* RISER held: TYPE TOP LEVEL SPACE (SYNTH: TRACK), kept */
         uint8_t *c = bz_cfg;
+        bz_mark_edit();
         bz_cfg_apply();
         if (k == 0u)
             c[BZC_TYPE] = (uint8_t)clamp((int32_t)c[BZC_TYPE] + (s > 0 ? 1 : -1), 0, BZR_NTYPE - 1);
@@ -1081,6 +1340,7 @@ static void bz_knob(uint32_t k, int32_t s)
         return;
     }
     if (bz_eo_held()) {                             /* ECHO OUT held: KNOB 1 its BARS (1 2 4), kept */
+        bz_mark_edit();
         if (k == 0u) {
             bz_cfg[BZC_EOB] = (uint8_t)clamp((int32_t)bz_cfg[BZC_EOB] % 3 + (s > 0 ? 1 : -1), 0, 2);
             bz_cfg_apply();
@@ -1122,6 +1382,14 @@ static void bz_knob(uint32_t k, int32_t s)
         }
         return;
     }
+    if (bz_chord && bz_white_held(13u)) {           /* 0.12 MELODY held: DENSITY, RANGE */
+        if (k == 0u)
+            bz_g_dens = (uint8_t)clamp((int32_t)bz_g_dens + accel(EN_K1, s, 100), 5, 100);
+        else if (k == 1u)
+            bz_g_range = (uint8_t)clamp((int32_t)bz_g_range + (s > 0 ? 1 : -1), 1, 2);
+        ui.force = 1;
+        return;
+    }
     if (bz_chord) {                                 /* CHORD: FILTER LENGTH SPACE LEVEL of the CHORD track */
         track_t *ct = &trk[bz_ctrk % NTRK];
         static const uint8_t ID[4] = {P_ED_FLT, 0, P_REV, P_LEVEL};
@@ -1139,15 +1407,17 @@ static void bz_knob(uint32_t k, int32_t s)
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[ID[k]].max - TP[ID[k]].min), TP[ID[k]].min, TP[ID[k]].max);
         return;
     }
+    /* 0.12: COLOR, PITCH (MORPH on: MORPH), DEPTH, THROW; SHIFT: PITCH DECAY TONE DRIVE */
     if (k == 0u && l == NLANE && !bz_shift()) {
         perf_k[0] = (int8_t)clamp(perf_k[0] + accel(EN_K1, s, 200), -100, 100);
         return;
     }
-    if (k == 3u && l == NLANE) {
-        if (bz_shift())                             /* THROW: the mix into the echo and the reverb */
-            perf_k[2] = (int8_t)clamp(perf_k[2] + accel(EN_K4, s, 100), 0, 100);
-        else
-            perf_k[3] = (int8_t)clamp(perf_k[3] - accel(EN_K4, s, 100), 0, 100);   /* (DEPTH rises to the right) */
+    if (k == 2u && l == NLANE && !bz_shift()) {     /* DEPTH (rises to the right) */
+        perf_k[3] = (int8_t)clamp(perf_k[3] - accel(EN_K3, s, 100), 0, 100);
+        return;
+    }
+    if (k == 3u && l == NLANE && !bz_shift()) {     /* THROW: the mix into the echo and the reverb */
+        perf_k[2] = (int8_t)clamp(perf_k[2] + accel(EN_K4, s, 100), 0, 100);
         return;
     }
     if (k == 1u && l == NLANE && !bz_shift() && bzm.on) {   /* 0.10 MORPH: KNOB 2 slides A -> B */
@@ -1172,8 +1442,10 @@ static void bz_knob(uint32_t k, int32_t s)
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, 127), 0, 127);
         return;
     }
-    {   /* DRUM's TUNE DECY, SHIFT: TONE SNAP DRV (eng_drum.c) */
-        static const uint8_t E[2][3] = {{0, 1, 3}, {2, 4, 7}};
+    {   /* DRUM's TUNE (PITCH); SHIFT: TUNE DECY TONE DRV (eng_drum.c) */
+        static const uint8_t E[2][4] = {{0, 1, 0, 0}, {1, 3, 2, 7}};
+        if (!bz_shift() && k != 1u)
+            return;
         vp = &t->p[P_E0 + E[bz_shift()][k]];
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, 127), 0, 127);
     }
@@ -1203,6 +1475,39 @@ static void bz_algo(int32_t s)
         ui_message("NO DRUM TRACK");
         return;
     }
+    {   /* 0.12: a pad held: that pad another drum (SNARE CLAP HATS TOM RIM BELL, KICK last), none the others have */
+        static const uint8_t ORD[NLANE] = {1, 2, 3, 4, 5, 6, 7, 0};
+        uint32_t i, j, n, cur, o, lane;
+        for (i = 0; i < 4u && !bz_fn_held(BZF_PAD0 + i); i++)
+            ;
+        if (i < 4u) {
+            char m[24];
+            for (j = 0; j < 4u; j++)                /* (the four fixed as they are: one swapped, the rest stay put) */
+                if (!bz_pad_slot[j] && bz_pad_of(j) < 16u)
+                    bz_pad_slot[j] = (uint8_t)(bz_pad_of(j) + 1u);
+            cur = bz_pad_of(i) % NLANE;
+            for (o = 0; o < NLANE && ORD[o] != cur; o++)
+                ;
+            for (n = 1; n <= NLANE; n++) {
+                lane = ORD[(o + (uint32_t)(s > 0 ? (int32_t)n : (int32_t)(NLANE * 8u - n))) % NLANE];
+                for (j = 0; j < 4u && (j == i || !bz_pad_slot[j] || (bz_pad_slot[j] - 1u) % NLANE != lane); j++)
+                    ;
+                if (j == 4u)
+                    break;
+            }
+            bz_pad_slot[i] = (uint8_t)(lane + 1u);
+            for (j = 0; j < 4u; j++)
+                bz_cfg_slot[j] = bz_pad_slot[j];
+            lys.rp_dirty = 1;
+            str_cpy(m, "PAD ", sizeof m);
+            fmt_int(m + str_len(m), (int32_t)i + 1);
+            str_cpy(m + str_len(m), ": ", sizeof m - str_len(m));
+            str_cpy(m + str_len(m), rl_lane_name(t, lane), sizeof m - str_len(m));
+            ui_message(m);
+            ui.force = 1;
+            return;
+        }
+    }
     d = track_desc(t, P_E0);
     v = enum_step(d, t->p[P_E0], clamp(t->p[P_E0] + (s > 0 ? 1 : -1), d->min, d->max));
     t->p[P_E0] = (int16_t)v;
@@ -1210,10 +1515,98 @@ static void bz_algo(int32_t s)
     ui.force = 1;
 }
 
+/* 0.12: a function's state on BLAZE's page, for its cell and its light: DIM (nothing to do), IDLE, TINT (latched,
+ * armed, saved), FILL (on, running, held) */
+enum { BZS_DIM, BZS_IDLE, BZS_TINT, BZS_FILL };
+static uint32_t bz_fn_state(uint32_t f, uint32_t k)
+{
+    const track_t *t = rl_track();
+    uint32_t fx = perf_kill ? 0u : perf_held | perf_latched, drum = (uint32_t)drum_track(t), pad, l, i;
+    if (f >= BZF_PAD0 && f <= BZF_PAD3) {
+        pad = bz_pad_of(f - BZF_PAD0);
+        l = pad % NLANE;
+        return pad >= 16u || !drum ? BZS_DIM : (((uint32_t)rl_extra | rl_pp | rlu.fl) >> pad) & 1u ? BZS_FILL
+               : pad >= NLANE || rl_pp_rate[l] || rl_pp_fx[l] ? BZS_TINT : BZS_IDLE;
+    }
+    if (f >= BZF_FX0 && f <= BZF_FX5) {
+        uint32_t e = BZ_FX[f - BZF_FX0];
+        return !((perf_avail() >> e) & 1u) ? BZS_DIM : (fx >> e) & 1u ? BZS_FILL : BZS_IDLE;
+    }
+    if (f >= BZF_KIT0 && f <= BZF_KIT7) {
+        i = f - BZF_KIT0;
+        return bzkit.k == i + 1u ? BZS_FILL : !bz_kit_used(i) ? BZS_DIM : t->user == BZ_KIT0 + i + 1u ? BZS_TINT
+               : BZS_IDLE;
+    }
+    if (f >= BZF_RATE0 && f <= BZF_RATE5) {
+        i = f - BZF_RATE0 + 1u;
+        return ((rl_rates & ~rl_latch) >> i) & 1u || (bz_build && bz_build_rate == i) ? BZS_FILL
+               : (rl_latch >> i) & 1u ? BZS_TINT : BZS_IDLE;
+    }
+    if (f >= BZF_PPR0 && f <= BZF_PPR5) {
+        pad = bz_pad_of(0);
+        for (i = 0; i < 4u; i++)
+            if ((bz_pads >> i) & 1u) {
+                pad = bz_pad_of(i);
+                break;
+            }
+        return pad < 16u && rl_pp_rate[pad % NLANE] == f - BZF_PPR0 + 2u ? BZS_FILL : BZS_IDLE;
+    }
+    if (f >= BZF_PPF0 && f <= BZF_PPF5) {
+        pad = bz_pad_of(0);
+        for (i = 0; i < 4u; i++)
+            if ((bz_pads >> i) & 1u) {
+                pad = bz_pad_of(i);
+                break;
+            }
+        return pad < 16u && rl_pp_fx[pad % NLANE] == f - BZF_PPF0 + 1u ? BZS_FILL : BZS_IDLE;
+    }
+    switch (f) {
+    case BZF_B4: case BZF_B8:
+        return !drum ? BZS_DIM : bz_build == (f == BZF_B4 ? 4u : 8u) && !bz_b_fill && bz_drop == BZD_IDLE ? BZS_FILL
+               : BZS_IDLE;
+    case BZF_RISER: return bz_riser ? BZS_FILL : BZS_IDLE;
+    case BZF_DROP: return bz_drop == BZD_RUN ? BZS_FILL : bz_drop == BZD_ARMED ? BZS_TINT : song.playing ? BZS_IDLE
+                          : BZS_DIM;
+    case BZF_CAP: return bz_cap == BZC_IDLE || bz_cap == BZC_CLEAR ? BZS_IDLE : bz_cap == BZC_ARMED || bz_cap_pend
+                         ? BZS_TINT : BZS_FILL;
+    case BZF_EOUT: return bz_eo != BZE_IDLE ? BZS_FILL : BZS_IDLE;
+    case BZF_SCAT: return (fx >> PF_SCAT) & 1u ? BZS_FILL : BZS_IDLE;
+    case BZF_SPIN: return bz_spin != BZB_IDLE ? BZS_FILL : BZS_IDLE;
+    case BZF_CAPLEN: return BZS_IDLE;
+    case BZF_CAPSAVE: return (bz_cap == BZC_SOLO || bz_cap == BZC_MIX) && !song.playing ? BZS_IDLE : BZS_DIM;
+    case BZF_MA: case BZF_MB:
+        return bzm.k == (f == BZF_MA ? 1u : 2u) ? BZS_FILL : (bzm.ok >> (f == BZF_MA ? 0 : 1)) & 1u ? BZS_TINT
+               : BZS_IDLE;
+    case BZF_PREV: case BZF_NEXT: return bz_set_n ? BZS_IDLE : BZS_DIM;
+    case BZF_RIDE: return (bzm.ok & 3u) != 3u ? BZS_DIM : bzride.on ? BZS_FILL : BZS_IDLE;
+    case BZF_MORPH: return (bzm.ok & 3u) != 3u ? BZS_DIM : bzm.on ? BZS_FILL : BZS_IDLE;
+    case BZF_ONE: return song.playing ? BZS_IDLE : BZS_DIM;
+    case BZF_REL: return BZS_IDLE;
+    case BZF_FILL: return !drum ? BZS_DIM : bz_build && bz_b_fill ? BZS_FILL : BZS_IDLE;
+    case BZF_TAP: case BZF_NDN: case BZF_NUP:
+        return song.g[G_CLOCK] ? BZS_DIM : (rlu.nk >> k) & 1u ? BZS_FILL : BZS_IDLE;
+    case BZF_SHAPE: return rl_shape ? BZS_TINT : BZS_IDLE;
+    case BZF_FOLLOW: return song.g[G_CLOCK] ? BZS_FILL : BZS_IDLE;
+    default: return BZS_DIM;
+    }
+}
+/* KEYS: the scale's notes the white keys walk (bz_key_note's: in a blend, the shared ones) */
+static uint32_t bz_keys_n(const track_t *t)
+{
+    uint32_t mask = scale_mask(t), n = 0, pc, r = (uint32_t)t->p[P_ROOT] % 12u, bl = bz_blend;
+    for (pc = 0; pc < 12u; pc++)
+        if ((mask >> pc) & 1u && (!bl || ((bl >> ((r + pc) % 12u)) & 1u)))
+            n++;
+    if (!n)
+        for (pc = 0; pc < 12u; pc++)
+            n += (mask >> pc) & 1u;
+    return n;
+}
+
 /* key k's LED in the BLAZE layer: lit (held, latched, running, the value), breathing (can be pressed), dark */
 static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
 {
-    uint32_t p = key_place(k), fx = perf_held | perf_latched;
+    uint32_t p = key_place(k);
     if (bz_rb) {                                    /* 0.9 REKORDBOX: every key can; held: lit; DECK 2: lit */
         *can = !key_black(k) || p < 11u;
         *on = key_black(k) && p == BZ_RB_DECK_KEY ? bz_rb_deck != 0u : (bz_rb_down >> k) & 1u;
@@ -1247,8 +1640,9 @@ static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
     if (bz_chord) {
         const track_t *t = &trk[bz_ctrk % NTRK];
         if (!key_black(k)) {
-            *can = p < 8u;
-            *on = p < 7u && bz_ch_sel == p + 1u;
+            *can = p < 16u;
+            *on = p < 7u ? bz_ch_sel == p + 1u : p == 8u ? bz_g_auto != 0u : p >= 10u && p <= 12u
+                  ? bz_g_every == (1u << (p - 10u)) : p == 13u ? bz_g_mel != 0u : p == 15u && bz_g_keep;
             return;
         }
         *can = p < 11u;
@@ -1258,10 +1652,9 @@ static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
     }
     if (bz_keys) {
         const track_t *t = &trk[bz_ktrk % NTRK];
-        if (!key_black(k)) {                        /* the scale's notes breathe, the root's lit, a key held lit */
-            uint32_t n = 0, pc;
-            for (pc = 0; pc < 12u; pc++)
-                n += (scale_mask(t) >> pc) & 1u;
+        if (!key_black(k)) {                        /* every white key is in key: the home notes lit, a key held lit
+                                                     * (0.12: the chord's notes brighter, bz_groups) */
+            uint32_t n = bz_keys_n(t);
             *can = p < 16u;
             *on = *can && (((fm1_in.notes >> k) & 1u) || (n && p % n == 0u));
             return;
@@ -1272,36 +1665,10 @@ static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
               : p == BZK_ODN ? bz_koct < 0 : p == BZK_OUP && bz_koct > 0;
         return;
     }
-    if (key_black(k)) {
-        if (p < 6u) {
-            *on = (rl_rates >> (p + 1u)) & 1u;
-            *can = 1;
-        } else if (p == BZK_TAP || p == BZK_NDN || p == BZK_NUP) {
-            *on = (rlu.nk >> k) & 1u;
-            *can = !song.g[G_CLOCK];
-        } else {
-            *can = p == BZK_REL || (p == BZK_ONE && song.playing);
-        }
-        return;
-    }
-    if (p < BZ_FX0) {
-        uint32_t pad = bz_pad_of(p);
-        *can = pad < 16u;
-        *on = *can && ((((uint32_t)rl_extra | rlu.fl) >> pad) & 1u);
-    } else if (p < BZ_FX0 + BZ_NFX) {
-        *can = (perf_avail() >> BZ_FX[p - BZ_FX0]) & 1u;
-        *on = *can && ((fx >> BZ_FX[p - BZ_FX0]) & 1u);
-    } else if (p == BZ_B4 || p == BZ_B8) {
-        *on = bz_build == (p == BZ_B4 ? 4u : 8u);
-        *can = 1;
-    } else if (p == BZ_RISER) {
-        *on = bz_riser != 0u;
-        *can = 1;
-    } else if (p == BZ_EOUT) {
-        *on = bz_eo != BZE_IDLE;
-        *can = 1;
-    } else if (p == BZ_SPREV || p == BZ_SNEXT) {
-        *can = bz_set_n != 0u;
+    {                                               /* 0.12: BLAZE's own page, by what each key does now */
+        uint32_t f = bz_fn(k, (uint32_t)bz_shift(), bz_pads != 0u), st = bz_fn_state(f, k);
+        *can = st != BZS_DIM && f != BZF_NONE;
+        *on = st >= BZS_TINT;
     }
 }
 
@@ -1319,7 +1686,7 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
-    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_riser_held() ? "[ENV] RISER SOUND"
+    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_build_held() ? "[ENV] BUILD SETUP" : bz_drop_held() ? "[ENV] DROP SETUP" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shlock ? "[ENV] SHIFT LOCK" : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
@@ -1359,6 +1726,12 @@ static uint32_t bz_sig(void)
                                                   * its cell outlined; 0.7: the KITs, KEY LOCK) */
     h = h * 379u + bz_spin * 383u + bz_shk_held * 389u + bzm.on * 397u + bzm.pos * 401u + bzm.ok * 409u +
         (uint32_t)bzm.k * 419u;                     /* (0.10: BACKSPIN, SHIFT 9..16, MORPH) */
+    h = h * 601u + bz_g_auto * 607u + bz_g_prog * 613u + bz_g_every * 617u + bz_g_mel * 619u + bz_g_keep * 631u +
+        bz_g_dens * 641u + bz_g_range * 643u + bz_g_idx * 647u + (uint32_t)(bz_chord && bz_white_held(13u)) * 653u;
+    h = h * 467u + bz_b_lane * 479u + bz_b_curve * 487u + bz_b_swell * 491u + bz_b_fx * 499u + bz_d_top * 503u +
+        bz_d_len * 509u + bz_d_extra * 521u + bz_d_hit * 523u + bz_b_fill * 541u + bz_build * 547u +
+        (uint32_t)song.g[G_CLOCK] * 557u + bz_pad_slot[0] * 563u + bz_pad_slot[1] * 569u + bz_pad_slot[2] * 571u +
+        bz_pad_slot[3] * 577u + (uint32_t)bz_build_held() * 587u + (uint32_t)bz_drop_held() * 593u + bz_pads * 599u;
     h = h * 421u + bz_shlock * 463u + bz_cap * 431u + bz_cap_pend * 433u + bz_drop * 439u + rl_shape * 443u + bzride.on * 449u +
         bz_cap_bars * 457u;                         /* (0.11) */
     h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +
@@ -1400,6 +1773,19 @@ static void bz_groups(uint32_t can, uint32_t *lo, uint32_t *hi)
 {
     uint32_t k;
     *lo = *hi = 0;
+    if (ui.layer == LAYER_BLAZE && bz_keys) {        /* 0.12 KEYS: the chord's notes (the 3rd, the 5th up from home)
+                                                     * brighter, the rest of the scale low; the black keys dark unless on */
+        uint32_t n = bz_keys_n(&trk[bz_ktrk % NTRK]), d;
+        for (k = 0; k < 27u; k++)
+            if (((can >> k) & 1u) && !key_black(k) && key_place(k) < 16u) {
+                d = n ? key_place(k) % n : 0u;
+                if (d == 2u || d == 4u)
+                    *hi |= 1u << k;
+                else
+                    *lo |= 1u << k;
+            }
+        return;
+    }
     for (k = 0; k < 27u; k++)
         if ((can >> k) & 1u) {
             if ((key_place(k) / 4u) & 1u)

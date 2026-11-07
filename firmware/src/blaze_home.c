@@ -33,19 +33,60 @@ static const uint8_t BZ_FX[BZ_NFX + 1u] = {PF_ETHR, PF_RTHR, PF_REV, PF_TAPE, PF
 #define BZ_SCAT 6u
 /* 0.10, SHIFT + white 9..16 (no pad held): 9 SCATTER (tap: on, hold: while held), 10 BACKSPIN, 13 / 14 MORPH A / B
  * (held: saved), 15 MORPH on / off (blaze_home_ui.c); 11 12 16: 0.11's LOOP CAPTURE */
-enum { BZS9_SCAT = 8, BZS9_SPIN, BZS9_CAP, BZS9_CAPLEN, BZS9_MA, BZS9_MB, BZS9_MORPH, BZS9_CAPSAVE };
 enum { BZB_IDLE, BZB_ARMED, BZB_SPUN };
-#define BZ_PAD0 0u                              /* white places: the pads 0..3, the effects 4..9, BUILD 4 / 8, RISER */
-#define BZ_FX0 4u
-#define BZ_B4 10u
-#define BZ_B8 11u
-#define BZ_RISER 12u
+#define BZ_PAD0 0u                              /* white places (0.12, BLAZE's page): the pads 0..3, ECHO REVERB BRAKE */
+#define BZ_FX0 4u                               /* REPEAT 4..7, BUILD 4 / 8, RISER, DROP, CAPTURE, EXIT, SCATTER, SPIN */
+#define BZ_B4 8u
+#define BZ_B8 9u
+#define BZ_RISER 10u
+#define BZ_DROPK 11u
+#define BZ_CAPK 12u
 #define BZ_EOUT 13u
-#define BZ_SPREV 14u                            /* SET: PREV, NEXT (to RAIL: CC 31 on channel 16, 1 / 2) */
+#define BZ_SCATK 14u
+#define BZ_SPINK 15u
+#define BZ_SPREV 14u                            /* SHIFT: SET PREV, NEXT (to RAIL: CC 31 on channel 16, 1 / 2) */
 #define BZ_SNEXT 15u
+enum { BZB_RIDE = 6u, BZB_MORPH, BZB_ONE, BZB_REL, BZB_FILL };   /* 0.12 black places (0..5: the rates) */
 enum { BZR_NOISE, BZR_AIR, BZR_SIREN, BZR_TONE, BZR_SYNTH, BZR_NTYPE };
 enum { BZE_IDLE, BZE_ARMED, BZE_ECHO, BZE_TAIL, BZE_OUT };
-enum { BZK_TAP = 6u, BZK_NDN, BZK_NUP, BZK_REL, BZK_ONE };   /* black places 6..10 (0..5: the rates) */
+enum { BZK_TAP = 6u, BZK_NDN, BZK_NUP, BZK_REL, BZK_ONE };   /* (ROLL's and LOOPS' black places 6..10) */
+/* 0.12: what each key of BLAZE's own page does, by place, SHIFT off / on (a pad held + SHIFT: PAD PRESET's, bz_fn).
+ * A key keeps what it did at its press until it is let go (bz_kfn) */
+enum {
+    BZF_NONE, BZF_PAD0, BZF_PAD1, BZF_PAD2, BZF_PAD3,
+    BZF_FX0, BZF_FX1, BZF_FX2, BZF_FX3, BZF_FX4, BZF_FX5,          /* BZ_FX[i]: ECHO REVERB REVERSE BRAKE FREEZE REPEAT */
+    BZF_B4, BZF_B8, BZF_RISER, BZF_DROP, BZF_CAP, BZF_EOUT, BZF_SCAT, BZF_SPIN,
+    BZF_KIT0, BZF_KIT7 = BZF_KIT0 + 7, BZF_CAPLEN, BZF_CAPSAVE, BZF_MA, BZF_MB, BZF_PREV, BZF_NEXT,
+    BZF_RATE0, BZF_RATE5 = BZF_RATE0 + 5, BZF_RIDE, BZF_MORPH, BZF_ONE, BZF_REL, BZF_FILL,
+    BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW,
+    BZF_PPR0, BZF_PPR5 = BZF_PPR0 + 5, BZF_PPF0, BZF_PPF5 = BZF_PPF0 + 5,
+    BZF_N
+};
+static const uint8_t BZW[2][16] = {
+    {BZF_PAD0, BZF_PAD1, BZF_PAD2, BZF_PAD3, BZF_FX0, BZF_FX1, BZF_FX3, BZF_FX5,
+     BZF_B4, BZF_B8, BZF_RISER, BZF_DROP, BZF_CAP, BZF_EOUT, BZF_SCAT, BZF_SPIN},
+    {BZF_KIT0, BZF_KIT0 + 1, BZF_KIT0 + 2, BZF_KIT0 + 3, BZF_KIT0 + 4, BZF_KIT0 + 5, BZF_KIT0 + 6, BZF_KIT7,
+     BZF_FX2, BZF_FX4, BZF_CAPLEN, BZF_CAPSAVE, BZF_MA, BZF_MB, BZF_PREV, BZF_NEXT}};
+static const uint8_t BZB[2][11] = {
+    {BZF_RATE0, BZF_RATE0 + 1, BZF_RATE0 + 2, BZF_RATE0 + 3, BZF_RATE0 + 4, BZF_RATE5, BZF_RIDE, BZF_MORPH, BZF_ONE,
+     BZF_REL, BZF_FILL},
+    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE}};
+/* key k's function on BLAZE's page: shift SHIFT on, pads a pad held (with SHIFT: a rate or an effect sets its PRESET) */
+static uint32_t bz_fn(uint32_t k, uint32_t shift, uint32_t pads)
+{
+    uint32_t p = key_place(k), f;
+    if (key_black(k))
+        return p >= 11u ? BZF_NONE : pads && shift && p < 6u ? BZF_PPR0 + p : BZB[shift ? 1 : 0][p];
+    if (p >= 16u)
+        return BZF_NONE;
+    if (pads && shift) {
+        f = BZW[0][p] >= BZF_FX0 && BZW[0][p] <= BZF_FX5 ? BZW[0][p] : BZW[1][p];
+        return f >= BZF_FX0 && f <= BZF_FX5 ? BZF_PPF0 + (f - BZF_FX0) : BZF_NONE;
+    }
+    return BZW[shift ? 1 : 0][p];
+}
+static volatile uint8_t bz_kfn[27];            /* ISR: what each key held does (its press's), BZF_NONE: not BLAZE's */
+static volatile uint32_t bz_ked;               /* main: keys held to edit (a knob turned): their release fires nothing */
 #define BZ_TAP_MS 250u
 #define BZ_RS_TAP_MS 400u                       /* RISER: a second tap within this: 16 bars */
 #define BZ_PHRASE 16u                           /* bars in a phrase */
@@ -85,7 +126,7 @@ static volatile uint8_t bz_eo_bars = 2;        /* main: ECHO OUT's tail, bars */
 static volatile uint8_t bz_eo;                 /* ISR: ECHO OUT's state (BZE_*) */
 static uint32_t bz_eo_left;                    /* .. samples left of the state */
 static uint8_t bz_rs_note, bz_rs_on;           /* SYNTH: its note, sounding on track bz_rs_on - 1 */
-static volatile uint8_t bz_cc_seq, bz_cc[13];  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
+static volatile uint8_t bz_cc_seq, bz_cc[44], bz_cc_knob;   /* (0.12: CC 20..63; RAIL's knobs 50..53 heard: bits) */  /* ISR: CC 20 21 22 (the key), 23 24 25 (the next track's, for a blend; 23
                                                 * 0: none), 26..30 (RAIL's SET: the song's BPM - 60, KIT + 1, LOOPS
                                                 * 64 + the tracks in, the song's number, how many) on channel 16 */
 static volatile uint8_t bz_set_n;              /* main: the SET's songs (RAIL), 0: none */
@@ -93,25 +134,47 @@ static volatile uint8_t bz_set_layers;         /* main: 0x80 | the tracks a song
 static volatile uint16_t bz_blend;             /* main: the next track's scale (bit pc, 0 = C), 0: no blend (KEYS and
                                                 * CHORD keep to the notes both keys share) */
 static volatile uint8_t bz_lock = 1;           /* main: MIDI IN's notes onto the key (0.7: midi_control.c bz_lock_note) */
-static volatile uint8_t bz_kitk;               /* ISR: white keys 1..8 taken by a KIT (SHIFT held at the press: the main
-                                                * loop loads / saves it, the key plays nothing) */
 static volatile uint8_t bz_shift_on;           /* main: SHIFT (OCT+) held in the layer (bz_ui_pass, each pass) */
 static uint8_t bz_follow;                      /* main: a key came from RAIL (the scale LEDs on: ui_input.c) */
 static volatile uint8_t bz_pp_dirty;           /* ISR sets: a PAD PRESET changed (0.9; the main loop saves, says it) */
 static volatile uint8_t bz_pp_lane;            /* .. its lane */
-static uint16_t bz_ppk;                        /* ISR: keys (bit k) taken to set a PAD PRESET: their release, nothing */
 static uint16_t bz_pads;                       /* ISR: the pads the white keys 1..4 hold (key bits 0..3) */
 static uint8_t bz_tapfx;                       /* ISR: the effects pressed down as a tap could be (bit i of BZ_FX) */
 static uint8_t bz_offfx;                       /* .. pressed to turn a latched one off (its release does nothing) */
 static uint32_t bz_fxt[BZ_NFX + 1u];           /* .. when (bz_now) */
-static uint16_t bz_shk;                        /* ISR: white keys 9..16 taken with SHIFT (bit p): their release, theirs */
 static volatile uint16_t bz_shk_held;          /* ISR: .. those still down (the main loop's MORPH keys read it) */
 static volatile uint8_t bz_spin;               /* ISR: BACKSPIN: BZB_* */
 static uint32_t bz_spin_left;                  /* .. samples to its spin (ARMED), to the 1 that ends it (SPUN) */
 static uint32_t bz_now;                        /* ISR: samples, real time */
 static uint32_t bz_wait, bz_age, bz_next;      /* the build: samples to its start, since it started, to its next hit */
 static uint32_t bz_rs_wait, bz_rs_age, bz_rs_t;   /* the riser: samples to its start, since it started; its tap */
-static uint32_t bz_shb;                        /* ISR: black keys taken with SHIFT (0.11: RIDE DROP SHAPE): their release */
+/* 0.12 BUILD's settings (hold BUILD + the knobs; blaze_home_ui.c keeps them): the drum, how it speeds up, how much it
+ * swells, what joins it; FILL (black 11): a roll from now to the bar's 1 on the same drum */
+enum { BZBC_QUARTERS, BZBC_EIGHTHS, BZBC_STRAIGHT, BZBC_SIXTEENTHS, BZBC_N };   /* 1/4>1/32 1/8>1/32 1/16 1/16>1/32 */
+enum { BZBX_NONE, BZBX_FILTER, BZBX_ECHO, BZBX_RISER, BZBX_N };
+static volatile uint8_t bz_b_lane = 1, bz_b_curve, bz_b_swell = 100, bz_b_fx;   /* main */
+static volatile uint8_t bz_b_fill;             /* ISR: the build running is FILL's */
+static uint8_t bz_b_fxon;                      /* ISR: its effect running (BZBX_*) */
+static int8_t bz_b_k0;                         /* .. FILTER: COLOR before it */
+static uint32_t bz_b_total;                    /* .. its length, samples */
+/* 0.12 DROP's settings (hold DROP + the knobs): how far COLOR climbs, how long, what comes with it, what hits on the 1 */
+enum { BZDL_PHRASE, BZDL_4, BZDL_8, BZDL_16, BZDL_N };
+enum { BZDX_SPIN, BZDX_SPIN_BUILD, BZDX_BUILD, BZDX_NONE, BZDX_N };
+enum { BZDH_NONE, BZDH_ECHO, BZDH_REVERB, BZDH_CRASH, BZDH_N };
+static volatile uint8_t bz_d_top = 70, bz_d_len, bz_d_extra, bz_d_hit;   /* main */
+static uint32_t bz_d_fxleft;                   /* ISR: the 1's ECHO / REVERB throw: samples left */
+static uint8_t bz_d_fxbit;                     /* .. its effect (PF_*), 0 none */
+/* 0.12: MIDI out from the main loop (FOLLOW's state, the SELECT knob's tempo nudges to RAIL): a ring, sent by the ISR */
+static volatile uint32_t bz_tx[8];
+static volatile uint8_t bz_tx_w, bz_tx_r;
+/* 0.12: RAIL's actions (channel 16 CC 36: 1 BUILD 4, 2 BUILD 8, 3 RISER, 4 DROP, 5 EXIT, 6 BACKSPIN, 7 CAPTURE,
+ * 8 ALL OFF, 9 FILL, 10 SCATTER): the main loop sets it, the ISR does it */
+static volatile uint8_t bz_req;
+/* 0.12 FOLLOW: the main loop switched the clock (G_CLOCK) and the transport plays on through it (seq.c events_block) */
+static volatile uint8_t bz_clk_soft;
+/* 0.12: BLAZE's four pads, each its own (hold one + ALGORITHM: another drum): pad index + 1, 0: ROLL's PADS 4's */
+static volatile uint8_t bz_pad_slot[4];
+static uint8_t bz_pad_dn[4];                   /* ISR: the pad each white 1..4 held plays (its press's: a swap meanwhile) */
 enum { BZD_IDLE, BZD_ARMED, BZD_RUN };
 static volatile uint8_t bz_drop;               /* ISR: 0.11 DROP: BZD_* */
 static volatile uint8_t bz_dr_bars;            /* .. its bars (the main loop says them) */
@@ -131,6 +194,8 @@ static struct {
 static uint32_t bz_pad_of(uint32_t i)
 {
     uint32_t p, n = 0, m = rl_live4;
+    if (i < 4u && bz_pad_slot[i])
+        return (bz_pad_slot[i] - 1u) % 16u;      /* (0.12: swapped with ALGORITHM) */
     for (p = 0; p < 16u; p++)
         if (((m >> p) & 1u) && n++ == i)
             return p;
@@ -156,12 +221,14 @@ static uint32_t bz_key_note(const track_t *t, uint32_t i)
     return (uint32_t)clamp(note, 0, 127);
 }
 
-/* the rate the build plays age samples in, of bars bars (1/4 1/8 1/16 1/32: a quarter of it each) */
-static uint32_t bz_build_at(uint32_t age, uint32_t bars)
+/* the rate (RL index) the build plays at age samples into total, a quarter of it each: BUILD's curve (0.12: BZBC_*),
+ * FILL's 1/8 1/16 1/32 1/32 */
+static uint32_t bz_build_at(uint32_t age, uint32_t total)
 {
-    static const uint8_t R[4] = {1u, 2u, 4u, 6u};
-    uint32_t q = bars * 4u * beat_samples() / 4u, s = q ? age / q : 0u;
-    return R[s < 4u ? s : 3u];
+    static const uint8_t R[BZBC_N + 1u][4] = {{1u, 2u, 4u, 6u}, {2u, 2u, 4u, 6u}, {4u, 4u, 4u, 4u}, {4u, 4u, 6u, 6u},
+                                              {2u, 4u, 6u, 6u}};
+    uint32_t q = total / 4u, s = q ? age / q : 0u;
+    return R[bz_b_fill ? BZBC_N : bz_b_curve % BZBC_N][s < 4u ? s : 3u];
 }
 
 /* samples to the next bar of the phrase (0: on it now, or stopped) */
@@ -201,17 +268,98 @@ static void bz_rs_synth_off(void)
     }
 }
 
-static void bz_build_start(uint32_t bars)
+/* the build's effect off (COLOR back, the echo let go) */
+static void bz_build_fx_off(void)
 {
-    if (bz_build == bars) {
-        bz_build = 0;                            /* (again: stopped) */
-        return;
-    }
-    bz_wait = bz_to_bar();
+    if (bz_b_fxon == BZBX_FILTER)
+        perf_k[0] = bz_b_k0;
+    else if (bz_b_fxon == BZBX_ECHO)
+        perf_held &= ~PF_BIT(PF_ETHR);
+    bz_b_fxon = BZBX_NONE;
+}
+static void bz_build_stop(void)
+{
+    bz_build_fx_off();
+    bz_build = 0;
+    bz_b_fill = 0;
+}
+/* a build: tag (4 / 8 / a DROP's bars / 1 FILL) shown, total samples long after wait; fill: FILL's rates, no effect */
+static void bz_build_go(uint32_t tag, uint32_t total, uint32_t wait, uint32_t fill, uint32_t fx)
+{
+    bz_build_stop();
+    bz_wait = wait;
     bz_age = 0;
     bz_next = 0;
-    bz_build_rate = (uint8_t)bz_build_at(0, bars);
-    bz_build = (uint8_t)bars;
+    bz_b_fill = (uint8_t)fill;
+    bz_b_total = total ? total : 1u;
+    bz_build_rate = (uint8_t)bz_build_at(0, bz_b_total);
+    bz_b_fxon = (uint8_t)(fx < BZBX_N ? fx : BZBX_NONE);   /* (FILTER takes COLOR when it starts) */
+    if (bz_b_fxon == BZBX_RISER) {               /* (RISER: the riser over the same bars) */
+        bz_b_fxon = BZBX_NONE;
+        if (!bz_riser) {
+            bz_rs_wait = wait;
+            bz_rs_age = 0;
+            bz_rs_t = bz_now;
+            bzr.lp[0] = bzr.lp[1] = bzr.bp[0] = bzr.bp[1] = 0;
+            bz_riser = (uint8_t)tag;
+        }
+    }
+    bz_build = (uint8_t)(tag ? tag : 1u);
+}
+static void bz_build_start(uint32_t bars)
+{
+    if (bz_build == bars && !bz_b_fill) {
+        bz_build_stop();                         /* (again: stopped) */
+        return;
+    }
+    bz_build_go(bars, bars * 4u * beat_samples(), bz_to_bar(), 0, bz_b_fx);
+}
+/* the build, adv samples on (after its wait): its hits on their own grid, louder as it goes (SWELL), its effect */
+static __attribute__((noinline)) void bz_build_more(uint32_t adv)
+{
+    uint32_t total = bz_b_total, r, b = beat_samples(), x;
+    uint32_t pad = bz_b_lane % NLANE, sw = bz_b_swell > 100u ? 100u : bz_b_swell;
+    while (bz_next < adv) {                      /* (hits due in this block: on their own grid) */
+        uint32_t at = bz_age + bz_next;
+        if (at >= total) {
+            bz_build_stop();
+            return;
+        }
+        r = bz_build_at(at, total);
+        bz_build_rate = (uint8_t)r;
+        rl_hit(pad, 127u - sw * 87u / 100u + sw * 87u / 100u * at / total);   /* (127 - 87 SWELL % -> 127) */
+        bz_next += div_samples(RL_DIV[r]) ? div_samples(RL_DIV[r]) : 1u;
+    }
+    bz_next -= adv;
+    bz_age += adv;
+    if (bz_b_fxon == BZBX_FILTER) {              /* FILTER: COLOR up into the high pass, x^2 */
+        int32_t k0 = bz_b_k0 < 60 ? bz_b_k0 : 60;
+        x = bz_age >= total ? 32768u : (uint32_t)((uint64_t)bz_age * 32768u / total);
+        perf_k[0] = (int8_t)(k0 + (int32_t)((uint32_t)(60 - k0) * (x * x >> 15) >> 15));
+    } else if (bz_b_fxon == BZBX_ECHO && bz_age + b >= total && !(perf_held & PF_BIT(PF_ETHR))) {
+        perf_held |= PF_BIT(PF_ETHR);            /* ECHO: the last beat into the echo */
+        perf_ord[PF_ETHR] = ++perf_seq;
+    }
+    if (bz_age >= total)
+        bz_build_stop();                         /* (its last bar over: the drop) */
+}
+
+/* 0.12 FILL (black 11): BUILD's drum from now (on the next 1/16) to the bar's 1, 1/8 -> 1/32; under 2 beats left:
+ * the bar after. Stopped: one bar. Again: stopped */
+static void bz_fill_tap(void)
+{
+    uint32_t w = bz_to_bar(), b = beat_samples(), s16 = div_samples(2);
+    if (bz_build && bz_b_fill) {
+        bz_build_stop();
+        return;
+    }
+    if (!song.playing || !w)
+        w = 4u * b;
+    else if (w < 2u * b)
+        w += 4u * b;
+    bz_build_go(1, w, 0, 1, BZBX_NONE);
+    if (song.playing && clk_pos != CLK_START && s16 && clk_pos)
+        bz_next = s16 - clk_pos % s16;           /* (the first hit on the grid) */
 }
 
 /* RISER tapped: 8 bars from the next bar; tapped again quickly: 16; tapped later: stopped */
@@ -290,7 +438,10 @@ static void bz_bar_set(uint32_t v)
 static void bz_drop_off(void)
 {
     if (bz_drop == BZD_RUN) {
-        perf_k[0] = bz_dr_k0;
+        if (bz_d_top)
+            perf_k[0] = bz_dr_k0;
+        if ((bz_d_extra == BZDX_SPIN_BUILD || bz_d_extra == BZDX_BUILD) && bz_build && !bz_b_fill)
+            bz_build_stop();                     /* (0.12: its BUILD with it) */
         bz_riser = 0;
         bz_rs_synth_off();
         if (bz_dr_spun && bz_spin != BZB_IDLE)
@@ -313,11 +464,24 @@ static void bz_drop_tap(void)
     bar = BZ_PHRASE - bar;
     if (bar < 2u)
         bar += BZ_PHRASE;
+    if (bz_d_len != BZDL_PHRASE)                 /* (0.12 LENGTH: 4 / 8 / 16 bars from the next bar) */
+        bar = 4u << (bz_d_len - 1u);
     bz_dr_bars = (uint8_t)bar;
     bz_dr_wait = w;
     bz_dr_age = 0;
     bz_dr_spun = 0;
     bz_drop = BZD_ARMED;
+}
+/* 0.12 DROP's 1: an ECHO or REVERB throw for a beat, or the kit's crash (lane 8, accented) */
+static void bz_drop_hit(uint32_t b)
+{
+    if (bz_d_hit == BZDH_ECHO || bz_d_hit == BZDH_REVERB) {
+        bz_d_fxbit = (uint8_t)(bz_d_hit == BZDH_ECHO ? PF_ETHR : PF_RTHR);
+        perf_held |= PF_BIT(bz_d_fxbit);
+        perf_ord[bz_d_fxbit] = ++perf_seq;
+        bz_d_fxleft = b;
+    } else if (bz_d_hit == BZDH_CRASH)
+        rl_hit(NLANE - 1u, 127u);
 }
 static __attribute__((noinline)) void bz_drop_block(uint32_t adv)
 {
@@ -338,19 +502,26 @@ static __attribute__((noinline)) void bz_drop_block(uint32_t adv)
         bz_rs_t = bz_now;
         bzr.lp[0] = bzr.lp[1] = bzr.bp[0] = bzr.bp[1] = 0;
         bz_riser = bz_dr_bars;
+        if (bz_d_extra == BZDX_SPIN_BUILD || bz_d_extra == BZDX_BUILD)
+            bz_build_go(bz_dr_bars, bz_dr_total, 0, 0, BZBX_NONE);   /* (0.12: a BUILD into it, BUILD's drum) */
         bz_drop = BZD_RUN;
     }
     bz_dr_age += a;
     if (bz_dr_age >= bz_dr_total) {              /* the 1: everything back */
         bz_drop_off();
         bz_dr_hit = b;
+        bz_drop_hit(b);                          /* (0.12: what hits on it) */
         return;
     }
     end = bz_dr_total > b ? bz_dr_total - b : 1u;   /* (the sweep's top: the last beat's, the spin's) */
     x = bz_dr_age >= end ? 32768u : (uint32_t)((uint64_t)bz_dr_age * 32768u / end);
-    k0 = bz_dr_k0 < BZ_DR_TOP ? bz_dr_k0 : BZ_DR_TOP;
-    perf_k[0] = (int8_t)(k0 + (int32_t)((uint32_t)(BZ_DR_TOP - k0) * (x * x >> 15) >> 15));
-    if (!bz_dr_spun && bz_dr_age + b + b / 2u >= bz_dr_total) {   /* (half way into beat 3 of the last bar: the
+    if (bz_d_top) {                              /* (0.12 TOP: how far COLOR climbs, 0: it stays) */
+        int32_t top = bz_d_top > 100u ? 100 : (int32_t)bz_d_top;
+        k0 = bz_dr_k0 < top ? bz_dr_k0 : top;
+        perf_k[0] = (int8_t)(k0 + (int32_t)((uint32_t)(top - k0) * (x * x >> 15) >> 15));
+    }
+    if (!bz_dr_spun && (bz_d_extra == BZDX_SPIN || bz_d_extra == BZDX_SPIN_BUILD) &&
+        bz_dr_age + b + b / 2u >= bz_dr_total) {   /* (half way into beat 3 of the last bar: the
                                                   * spin on beat 4, silent to the 1) */
         bz_dr_spun = 1;
         if (bz_spin == BZB_IDLE)
@@ -385,7 +556,7 @@ static __attribute__((noinline)) void bz_ev_block(uint32_t n)
     v[4] = (uint8_t)(bz_ev_morph & 127u);
     v[5] = CAPV[bz_cap & 7u];
     v[6] = ((perf_held | perf_latched) & PF_BIT(PF_SCAT)) ? 127u : 0u;
-    t = (uint32_t)bz_build * 4u * beat_samples();
+    t = bz_b_total;
     v[7] = bz_build && !bz_wait && t ? (uint8_t)(1u + (bz_age < t ? (uint32_t)((uint64_t)bz_age * 126u / t) : 126u))
                                      : 0u;
     for (i = 0; i < BZ_EV_N && sent < 2u; i++)
@@ -431,6 +602,7 @@ static void bz_release_all(void)
     rl_pp = 0;
     bz_drop_off();                               /* (0.11: DROP, COLOR back; LOOP CAPTURE out) */
     bz_cap_off();
+    bz_build_stop();                             /* (0.12: the build's effect too) */
     bz_spin_off();                               /* (0.10: BACKSPIN; SCATTER below) */
     for (i = 0; i < BZ_NFX + 1u; i++)
         perf_held &= ~PF_BIT(BZ_FX[i]);
@@ -474,9 +646,101 @@ static void bz_fx_key(uint32_t i, int down)
 }
 
 /* a key of the BLAZE layer down / up (k: 0 = F3 .. 26 = G5). noinline: out of keyboard_block's loop */
+/* 0.12: a key of BLAZE's page down (its function f, bz_fn) */
+static __attribute__((noinline)) void bz_fn_down(uint32_t f, uint32_t k)
+{
+    uint32_t pad, i;
+    if (f >= BZF_PAD0 && f <= BZF_PAD3) {
+        i = f - BZF_PAD0;
+        pad = bz_pad_of(i);
+        if (pad >= 16u)
+            return;
+        bz_pad_dn[i] = (uint8_t)pad;
+        bz_pads |= (uint16_t)(1u << i);
+        rl_vel[pad] = (uint8_t)kb_vel;
+        if (rl_pp_fx[pad % NLANE]) {             /* 0.9: its PRESET effect, while held */
+            uint32_t e = BZ_FX[(rl_pp_fx[pad % NLANE] - 1u) % BZ_NFX];
+            perf_held |= PF_BIT(e);
+            perf_ord[e] = ++perf_seq;
+        }
+        if (rl_pp_rate[pad % NLANE]) {           /* 0.9: its PRESET rate: rolls at it, apart from the rates on */
+            rl_pp_key(pad, rl_pp_rate[pad % NLANE], 1);
+            return;
+        }
+        rl_extra |= (uint16_t)(1u << pad);
+        if (!rl_nr)
+            rl_hit(pad, rl_vel[pad]);
+        else
+            rl_rerun();
+    } else if (f >= BZF_FX0 && f <= BZF_FX5)
+        bz_fx_key(f - BZF_FX0, 1);
+    else if (f == BZF_SCAT)
+        bz_fx_key(BZ_SCAT, 1);
+    else if (f == BZF_SPIN)
+        bz_spin_tap();
+    else if (f == BZF_CAP)
+        bz_cap_tap();                            /* (0.11 LOOP CAPTURE; LENGTH, SAVE: the main loop's) */
+    else if (f == BZF_PREV || f == BZF_NEXT)     /* SET: RAIL moves its list and sends the song back */
+        midi_out_event(0x0Bu | 0xBFu << 8 | 31u << 16 | (f == BZF_NEXT ? 2u : 1u) << 24);
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
+        rl_rate(f - BZF_RATE0 + 1u, 1);          /* (ROLL's rates 1/4 .. 1/32) */
+    else if (f == BZF_ONE)                       /* the nearest step's beat is the 1 */
+        bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
+    else if (f == BZF_REL)
+        bz_release_all();
+    else if (f == BZF_FILL)
+        bz_fill_tap();
+    else if (f >= BZF_PPR0 && f <= BZF_PPR5)     /* 0.9: a pad + SHIFT + a rate: the pad's own rate */
+        bz_pp_set(f - BZF_PPR0 + 2u, 0);
+    else if (f >= BZF_PPF0 && f <= BZF_PPF5)     /* .. + an effect: the pad's own effect */
+        bz_pp_set(0, f - BZF_PPF0 + 1u);
+    (void)k;                                     /* (KITS, MORPH A / B, RIDE, MORPH, TAP, NUDGE, SHAPE, FOLLOW, LENGTH,
+                                                  * SAVE: the main loop's, by the key held) */
+}
+/* .. let go (edited: a knob turned while it was held: BUILD, RISER, DROP, EXIT fire nothing) */
+static __attribute__((noinline)) void bz_fn_up(uint32_t f, uint32_t k, uint32_t edited)
+{
+    uint32_t pad, i;
+    if (f >= BZF_PAD0 && f <= BZF_PAD3) {
+        i = f - BZF_PAD0;
+        pad = bz_pad_dn[i] % 16u;
+        if (!((bz_pads >> i) & 1u))
+            return;
+        if (rl_pp_fx[pad % NLANE])
+            bz_pp_fx_off(i, rl_pp_fx[pad % NLANE]);
+        bz_pads &= (uint16_t)~(1u << i);
+        rl_pp_key(pad, 0, 0);
+        rl_extra &= (uint16_t)~(1u << pad);
+        rl_rerun();
+    } else if (f >= BZF_FX0 && f <= BZF_FX5)
+        bz_fx_key(f - BZF_FX0, 0);
+    else if (f == BZF_SCAT)
+        bz_fx_key(BZ_SCAT, 0);
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
+        rl_rate(f - BZF_RATE0 + 1u, 0);
+    else if (edited)
+        return;
+    else if (f == BZF_B4 || f == BZF_B8)         /* (0.12: these fire when let go: held, the knobs set them up) */
+        bz_build_start(f == BZF_B4 ? 4u : 8u);
+    else if (f == BZF_RISER)
+        bz_riser_tap();
+    else if (f == BZF_DROP)
+        bz_drop_tap();
+    else if (f == BZF_EOUT)
+        bz_eo_tap();
+    (void)k;
+}
+
 static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
 {
-    uint32_t p = key_place(k), pad;
+    uint32_t p = key_place(k), f;
+    if (!down && bz_kfn[k] != BZF_NONE) {        /* (0.12: a key of BLAZE's page let go: there, whatever page is up) */
+        f = bz_kfn[k];
+        bz_kfn[k] = BZF_NONE;
+        bz_fn_up(f, k, (bz_ked >> k) & 1u);
+        bz_ked &= ~(1u << k);
+        return;
+    }
     if (bz_slice)                                /* SLICE: the white keys play (seq.c), the black ones: the main loop's */
         return;
     if (bz_rb || (!down && ((bz_rb_down >> k) & 1u))) {   /* 0.9 REKORDBOX: notes out, nothing sounds (a key let go
@@ -513,125 +777,45 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
             bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
         return;
     }
-    if (key_black(k)) {
-        if (bz_keys)
-            return;                              /* (KEYS: the main loop's) */
-        if (p < 4u && ((down && bz_shift_on && !bz_pads) || (!down && ((bz_shb >> k) & 1u)))) {
-            if (down) {                          /* 0.11: SHIFT + black 1..4 (RIDE 8, RIDE 16: the main loop's; SHAPE
-                                                  * too), 3 DROP */
-                bz_shb |= 1u << k;
-                if (p == 2u)
-                    bz_drop_tap();
-            } else
-                bz_shb &= ~(1u << k);
-            return;
-        }
-        if (p < 6u && down && bz_shift_on && bz_pads) {   /* 0.9: a pad + SHIFT: the pad's own rate */
-            bz_ppk |= (uint16_t)(1u << k);
-            bz_pp_set(p + 2u, 0);
-        } else if (p < 6u && !down && ((bz_ppk >> k) & 1u))
-            bz_ppk &= (uint16_t)~(1u << k);
-        else if (p < 6u)
-            rl_rate(p + 1u, down);               /* (ROLL's rates 1/4 .. 1/32) */
-        else if (p == BZK_REL && down)
-            bz_release_all();
-        else if (p == BZK_ONE && down)           /* the nearest step's beat is the 1 */
-            bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
-        return;                                  /* (TAP, NUDGE: the main loop's) */
+    if (bz_keys)
+        return;                                  /* (KEYS: the white keys play (seq.c), the black ones: the main loop's) */
+    if (down) {
+        f = bz_fn(k, bz_shift_on, bz_pads != 0u);
+        bz_kfn[k] = (uint8_t)f;
+        bz_ked &= ~(1u << k);
+        bz_fn_down(f, k);
     }
-    if (p >= BZ_FX0 && p < BZ_FX0 + BZ_NFX) {    /* 0.9: a pad + SHIFT + an effect: the pad's own effect */
-        if (down && bz_shift_on && bz_pads) {
-            bz_ppk |= (uint16_t)(1u << k);
-            bz_pp_set(0, p - BZ_FX0 + 1u);
-            return;
-        }
-        if (!down && ((bz_ppk >> k) & 1u)) {
-            bz_ppk &= (uint16_t)~(1u << k);
-            return;
-        }
-    }
-    if (p >= 8u && p < 16u && !bz_keys) {        /* 0.10: SHIFT + white 9..16 (no pad held: above) */
-        uint16_t b = (uint16_t)(1u << p);
-        if (down && bz_shift_on) {
-            bz_shk |= b;
-            bz_shk_held |= b;
-            if (p == BZS9_SCAT)
-                bz_fx_key(BZ_SCAT, 1);
-            else if (p == BZS9_SPIN)
-                bz_spin_tap();
-            else if (p == BZS9_CAP)
-                bz_cap_tap();                    /* (0.11 LOOP CAPTURE; LENGTH, SAVE: the main loop's) */
-            return;                              /* (MORPH's: the main loop's, by bz_shk_held) */
-        }
-        if (!down && (bz_shk & b)) {
-            bz_shk &= (uint16_t)~b;
-            bz_shk_held &= (uint16_t)~b;
-            if (p == BZS9_SCAT)
-                bz_fx_key(BZ_SCAT, 0);
-            return;
-        }
-    }
-    if (p < 8u && !bz_keys) {                    /* 0.7: SHIFT + white 1..8: KIT 1..8 (the main loop's) */
-        uint8_t b = (uint8_t)(1u << p);
-        if (down && bz_shift_on) {
-            bz_kitk |= b;
-            return;
-        }
-        if (!down && (bz_kitk & b)) {
-            bz_kitk &= (uint8_t)~b;
-            return;
-        }
-    }
-    if (p < BZ_FX0) {
-        pad = bz_pad_of(p);
-        if (pad >= 16u)
-            return;
-        if (!down) {
-            if (!((bz_pads >> p) & 1u))
-                return;                          /* (it was not down here: a KIT key's, ...) */
-            if (rl_pp_fx[pad % NLANE])
-                bz_pp_fx_off(p, rl_pp_fx[pad % NLANE]);
-            bz_pads &= (uint16_t)~(1u << p);
-            rl_pp_key(pad, 0, 0);
-            rl_extra &= (uint16_t)~(1u << pad);
-            rl_rerun();
-            return;
-        }
-        bz_pads |= (uint16_t)(1u << p);
-        rl_vel[pad] = (uint8_t)kb_vel;
-        if (rl_pp_fx[pad % NLANE]) {             /* 0.9: its PRESET effect, while held */
-            uint32_t e = BZ_FX[(rl_pp_fx[pad % NLANE] - 1u) % BZ_NFX];
-            perf_held |= PF_BIT(e);
-            perf_ord[e] = ++perf_seq;
-        }
-        if (rl_pp_rate[pad % NLANE]) {           /* 0.9: its PRESET rate: rolls at it, apart from the rates on */
-            rl_pp_key(pad, rl_pp_rate[pad % NLANE], 1);
-            return;
-        }
-        rl_extra |= (uint16_t)(1u << pad);
-        if (!rl_nr)
-            rl_hit(pad, rl_vel[pad]);
-        else
-            rl_rerun();
-    } else if (p < BZ_FX0 + BZ_NFX) {
-        bz_fx_key(p - BZ_FX0, down);
-    } else if (!down) {
-        return;
-    } else if (p == BZ_B4 || p == BZ_B8) {
-        bz_build_start(p == BZ_B4 ? 4u : 8u);
-    } else if (p == BZ_RISER) {
+}
+
+/* 0.12: RAIL's action (CC 36's value) */
+static void bz_rail_act(uint32_t q)
+{
+    if (q == 1u || q == 2u)
+        bz_build_start(q == 1u ? 4u : 8u);
+    else if (q == 3u)
         bz_riser_tap();
-    } else if (p == BZ_EOUT) {
+    else if (q == 4u)
+        bz_drop_tap();
+    else if (q == 5u)
         bz_eo_tap();
-    } else if (p == BZ_SPREV || p == BZ_SNEXT) {  /* SET: RAIL moves its list and sends the song back */
-        midi_out_event(0x0Bu | 0xBFu << 8 | 31u << 16 | (p == BZ_SNEXT ? 2u : 1u) << 24);
+    else if (q == 6u)
+        bz_spin_tap();
+    else if (q == 7u)
+        bz_cap_tap();
+    else if (q == 8u)
+        bz_release_all();
+    else if (q == 9u)
+        bz_fill_tap();
+    else if (q == 10u) {                         /* (SCATTER: a tap: latched on / off) */
+        bz_fx_key(BZ_SCAT, 1);
+        bz_fx_key(BZ_SCAT, 0);
     }
 }
 
 /* every block: n samples of real time, adv of the sequencer's (the build, the riser) */
 static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
 {
-    uint32_t pad, total, r, a;
+    uint32_t total, r, a;
     bz_now += n;
     if (bz_drop != BZD_IDLE)                     /* 0.11 DROP (before BACKSPIN: it may ask for it) */
         bz_drop_block(adv);
@@ -716,6 +900,22 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
             bz_rs_synth_off();
         }
     }
+    if (bz_d_fxleft) {                           /* 0.12: DROP's throw on the 1, a beat */
+        if (bz_d_fxleft <= n) {
+            bz_d_fxleft = 0;
+            perf_held &= ~PF_BIT(bz_d_fxbit);
+        } else
+            bz_d_fxleft -= n;
+    }
+    if (bz_tx_r != bz_tx_w) {                    /* 0.12: the main loop's MIDI out (one a block) */
+        midi_out_event(bz_tx[bz_tx_r % 8u]);
+        bz_tx_r = (uint8_t)(bz_tx_r + 1u);
+    }
+    if (bz_req) {                                /* 0.12: RAIL's action (channel 16 CC 36) */
+        uint32_t q = bz_req;
+        bz_req = 0;
+        bz_rail_act(q);
+    }
     if (!bz_build)
         return;
     if (bz_wait) {
@@ -725,29 +925,12 @@ static __attribute__((noinline)) void home_block(uint32_t n, uint32_t adv)
         }
         adv -= bz_wait;
         bz_wait = 0;
+        if (bz_b_fxon == BZBX_FILTER)            /* (FILTER: COLOR from where it is) */
+            bz_b_k0 = perf_k[0];
     }
-    total = (uint32_t)bz_build * 4u * beat_samples();
-    pad = 16u;
-    for (r = 0; r < 16u; r++)
-        if ((rl_live1 >> r) & 1u) {
-            pad = r;
-            break;
-        }
-    while (bz_next < adv) {                      /* (hits due in this block: on their own grid) */
-        uint32_t at = bz_age + bz_next;
-        if (at >= total || pad >= 16u) {
-            bz_build = 0;
-            return;
-        }
-        r = bz_build_at(at, bz_build);
-        bz_build_rate = (uint8_t)r;
-        rl_hit(pad, 40u + 87u * at / (total ? total : 1u));
-        bz_next += div_samples(RL_DIV[r]) ? div_samples(RL_DIV[r]) : 1u;
-    }
-    bz_next -= adv;
-    bz_age += adv;
-    if (bz_age >= total)
-        bz_build = 0;                            /* (its last bar over: the drop) */
+    if (!bz_age && bz_b_fxon == BZBX_FILTER)
+        bz_b_k0 = perf_k[0];
+    bz_build_more(adv);
 }
 
 /* the riser into the mix (fx.c mix_block, before the FX layer and the buses: COLOR filters it, SPACE of it goes to

@@ -24,6 +24,25 @@ static uint8_t bzc_note[BZC_N], bzc_n, bzc_on, bzc_trk;   /* ISR: the chord's no
 static uint8_t bzc_vel = 100;
 static uint32_t bzc_next, bzc_off;             /* ISR: samples to the next stab / gate step, to the sounding one's end */
 static uint8_t bzc_step;                       /* ISR: the gate's step while stopped (playing: the phrase's) */
+/* 0.12 the generator (CHORD's white 9..16): AUTO plays one of the key's common progressions (minor keys their own,
+ * major theirs), a chord every 1, 2 or 4 bars counted from the phrase's 1, as if its white keys were tapped (so the
+ * styles, 7TH, INVERT, OCT and a blend apply); a chord tapped by hand takes over (AUTO off). MELODY plays a 2-bar line
+ * on the KEYS track, on the 1/16 grid, leaning on the notes of the chord playing; a new line each 2 bars unless KEEP
+ * holds the one playing; NEW: a new one at once. DENSITY (how many 1/16s play) and RANGE (1 or 2 octaves): hold
+ * MELODY + KNOB 1 / 2 */
+#define BZG_REST (-128)
+static volatile uint8_t bz_g_auto, bz_g_prog, bz_g_every = 1;   /* main: AUTO, which progression, bars a chord */
+static volatile uint8_t bz_g_mel, bz_g_keep, bz_g_new;          /* main: MELODY, KEEP, NEW asked */
+static volatile uint8_t bz_g_dens = 55, bz_g_range = 1;         /* main: DENSITY %, RANGE octaves (1, 2) */
+static volatile uint8_t bz_g_idx;              /* ISR: the progression's chord now (0..3), the main loop shows it */
+static int8_t bzg_pat[32];                     /* ISR: the line: a step's scale steps above the chord's root (REST) */
+static uint8_t bzg_len[32];                    /* .. its 1/16s held */
+static uint32_t bzg_rng = 0x6D2B79F5u, bzg_t;  /* .. its dice; stopped: the samples counted for AUTO */
+static uint32_t bzg_next, bzg_off;             /* .. samples to the next 1/16, to the note's end */
+static uint8_t bzg_note, bzg_on, bzg_trk, bzg_ctr, bzg_made, bzg_was;
+static const uint8_t BZG_MIN[5][4] = {{0, 5, 2, 6}, {0, 3, 5, 4}, {0, 6, 5, 6}, {0, 5, 3, 4}, {0, 2, 6, 5}};
+static const uint8_t BZG_MAJ[5][4] = {{0, 4, 5, 3}, {5, 3, 0, 4}, {0, 3, 4, 3}, {0, 5, 3, 4}, {0, 3, 0, 4}};
+#define BZG_NPROG 5u
 
 /* chord degree d on track t: up the scale in thirds from d (sev: with its seventh), turned over inv times, oct
  * octaves from C3; its notes, low to high, in out; returns how many */
@@ -121,6 +140,8 @@ static int bzc_fits(const track_t *t, uint32_t d)
  * the next key has not is refused */
 static void bz_chord_key(uint32_t p)
 {
+    if (p < 8u)
+        bz_g_auto = 0;                           /* (0.12: by hand: AUTO lets go) */
     if (p < 7u && !bzc_fits(&trk[bz_ctrk % NTRK], p))
         return;
     if (p < 7u && bz_ch_sel != p + 1u) {
@@ -132,10 +153,119 @@ static void bz_chord_key(uint32_t p)
     }
 }
 
+static uint32_t bzg_rand(void)
+{
+    bzg_rng ^= bzg_rng << 13;
+    bzg_rng ^= bzg_rng >> 17;
+    bzg_rng ^= bzg_rng << 5;
+    return bzg_rng;
+}
+/* a new 2-bar line: a walk over the scale (1 or 2 octaves), most notes on the chord's (its root, 3rd, 5th, octave),
+ * downbeats likelier, now and then a note held over a 1/16 */
+static void bzg_make(void)
+{
+    static const int8_t CT[4] = {0, 2, 4, 7};
+    uint32_t i, top = 7u * (bz_g_range > 1u ? 2u : 1u), dens = bz_g_dens > 100u ? 100u : bz_g_dens;
+    int32_t cur = (int32_t)CT[bzg_rand() % 3u];
+    for (i = 0; i < 32u; i++) {
+        uint32_t want = (i % 4u == 0u) ? dens + (100u - dens) / 2u : (i % 2u == 0u) ? dens : dens * 2u / 3u;
+        bzg_len[i] = 1;
+        if (bzg_rand() % 100u >= want) {
+            bzg_pat[i] = BZG_REST;
+            continue;
+        }
+        if (bzg_rand() % 100u < 60u)             /* (a chord note near where it is) */
+            cur = CT[bzg_rand() % 4u] + (cur >= 7 && top > 7u ? 7 : 0);
+        else
+            cur += (int32_t)(bzg_rand() % 5u) - 2;
+        cur = clamp(cur, 0, (int32_t)top);
+        bzg_pat[i] = (int8_t)cur;
+        if (i + 1u < 32u && bzg_rand() % 100u < 20u) {
+            bzg_len[i] = 2;
+            bzg_pat[++i] = BZG_REST;
+        }
+    }
+    bzg_made++;
+}
+static void bzg_sound_off(void)
+{
+    if (bzg_on) {
+        input_off(&trk[bzg_trk % NTRK], bzg_note);
+        bzg_on = 0;
+    }
+}
+/* AUTO: the progression's chord for now (playing: by the phrase's bars; stopped: by the time counted) */
+static void bzg_auto(uint32_t adv)
+{
+    const track_t *t = &trk[bz_ctrk % NTRK];
+    uint32_t every = bz_g_every ? bz_g_every : 1u, bar, idx, d;
+    const uint8_t *pr = ((scale_mask(t) >> 4) & 1u) ? BZG_MAJ[bz_g_prog % BZG_NPROG] : BZG_MIN[bz_g_prog % BZG_NPROG];
+    if (song.playing && clk_pos != CLK_START)
+        bar = (bz_s16 - bz_org) / 16u;
+    else {
+        bzg_t += adv;
+        bar = bzg_t / (4u * beat_samples() ? 4u * beat_samples() : 1u);
+    }
+    idx = (bar / every) % 4u;
+    d = pr[idx];
+    bz_g_idx = (uint8_t)idx;
+    if (bz_ch_sel != d + 1u && bzc_fits(t, d)) {
+        bz_ch_sel = (uint8_t)(d + 1u);
+        bzc_start();
+    }
+}
+/* MELODY, every block: its 1/16s on the grid (from the phrase's 1), the KEYS track */
+static __attribute__((noinline)) void bzg_block(uint32_t adv)
+{
+    uint32_t period = div_samples(2), step;
+    int32_t v;
+    if (bzg_on) {
+        if (bzg_off <= adv)
+            bzg_sound_off();
+        else
+            bzg_off -= adv;
+    }
+    if (!bz_g_mel) {
+        bzg_was = 0;
+        return;
+    }
+    if (!bzg_was || bz_g_new) {                  /* (MELODY on, NEW: a new line, from the next 1/16) */
+        bz_g_new = 0;
+        bzg_make();
+        if (!bzg_was)
+            bzg_next = bzc_wait(period);
+        bzg_was = 1;
+    }
+    if (bzg_next >= adv) {
+        bzg_next -= adv;
+        return;
+    }
+    step = song.playing && clk_pos != CLK_START
+         ? (bz_s16 - bz_org + (clk_pos * 2u >= period ? 1u : 0u)) % 32u : bzg_ctr++ % 32u;
+    if (step == 0u && !bz_g_keep && bzg_made)
+        bzg_make();                              /* (each 2 bars a new one, unless KEEP) */
+    v = bzg_pat[step];
+    if (v != BZG_REST) {
+        const track_t *kt = &trk[bz_ktrk % NTRK];
+        uint32_t d = bz_ch_sel ? bz_ch_sel - 1u : 0u;
+        bzg_sound_off();
+        bzg_trk = (uint8_t)(bz_ktrk % NTRK);
+        bzg_note = (uint8_t)bz_key_note(kt, 7u + d + (uint32_t)v);
+        input_on(&trk[bzg_trk], bzg_note, step % 4u == 0u ? 110u : 84u);
+        bzg_on = 1;
+        bzg_off = period * bzg_len[step] * 4u / 5u;
+    }
+    bzg_next += period - adv;
+}
+
 /* every block: adv samples of the sequencer's time (the stabs, the gate) */
 static __attribute__((noinline)) void chord_block(uint32_t adv)
 {
     uint32_t period, step;
+    if (bz_g_auto)
+        bzg_auto(adv);                           /* (0.12 AUTO) */
+    if (bz_g_mel || bzg_on || bzg_was)
+        bzg_block(adv);                          /* (0.12 MELODY) */
     if (bz_ch_dirty) {
         bz_ch_dirty = 0;
         if (bz_ch_sel)

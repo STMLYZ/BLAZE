@@ -367,3 +367,91 @@ RAIL v7 can correct the phrase counter: click the bar you're actually on, or `[`
 32-bar phrase's 17–32 land on 1–16), 64 = the nearest bar line is the 1. BLAZE's counter, and everything that counts
 from it (BUILD, RISER, DROP, LOOPS, SLICE's QUANTIZE), moves with it. RAIL v7's tempo buttons set the Link tempo
 through RAIL BRIDGE v5; the FM-1 follows the clock as before.
+
+## 0.12 — a DJ first page, hold-to-set BUILD and DROP, FILL, FOLLOW, the chord generator
+
+BLAZE's own page is reshuffled so the live tools need no SHIFT. Everything that moved is listed under each page.
+
+### BLAZE (no SHIFT)
+
+| Keys | What |
+|---|---|
+| white 1–4 | the 4 pads (hold one + **ALGORITHM**: another drum, see below) |
+| white 5–8 | ECHO, REVERB, BRAKE, REPEAT (tap latches, hold plays while held) |
+| white 9–12 | BUILD 4, BUILD 8, RISER, DROP — they **start when let go**; **hold one + the knobs** sets it up instead |
+| white 13–16 | CAPTURE, EXIT, SCATTER, BACKSPIN |
+| black 1–6 | rates 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32 |
+| black 7 | RIDE (MORPH A → B over 8 bars; double-tap: 16) |
+| black 8 | MORPH on / off |
+| black 9 | THE 1 |
+| black 10 | ALL OFF |
+| black 11 | **FILL** (new) |
+| knobs | COLOR, PITCH (MORPH while it's on), DEPTH (WILD while SCATTER is on), THROW |
+
+### BLAZE + SHIFT (hold OCT+, or double-tap it to lock)
+
+| Keys | What |
+|---|---|
+| white 1–8 | KIT 1–8 (hold to save, tap to load) |
+| white 9, 10 | REVERSE, FREEZE |
+| white 11, 12 | capture LENGTH, capture SAVE |
+| white 13, 14 | MORPH A, B (hold to store) |
+| white 15, 16 | SET previous / next song (RAIL) |
+| black 1–3 | TAP, SLOWER, FASTER |
+| black 4 | ROLL SHAPE |
+| black 5 | **FOLLOW** (new) |
+| knobs | PITCH, DECAY, TONE, DRIVE |
+
+Moved from 0.11.1: REVERSE and FREEZE to SHIFT; SET to SHIFT; TAP and the nudges to SHIFT; THE 1 to black 9; DROP to
+white 12 and no SHIFT; SCATTER, BACKSPIN and CAPTURE without SHIFT; RIDE and MORPH to black 7 / 8; DEPTH and THROW are
+main knobs; SNAP is EDIT's HIT page only.
+
+### BUILD and DROP set up by holding them
+
+Hold **BUILD 4** or **BUILD 8** and turn: KNOB 1 **DRUM** (any lane of the kit, SNARE by default), KNOB 2 **SPEED**
+(1/4 > 1/32, 1/8 > 1/32, straight 1/16, 1/16 > 1/32), KNOB 3 **SWELL** (how much quieter it starts, 0–100 %),
+KNOB 4 **WITH** (nothing, FILTER — COLOR climbs into the high pass over the build and comes back after, ECHO — the last
+beat into the echo, RISER — the riser over the same bars). Hold **DROP** and turn: KNOB 1 **FILTER** (how far COLOR
+climbs, 0 = it stays), KNOB 2 **LENGTH** (to the phrase's 1, or 4 / 8 / 16 bars from the next bar), KNOB 3 **WITH**
+(BACKSPIN, BACKSPIN + BUILD, BUILD, nothing), KNOB 4 **HIT** on the 1 (nothing, an ECHO throw, a REVERB throw, the
+kit's crash). Let go after turning: nothing starts. All kept with the FM-1's settings. RISER and EXIT work the same way
+(hold + knobs, let go: nothing starts).
+
+### FILL (black 11)
+
+A snare roll from now to the next bar's 1 on BUILD's drum: 1/8, then 1/16, then 1/32, louder as it goes. Under two
+beats from the bar line it goes to the bar after. Stopped: one bar. Again while it runs: stopped.
+
+### Pad swap
+
+Hold a pad (white 1–4) and turn **ALGORITHM**: that pad takes another drum — SNARE, CLAP, closed HAT, OPEN hat, TOM,
+RIM, BELL, KICK last — never one another pad already has. Kept with the settings. ALGORITHM with no pad held still
+steps the KIT.
+
+### FOLLOW (SHIFT + black 5, or RAIL)
+
+Off: the FM-1 stops following rekordbox's Link clock and keeps playing, at the tempo it had, on its own clock — so
+rekordbox can go back to the track's own tempo without dragging the FM-1. On: it follows the clock again (RAIL's
+"Start on next 1" lines the bars up if they drifted). The FM-1 tells RAIL (CC 33). While following, the **SELECT knob**
+nudges the Link tempo through RAIL: 0.1 a detent, faster turns more — rekordbox and the FM-1 both follow.
+
+### KEYS
+
+The white keys light by what they are: the home note full, the 3rd and the 5th up from it bright, the rest of the
+scale low. Every white key is in key. **PRESETS** changes the KEYS track's sound and shows its name.
+
+### CHORD: the generator (white 9–16)
+
+White 8 is OFF as before. **9 AUTO**: the chords play themselves, a progression in the key (minor or major by the
+track's scale). **10 NEW**: another progression. **11 / 12 / 13**: a chord every 1, 2 or 4 bars. **14 MELODY**: a line
+on the KEYS track over the chords, 2 bars long, mostly the chord's notes, a new one every 2 bars — **hold 14 + KNOB 1
+DENSITY, KNOB 2 RANGE** (1 or 2 octaves). **15 NEW**: a new line now. **16 KEEP**: the line repeats. A chord key
+(1–7) turns AUTO off. Playing, it follows the phrase's bars; stopped, it runs on its own time.
+
+### RAIL v8 (channel 16)
+
+RAIL → FM-1: **CC 33** FOLLOW (127 on, 1 off); **CC 36** an action (1 BUILD 4, 2 BUILD 8, 3 RISER, 4 DROP, 5 EXIT,
+6 BACKSPIN, 7 CAPTURE, 8 ALL OFF, 9 FILL, 10 SCATTER, 11 SHIFT LOCK); **CC 50–53** COLOR, MORPH, DEPTH, THROW (absolute;
+a knob's first value is only noted, so nothing jumps). FM-1 → RAIL: **CC 33** FOLLOW's state, **CC 34** the SELECT
+nudge (64 ± tenths of a BPM). RAIL v8 learns MiniLab pads for the actions and knobs for tempo (fine, coarse) and the
+four knobs, and has FOLLOW and **Song BPM** (the Link tempo to the SET song's BPM).
