@@ -75,9 +75,19 @@ static void cpal_fix(void)
     ui_cpal_flags |= CPAL_V2;
 }
 static uint32_t cpal_on(void) { return (ui_cpal_flags & (CPAL_STORED | CPAL_ACTIVE)) == (CPAL_STORED | CPAL_ACTIVE); }
-static uint32_t palette_n(void) { return NPALETTES + ((ui_cpal_flags & CPAL_STORED) ? 1u : 0u); }     /* COLOR's values */
-static uint32_t palette_cur(void) { return cpal_on() ? NPALETTES : settings.palette % NPALETTES; }
-static const char *palette_name(uint32_t v) { return v == NPALETTES ? "CUSTOM" : UI_PALETTES[v % NPALETTES].name; }
+/* COLOR's values (0.14: MENU > COLOR's list, UI_PAL_MENU; CUSTOM after it while one is stored) */
+static uint32_t palette_n(void) { return UI_PAL_NMENU + ((ui_cpal_flags & CPAL_STORED) ? 1u : 0u); }
+static uint32_t palette_cur(void)
+{
+    uint32_t k;
+    if (cpal_on())
+        return UI_PAL_NMENU;
+    for (k = 0; k < UI_PAL_NMENU; k++)
+        if (UI_PAL_MENU[k] == settings.palette % NPALETTES)
+            return k;
+    return 0;                                          /* (not listed: shown as the default, the first) */
+}
+static const char *palette_name(uint32_t v) { return v >= UI_PAL_NMENU ? "CUSTOM" : UI_PALETTES[UI_PAL_MENU[v]].name; }
 /* the palette in use into gfx.c (the settings changed under it: a start, an import, a restore, a STYLE change) */
 static void palette_apply(void)
 {

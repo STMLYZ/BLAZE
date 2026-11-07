@@ -90,6 +90,13 @@ static void bz_phrase_bar(void)
         }
         cv_rect(sx, 1, w, 4, c);
     }
+    if (bar >= 0 && bz_drop != BZD_IDLE) {               /* 0.14: the bar the DROP lands on, in the transitions' colour */
+        int32_t tb = (bar + (int32_t)bz_drop_left()) % (int32_t)BZ_PHRASE, sx = 6 + 14 * tb;
+        cv_rect(sx, 0, 13, 1, ux.btr);
+        cv_rect(sx, 5, 13, 1, ux.btr);
+        cv_rect(sx, 0, 1, 6, ux.btr);
+        cv_rect(sx + 12, 0, 1, 6, ux.btr);
+    }
 }
 
 /* LOOPS: the phrase bar; the white keys as 4 rows of 4: TRACK 1..4 (playing: filled), FADE 1..4 (fading: filled),
@@ -294,7 +301,7 @@ static void layer_rb_map(void)
 static const char *const RLS_CELL[RLS_N] = {"FLAT", "ACC 2", "ACC 4", "FADE"};
 static const char *bz_fn_label(uint32_t f, char *nm)
 {
-    static const char *const CN[8] = {"CAPT", "ARMED", "REC", "SOLO", "MIX", "OUT", "CAPT", "SAVE"};
+    static const char *const CN[8] = {"CAPTURE", "ARMED", "REC", "SOLO", "MIX", "OUT", "CAPTURE", "SAVE"};
     const track_t *t = rl_track();
     if (f >= BZF_PAD0 && f <= BZF_PAD3) {
         uint32_t pad = bz_pad_of(f - BZF_PAD0), l = pad % NLANE;
@@ -330,7 +337,7 @@ static const char *bz_fn_label(uint32_t f, char *nm)
     case BZF_DROP: return "DROP";
     case BZF_CAP: return CN[bz_cap & 7u];
     case BZF_EOUT: return bz_eo == BZE_OUT ? "OUT" : "EXIT";
-    case BZF_SCAT: return "SCATR";
+    case BZF_SCAT: return "SCATTER";
     case BZF_SPIN: return "SPIN";
     case BZF_CAPLEN: return bz_cap_bars == 1u ? "1 BAR" : bz_cap_bars == 2u ? "2 BAR" : "4 BAR";
     case BZF_CAPSAVE: return "SAVE";
@@ -352,15 +359,63 @@ static const char *bz_fn_label(uint32_t f, char *nm)
     }
 }
 /* .. its kind's colour */
+/* 0.14: what key function f's cell says beyond its state (bzk_cell's bzx): how far it runs, the bars before it starts,
+ * latched, its icon */
+static void bz_fn_ext(uint32_t f)
+{
+    uint32_t fx = perf_kill ? 0u : perf_latched, beat;
+    bz_phrase(&beat);
+    bzx.pulse = (uint8_t)(beat & 1u);
+    if (f == BZF_B4 || f == BZF_B8 || f == BZF_FILL) {
+        int mine = f == BZF_FILL ? bz_build && bz_b_fill : bz_build == (f == BZF_B4 ? 4u : 8u) && !bz_b_fill;
+        bzx.icon = f == BZF_FILL ? BZI_NONE : BZI_BUILD;
+        if (mine && bz_wait)
+            bzx.wait = (uint8_t)bz_bars_of(bz_wait);
+        else if (mine)
+            bzx.prog = bz_permille(bz_age, bz_b_total);
+    } else if (f == BZF_RISER) {
+        uint32_t t = (uint32_t)bz_riser * 4u * beat_samples();
+        bzx.icon = BZI_RISER;
+        if (bz_riser && bz_rs_wait)
+            bzx.wait = (uint8_t)bz_bars_of(bz_rs_wait);
+        else if (bz_riser)
+            bzx.prog = bz_permille(bz_rs_age, t);
+    } else if (f == BZF_DROP) {
+        bzx.icon = BZI_DROP;
+        if (bz_drop == BZD_ARMED)
+            bzx.wait = (uint8_t)bz_drop_left();
+        else if (bz_drop == BZD_RUN)
+            bzx.prog = bz_permille(bz_dr_age, bz_dr_total);
+    } else if (f == BZF_SPIN) {
+        bzx.icon = BZI_SPIN;
+        if (bz_spin == BZB_ARMED)
+            bzx.wait = 255u;
+    } else if (f == BZF_EOUT) {
+        if (bz_eo == BZE_ARMED)
+            bzx.wait = 255u;
+    } else if (f == BZF_CAP) {
+        if (bz_cap == BZC_ARMED)
+            bzx.wait = 255u;
+    } else if (f >= BZF_FX0 && f <= BZF_FX5)
+        bzx.lock = (uint8_t)((fx >> BZ_FX[f - BZF_FX0]) & 1u);
+    else if (f == BZF_SCAT)
+        bzx.lock = (uint8_t)((fx & PF_BIT(PF_SCAT)) != 0u);
+    else if (f >= BZF_RATE0 && f <= BZF_RATE5)
+        bzx.lock = (uint8_t)((rl_latch >> (f - BZF_RATE0 + 1u)) & 1u);
+    else if (f >= BZF_PAD0 && f <= BZF_PAD3)
+        bzx.lock = (uint8_t)((bz_padl >> (f - BZF_PAD0)) & 1u);
+    else if (f == BZF_MORPH)
+        bzx.lock = bzm.on;
+}
 static uint16_t bz_fn_col(uint32_t f)
 {
     if (f >= BZF_PAD0 && f <= BZF_PAD3)
         return rl_lane_col(bz_pad_of(f - BZF_PAD0) % NLANE);
     if ((f >= BZF_FX0 && f <= BZF_FX5) || (f >= BZF_PPF0 && f <= BZF_PPF5) || f == BZF_SCAT || f == BZF_SPIN)
-        return T_ACCENT;
+        return ux.bfx;                              /* (0.14: the palette's effects colour; before, ACCENT) */
     if (f == BZF_B4 || f == BZF_B8 || f == BZF_RISER || f == BZF_DROP || f == BZF_CAP || f == BZF_EOUT ||
         f == BZF_FILL || f == BZF_CAPSAVE)
-        return T_REC;
+        return ux.btr;                              /* (0.14: the palette's transitions colour; before, REC) */
     if (f == BZF_TAP || f == BZF_NDN || f == BZF_NUP || f == BZF_ONE || f == BZF_REL || f == BZF_NONE)
         return T_MID;
     return T_THEME;
@@ -406,6 +461,9 @@ static void layer_blaze(void)
         int32_t x = BZX(i % 4u), y = BZD_Y7 + 16 * (int32_t)(i / 4u);
         uint32_t k = bz_key_of(0, i), f = bz_fn(k, (uint32_t)bz_shift(), bz_pads != 0u), st = bz_fn_state(f, k);
         char nm[16];
+        bz_fn_ext(f);                                   /* (0.14: progress, bars to go, latched, icon) */
+        if (bzx.wait && st == BZS_FILL)                 /* (waiting for its bar: outlined, not lit yet) */
+            st = BZS_TINT;
         bzk_cell(x, y, 14, bz_fn_label(f, nm), bz_fn_col(f), st == BZS_DIM ? RLC_DIM : st == BZS_FILL ? RLC_FILL
                  : st == BZS_TINT ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
     }
@@ -413,6 +471,9 @@ static void layer_blaze(void)
         int32_t x = BZX(i % 4u), y = BZD_YB + 18 * (int32_t)(i / 4u), h = i < 8u ? 16 : 14;
         uint32_t k = bz_key_of(1, i), f = bz_fn(k, (uint32_t)bz_shift(), bz_pads != 0u), st = bz_fn_state(f, k);
         char nm[16];
+        bz_fn_ext(f);
+        if (bzx.wait && st == BZS_FILL)
+            st = BZS_TINT;
         bzk_cell(x, y, h, bz_fn_label(f, nm), bz_fn_col(f), st == BZS_DIM ? RLC_DIM : st == BZS_FILL ? RLC_FILL
                  : st == BZS_TINT ? RLC_TINT : RLC_IDLE, BZK_B, i + 1u);
     }

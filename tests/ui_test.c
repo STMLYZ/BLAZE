@@ -1605,20 +1605,20 @@ static int test_display_preferences(void)
     ui.menu_sel = MI_COLOR;
     ui.force = 1; ui_draw();
     memcpy(before, host_screen, sizeof before);
-    settings.palette = 5; palette_set(5);
+    settings.palette = UI_PAL_MENU[4]; palette_set(UI_PAL_MENU[4]);   /* (BLAZE 0.14: ORANGE, the 5th listed) */
     press(B_OCTUP);
     bad += check("COLOR OCT+ previews the next palette (PAPER, light) without closing the menu",
-                 settings.palette == 6 && T_BG == UI_PALETTES[6].c1 && ux.light && ui.menu == 1 && !song.octave &&
+                 str_eq(UI_PALETTES[settings.palette].name, "PAPER") && T_BG == UI_PALETTES[settings.palette].c1 &&
+                 ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to HI-CON, NIGHT (#50), MONO (1.0.2), BLAZE's BOOTH SUN CAMERA, then wraps to GREY",
-                 settings.palette == 7 && (turn(EN_K1, 1), settings.palette == 8u) && T_BG == 0u &&
-                 str_eq(UI_PALETTES[8].name, "NIGHT") && (turn(EN_K1, 1), settings.palette == UI_BW_INDEX) &&
-                 str_eq(UI_PALETTES[UI_BW_INDEX].name, "MONO") && T_BG == 0u && T_TEXT == 0xFFFFu &&
-                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "BOOTH")) &&   /* (BLAZE's three) */
+    bad += check("COLOR KNOB 1 (0.14): MONO, SUN, HI-CON, then wraps to CHROME (the default); GREY .. CAMERA not listed",
+                 settings.palette == UI_BW_INDEX && T_BG == 0u && T_TEXT == 0xFFFFu &&
                  (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "SUN") && ux.light) &&
-                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "CAMERA") && !ux.light) &&
-                 (turn(EN_K1, 1), settings.palette == UI_GREY_INDEX) && str_eq(UI_PALETTES[UI_GREY_INDEX].name, "GREY"));
+                 (turn(EN_K1, 1), str_eq(UI_PALETTES[settings.palette].name, "HI-CON") && !ux.light) &&
+                 (turn(EN_K1, 1), settings.palette == UI_PAL_DEFAULT) && str_eq(UI_PALETTES[UI_PAL_DEFAULT].name, "CHROME") &&
+                 palette_n() == 9u && !palette_listed(UI_GREY_INDEX) &&
+                 palette_from_stored(UI_PAL_TAG + UI_GREY_INDEX) == UI_PAL_DEFAULT);
     settings.lowcut = 2;
     ui.menu_sel = MI_LOWCUT;
     press(B_OCTUP);
@@ -1641,7 +1641,7 @@ static int test_display_preferences(void)
     k = ui.menu == 1 && settings.lowcut == 0u;         /* (OCT- at the first value: nothing, the menu stays) */
     press(B_HOME);
     bad += check("HOME leaves display preferences without changing musical state (OCT- no longer closes)",
-                 k && !ui.menu && settings.palette == UI_GREY_INDEX && !memcmp(sounds, trk, sizeof sounds));
+                 k && !ui.menu && settings.palette == UI_PAL_DEFAULT && !memcmp(sounds, trk, sizeof sounds));
     return bad;
 }
 

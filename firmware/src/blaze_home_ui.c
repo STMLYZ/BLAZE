@@ -1574,6 +1574,27 @@ static void bz_algo(int32_t s)
 /* 0.12: a function's state on BLAZE's page, for its cell and its light: DIM (nothing to do), IDLE, TINT (latched,
  * armed, saved), FILL (on, running, held) */
 enum { BZS_DIM, BZS_IDLE, BZS_TINT, BZS_FILL };
+static int32_t bz_phrase(uint32_t *beat);
+/* 0.14: samples s as bars to go (a part bar counts as one), 1..9 */
+static uint32_t bz_bars_of(uint32_t s)
+{
+    uint32_t bar = 4u * beat_samples(), n = bar ? (s + bar - 1u) / bar : 1u;
+    return n < 1u ? 1u : n > 9u ? 9u : n;
+}
+/* .. a / b as 0..1000 (no 64-bit maths in the main loop: both scaled down first) */
+static int16_t bz_permille(uint32_t a, uint32_t b)
+{
+    a >>= 6;
+    b >>= 6;
+    return (int16_t)(b ? (a >= b ? 1000u : a * 1000u / b) : 0u);
+}
+/* 0.14: the bars before the DROP lands on its 1 (0: no drop) */
+static uint32_t bz_drop_left(void)
+{
+    if (bz_drop == BZD_IDLE)
+        return 0;
+    return bz_bars_of(bz_dr_wait + (bz_dr_total > bz_dr_age ? bz_dr_total - bz_dr_age : 0u));
+}
 static uint32_t bz_fn_state(uint32_t f, uint32_t k)
 {
     const track_t *t = rl_track();
@@ -1745,6 +1766,16 @@ static const char *bz_head(void)
     str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_build_held() ? "[ENV] BUILD SETUP" : bz_drop_held() ? "[ENV] DROP SETUP" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shlock ? "[ENV] SHIFT LOCK" : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
+    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb && bz_drop != BZD_IDLE) {   /* 0.14 */
+        uint32_t n = bz_drop_left();
+        str_cpy(h, bz_drop == BZD_RUN && n <= 1u ? "[ENV] DROP IN 1" : "[ENV] DROP IN ", sizeof h);
+        if (!(bz_drop == BZD_RUN && n <= 1u)) {
+            nm[0] = (char)('0' + n);
+            nm[1] = 0;
+            str_cpy(h + str_len(h), nm, sizeof h - str_len(h));
+        }
+        return h;
+    }
     if (!bz_chord && (cam = bz_camelot(&b, nm, sizeof nm)) != 0 && str_len(h) < 12u) {   /* (KEYS, LOOPS too) */
         str_cpy(h + str_len(h), "  ", sizeof h - str_len(h));   /* (BLAZE: the key in the header, the strip is the phrase) */
         fmt_int(nm, (int32_t)cam);
@@ -1788,6 +1819,8 @@ static uint32_t bz_sig(void)
         bz_d_len * 509u + bz_d_extra * 521u + bz_d_hit * 523u + bz_b_fill * 541u + bz_build * 547u +
         (uint32_t)song.g[G_CLOCK] * 557u + bz_pad_slot[0] * 563u + bz_pad_slot[1] * 569u + bz_pad_slot[2] * 571u +
         bz_pad_slot[3] * 577u + (uint32_t)bz_build_held() * 587u + (uint32_t)bz_drop_held() * 593u + bz_pads * 599u;
+    h = h * 613u + (bz_build ? bz_age >> 14 : 0u) * 617u + (bz_riser ? bz_rs_age >> 14 : 0u) * 619u +
+        (bz_drop ? (bz_dr_age >> 14) + bz_drop_left() * 1021u : 0u) * 631u + bz_padl * 641u;   /* (0.14: the bars, dots) */
     h = h * 421u + bz_shlock * 463u + bz_cap * 431u + bz_cap_pend * 433u + bz_drop * 439u + rl_shape * 443u + bzride.on * 449u +
         bz_cap_bars * 457u;                         /* (0.11) */
     h = h * 331u + bz_rb * 337u + bz_rb_deck * 347u + bz_rb_down * 349u + bz_rb_val[0] * 353u + bz_rb_val[1] * 359u +

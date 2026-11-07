@@ -60,7 +60,21 @@ PALETTES = [
     ("BOOTH",  (0, 0, 0),       (255, 120, 40),  (255, 255, 255), RED,       (0, 230, 255)),
     ("SUN",    (255, 255, 255), (0, 70, 160),    (0, 0, 0),       RED_LIGHT, (120, 30, 160)),
     ("CAMERA", (10, 10, 16),    (200, 130, 255),  (240, 240, 250), RED,       (255, 200, 60)),
+    # BLAZE 0.14: the series' looks (BLAZE's cells: gradient / gloss fills and their own group colours, MENU_FILL)
+    ("CHROME", (12, 14, 18),    (120, 200, 255),  (226, 230, 236), RED,       (255, 170, 60)),
+    ("NEON",   (8, 4, 16),      (0, 232, 255),    (240, 232, 255), RED,       (255, 46, 196)),
+    ("ACID",   (8, 9, 8),       (184, 255, 0),    (230, 234, 228), RED,       (0, 220, 255)),
+    ("SUNSET", (20, 8, 34),     (255, 140, 40),   (255, 234, 216), (255, 64, 96), (255, 96, 170)),
+    ("ORANGE", (0, 0, 0),       (255, 112, 0),    (255, 255, 255), RED,       (255, 214, 160)),
 ]
+# BLAZE 0.14: the palettes MENU > COLOR lists, in this order (the rest kept for their saved ids, a saved one of them
+# shows as CHROME); the first is the default
+MENU = ["CHROME", "NEON", "ACID", "SUNSET", "ORANGE", "PAPER", "MONO", "SUN", "HI-CON"]
+# BLAZE's cells (blaze_roll_draw.c bzk_cell): a lit cell's fill (0 flat, 1 chrome, 2 gloss, 3 sunset) and the group
+# colours of the effects and the transitions (None: secondary and primary, as before 0.14)
+BLAZE = {"CHROME": (1, (120, 200, 255), (255, 170, 60)), "NEON": (0, (0, 232, 255), (255, 46, 196)),
+         "ACID": (1, (170, 182, 194), (184, 255, 0)), "SUNSET": (3, (70, 214, 255), (255, 138, 40)),
+         "ORANGE": (2, (255, 170, 70), (255, 112, 0))}
 BW = "MONO"
 BW_GREY = (82, 82, 82)             # MONO's one mid grey (RGB565 10/20/10): DIM LINE RAISE LANE
 # the 20 palettes of the earlier firmware (index order) -> the new palette
@@ -211,6 +225,19 @@ def main():
                 "/* the 20 palettes of earlier firmware: " + " ".join(OLD) + " */",
                 "static const uint8_t UI_PALETTE_MIGRATE[20] = {" +
                 ", ".join(str(names.index(OLD_TO_NEW[n])) for n in OLD) + "};", ""]
+        out += ["/* BLAZE 0.14: MENU > COLOR's palettes in order (the first the default); the others are kept for their",
+                " * saved ids and show as the first */",
+                f"#define UI_PAL_NMENU {len(MENU)}u",
+                "static const uint8_t UI_PAL_MENU[UI_PAL_NMENU] = {" + ", ".join(str(names.index(n)) for n in MENU) + "};",
+                f"#define UI_PAL_DEFAULT {names.index(MENU[0])}u",
+                "/* BLAZE's cells per palette: the lit fill (0 flat, 1 chrome, 2 gloss, 3 sunset), the effects' and the",
+                " * transitions' colours (RGB565) */",
+                "static const uint8_t UI_PAL_FILL[UI_NPALETTES] = {" +
+                ", ".join(str(BLAZE[n][0] if n in BLAZE else 0) for n in names) + "};",
+                "static const uint16_t UI_PAL_FX[UI_NPALETTES] = {" +
+                ", ".join(f"0x{to565(BLAZE[n][1] if n in BLAZE else p[5]):04x}" for n, p in zip(names, PALETTES)) + "};",
+                "static const uint16_t UI_PAL_TR[UI_NPALETTES] = {" +
+                ", ".join(f"0x{to565(BLAZE[n][2] if n in BLAZE else p[4]):04x}" for n, p in zip(names, PALETTES)) + "};", ""]
         Path(a.out).write_text("\n".join(out))
     for f in fails:
         print("FAIL", f)

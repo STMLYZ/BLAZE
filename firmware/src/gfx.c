@@ -89,6 +89,8 @@ static struct {
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid, ok;
     uint8_t light, mono;
     uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
+    uint8_t bfill;               /* BLAZE 0.14: a lit key cell's fill (UI_PAL_FILL: 0 flat, 1 chrome, 2 gloss, 3 sunset) */
+    uint16_t bfx, btr;           /* .. the effects' and the transitions' colours (UI_PAL_FX / UI_PAL_TR) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
 /* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
@@ -181,14 +183,27 @@ static void palette_set(uint32_t i)
         ux.dim = ux.line = ux.raise = ux.lane = UI_BW_GREY;   /* the one grey: inactive, tracks, wells */
         ux.tint = ux.grid = p->c1;
     }
+    ux.bfill = cust ? 0u : UI_PAL_FILL[i];       /* BLAZE 0.14 (CUSTOM: flat, its own secondary and primary) */
+    ux.bfx = cust ? p->secondary : UI_PAL_FX[i];
+    ux.btr = cust ? p->primary : UI_PAL_TR[i];
     ux.gen++;                                    /* the text ramps change with the coverage curve */
 }
 
-/* settings store a tagged id; ids below 20 are the palettes of earlier firmware */
+/* BLAZE 0.14: palette i is in MENU > COLOR (UI_PAL_MENU); a palette left out of it is kept only for its saved id */
+static int palette_listed(uint32_t i)
+{
+    uint32_t k;
+    for (k = 0; k < UI_PAL_NMENU; k++)
+        if (UI_PAL_MENU[k] == i)
+            return 1;
+    return 0;
+}
+/* settings store a tagged id; ids below 20 are the palettes of earlier firmware; 0.14: one not listed: the default */
 static uint32_t palette_from_stored(uint32_t v)
 {
-    if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
-    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_GREY_INDEX;
+    uint32_t i = v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES ? v - UI_PAL_TAG
+               : v < 20u ? UI_PALETTE_MIGRATE[v] : UI_PAL_DEFAULT;
+    return palette_listed(i) ? i : UI_PAL_DEFAULT;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
 static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }

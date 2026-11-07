@@ -703,11 +703,11 @@ static void palette_choose(uint32_t v)
 {
     if (v >= palette_n())                              /* (CUSTOM with none stored: nothing changes) */
         return;
-    if (v >= NPALETTES) {
+    if (v >= UI_PAL_NMENU) {                           /* (0.14: v is MENU > COLOR's place, UI_PAL_MENU) */
         ui_cpal_flags |= CPAL_ACTIVE;
     } else {
         ui_cpal_flags &= (uint8_t)~CPAL_ACTIVE;
-        settings.palette = v;
+        settings.palette = UI_PAL_MENU[v];
     }
     palette_apply();
     ui.force = 1;

@@ -84,53 +84,135 @@ static uint16_t bzk_on_ink(uint16_t c)          /* text on a solid colour: dark 
     uint32_t r = (c >> 11) << 3, g = ((c >> 5) & 63u) << 2, b = (c & 31u) << 3;
     return r * 299u + g * 587u + b * 114u > 140000u ? RGB(12, 12, 12) : RGB(236, 236, 236);
 }
+/* BLAZE 0.14: what a key cell says beyond its state (the caller sets it before bzk_cell, which clears it): prog
+ * 0..1000 how far a running thing is (a bar along its foot; -1 none), wait the bars before it starts (a badge; 255: its
+ * beat, no number), lock: latched (a dot), icon (BZI_*), pulse: the beat's half (a waiting outline breathes) */
+enum { BZI_NONE, BZI_BUILD, BZI_RISER, BZI_DROP, BZI_SPIN };
+static struct { int16_t prog; uint8_t wait, lock, icon, pulse; } bzx = {-1, 0, 0, 0, 0};
+static const uint8_t BZ_ICON[5][7] = {          /* 7 x 7, a row a byte (bit 6: the left pixel) */
+    {0}, {0x01, 0x01, 0x05, 0x05, 0x15, 0x15, 0x55},                  /* BUILD: bars rising */
+    {0x0F, 0x03, 0x05, 0x09, 0x10, 0x20, 0x40},                       /* RISER: up and to the right */
+    {0x08, 0x08, 0x08, 0x2A, 0x1C, 0x08, 0x7F},                       /* DROP: down to the floor */
+    {0x1C, 0x22, 0x41, 0x41, 0x47, 0x23, 0x1F}};                      /* SPIN: around */
+/* a lit cell's colour at row r of h: the palette's fill (0.14 UI_PAL_FILL: flat, chrome, gloss, sunset) */
+static uint16_t bzk_grad(uint16_t c, int32_t r, int32_t h)
+{
+    int32_t t = h > 1 ? r * 100 / (h - 1) : 0;
+    switch (ux.bfill) {
+    case 1:                                      /* CHROME: a bright top running into the colour, darker at the foot */
+        return r == 1 ? ux_mix(c, RGB(255, 255, 255), 90) : t < 45 ? ux_mix(ux_mix(c, RGB(255, 255, 255), 80), c, t * 100 / 45)
+               : ux_mix(c, ux_mix(c, RGB(40, 44, 52), 55), (t - 45) * 100 / 55);
+    case 2:                                      /* GLOSS: the top half lit, a hard line, the foot darker */
+        return t < 50 ? ux_mix(ux_mix(c, RGB(255, 255, 255), 30), c, t * 2) : ux_mix(c, ux_mix(c, RGB(0, 0, 0), 35), (t - 50) * 2);
+    case 3:                                      /* SUNSET: gold at the top to magenta at the foot */
+        return ux_mix(ux_mix(c, RGB(255, 226, 90), 55), ux_mix(c, RGB(200, 30, 110), 45), t);
+    default:
+        return c;
+    }
+}
+/* a key's cell (BZK_W / BZK_B), 0.14: dark, its group's colour as a line under the name (IDLE); faint in it (TINT; a
+ * waiting thing: outlined, breathing on the beat, a badge of the bars to go); lit in it (FILL: the palette's fill, a
+ * dot when latched, a bar for how far a running thing is); THEME (SEL: picked); hatched (DIM: not now). The key's
+ * number on a tab, a white key's light, a black key's dark. Held now: a dashed edge. A cell of no key (BZK_BTN):
+ * the panel's look */
 static void bzk_cell(int32_t x, int32_t y, int32_t h, const char *txt, uint16_t col, uint32_t how, uint32_t kind,
                      uint32_t num)
 {
-    uint16_t edge = how == RLC_DIM ? T_LINE : col, in, ink, tab, fig;
-    int32_t sw = 0, i, r, w = BZW;
+    uint16_t in, ink, tab, fig, cell = ux_mix(T_BG, T_TEXT, ux.light ? 8 : 9);
+    int32_t sw = 0, i, r, w = BZW, tx, tw;
+    int held = 0;
     char nb[3];
     if (kind == BZK_BTN) {
+        uint16_t edge = how == RLC_DIM ? T_LINE : col;
         in = how == RLC_FILL ? col : how == RLC_SEL ? T_THEME : how == RLC_TINT ? ux_mix(T_BG, col, ux.light ? 20 : 40)
            : how == RLC_DIM ? T_BG : ux.style ? T_BG : T_SURF;
         ink = how == RLC_FILL ? bzk_on_ink(col) : how == RLC_SEL ? T_INK : how == RLC_DIM ? T_DIM : T_TEXT;
-    } else {
-        uint16_t base = bzk_base(kind, 0), bink = bzk_base(kind, 1);
-        if (((kind == BZK_W ? bzk_held_w : bzk_held_b) >> (num - 1u)) & 1u && how != RLC_DIM)
-            edge = T_TEXT;                       /* (held now: which cell is this key) */
-        switch (how) {
-        case RLC_FILL: in = col; ink = bzk_on_ink(col); break;
-        case RLC_SEL: in = T_THEME; ink = T_INK; break;
-        case RLC_TINT: in = ux_mix(base, col, 38); ink = bink; break;
-        case RLC_DIM: in = ux_mix(T_SURF, base, 30); ink = ux_mix(in, bink, 45); break;
-        default: in = base; ink = bink; break;
+        cv_rrect(x, y, w, h, 4, edge, T_SURF);
+        cv_rrect(x + 2, y + 2, w - 4, h - 4, 2, in, edge);
+        GFX_HOOK_ALIGN(x + 2, y, x + w - 2, y + h, AL_HV, "key cell name centred");
+        cv_text_in(x + 2, y + CAP_IN(S, h), w - 4, &AF_S, txt, ink, in);
+        bzx.prog = -1; bzx.wait = bzx.lock = bzx.icon = 0;
+        return;
+    }
+    held = (int)((((kind == BZK_W ? bzk_held_w : bzk_held_b) >> (num - 1u)) & 1u) && how != RLC_DIM);
+    switch (how) {
+    case RLC_FILL: in = bzk_grad(col, h / 2, h); ink = bzk_on_ink(col); break;
+    case RLC_SEL: in = T_THEME; ink = T_INK; break;
+    case RLC_TINT: in = ux_mix(cell, col, 30); ink = T_TEXT; break;
+    case RLC_DIM: in = cell; ink = T_DIM; break;
+    default: in = cell; ink = T_TEXT; break;
+    }
+    cv_rrect(x, y, w, h, 3, in, T_SURF);
+    if (how == RLC_FILL && ux.bfill)             /* (the palette's fill, a row at a time inside the rounded corners) */
+        for (r = 1; r < h - 1; r++)
+            cv_rect(x + 1, y + r, w - 2, 1, bzk_grad(col, r, h));
+    if (how == RLC_DIM)                          /* (hatched: not now) */
+        for (r = -h; r < w; r += 4)
+            for (i = 0; i < h - 2; i++)
+                if (x + r + i >= x + 1 && r + i < w - 1)
+                    cv_rect(x + r + i, y + h - 2 - i, 1, 1, ux_mix(cell, T_DIM, 35));
+    sw = num >= 10u ? 10 : 6;                    /* the number's tab: 2 + 4 a figure */
+    tab = kind == BZK_W ? ux_mix(T_KEY, T_BG, how == RLC_DIM ? 50 : 0) : ux_mix(T_BG, T_TEXT, 22);
+    fig = kind == BZK_W ? T_INK : T_TEXT;
+    if (how == RLC_FILL) {                       /* (lit: the figure in the cell's ink, no tab) */
+        tab = in;
+        fig = ink;
+    } else
+        cv_rrect(x, y, sw, h, 3, tab, T_SURF);
+    if (how != RLC_FILL)
+        cv_rect(x + sw - 3, y, 3, h, tab);
+    nb[0] = (char)(num >= 10u ? '0' + num / 10u : '0' + num);
+    nb[1] = (char)(num >= 10u ? '0' + num % 10u : 0);
+    nb[2] = 0;
+    for (i = 0; nb[i]; i++)
+        for (r = 0; r < 5; r++) {
+            uint32_t bits = BZ_DIGIT[nb[i] - '0'][r], c;
+            for (c = 0; c < 3u; c++)
+                if ((bits >> (2u - c)) & 1u)
+                    cv_rect(x + 2 + 4 * i + (int32_t)c, y + (h - 5) / 2 + r, 1, 1, fig);
         }
-        sw = num >= 10u ? 10 : 6;                /* the number's tab: 2 + 4 a figure */
-        tab = kind == BZK_W ? RGB(12, 12, 12) : RGB(236, 236, 236);
-        fig = kind == BZK_W ? RGB(236, 236, 236) : RGB(12, 12, 12);
-        if (how == RLC_DIM) {
-            tab = ux_mix(in, tab, 50);
-            fig = ux_mix(tab, fig, 50);
+    tx = x + sw + 1;
+    tw = w - sw - 3;
+    if (how == RLC_IDLE || how == RLC_TINT)      /* the group's line under the name */
+        cv_rect(tx + 1, y + h - 2, tw - 2, 1, ux_mix(in, col, 75));
+    if (bzx.wait && how != RLC_FILL) {           /* waiting: outlined (breathing), the bars to go on a badge */
+        uint16_t o = bzx.pulse ? ux_mix(col, in, 55) : col;
+        cv_rect(x, y, w, 1, o); cv_rect(x, y + h - 1, w, 1, o);
+        cv_rect(x, y, 1, h, o); cv_rect(x + w - 1, y, 1, h, o);
+        if (bzx.wait != 255u) {
+            uint32_t d = bzx.wait > 9u ? 9u : bzx.wait;
+            cv_rect(x + w - 8, y + 2, 6, h - 4, col);
+            for (r = 0; r < 5; r++)
+                for (i = 0; i < 3; i++)
+                    if ((BZ_DIGIT[d][r] >> (2 - i)) & 1u)
+                        cv_rect(x + w - 7 + i, y + (h - 5) / 2 + r, 1, 1, bzk_on_ink(col));
+            tw -= 8;
         }
     }
-    cv_rrect(x, y, w, h, 4, edge, T_SURF);
-    if (sw) {
-        cv_rrect(x, y, sw, h, 4, tab, edge);     /* (rounded on the left; its right side squared below) */
-        cv_rect(x + sw - 4, y + 1, 4, h - 2, tab);
-        nb[0] = (char)(num >= 10u ? '0' + num / 10u : '0' + num);
-        nb[1] = (char)(num >= 10u ? '0' + num % 10u : 0);
-        nb[2] = 0;
-        for (i = 0; nb[i]; i++)
-            for (r = 0; r < 5; r++) {
-                uint32_t bits = BZ_DIGIT[nb[i] - '0'][r], c;
-                for (c = 0; c < 3u; c++)
-                    if ((bits >> (2u - c)) & 1u)
-                        cv_rect(x + 2 + 4 * i + (int32_t)c, y + (h - 5) / 2 + r, 1, 1, fig);
-            }
+    if (held)                                    /* held now: a dashed edge, top and foot */
+        for (i = x + 1; i < x + w - 1; i += 4) {
+            cv_rect(i, y, 2, 1, T_TEXT);
+            cv_rect(i, y + h - 1, 2, 1, T_TEXT);
+        }
+    if (bzx.lock && how == RLC_FILL)             /* latched: a dot in the corner */
+        cv_rect(x + w - 5, y + 2, 2, 2, ink);
+    if (bzx.prog >= 0 && how == RLC_FILL) {      /* running: a bar along the foot, how far */
+        int32_t pw = (tw - 2) * (bzx.prog > 1000 ? 1000 : bzx.prog) / 1000;
+        cv_rect(tx + 1, y + h - 3, tw - 2, 2, ux_mix(in, ink, 30));
+        cv_rect(tx + 1, y + h - 3, pw, 2, ink);
     }
-    cv_rrect(x + (sw ? sw : 2), y + 2, w - (sw ? sw : 2) - 2, h - 4, 2, in, edge);
-    GFX_HOOK_ALIGN(x + (sw ? sw : 2), y, x + w - 2, y + h, AL_HV, "key cell name centred");
-    cv_text_in(x + (sw ? sw : 2), y + CAP_IN(S, h), w - (sw ? sw : 2) - 2, &AF_S, txt, ink, in);
+    if (bzx.icon && bzx.icon < 5u) {             /* the transitions' icon, left of the name */
+        uint16_t ic = how == RLC_FILL || how == RLC_SEL ? ink : how == RLC_DIM ? T_DIM : col;
+        for (r = 0; r < 7; r++)
+            for (i = 0; i < 7; i++)
+                if ((BZ_ICON[bzx.icon][r] >> (6 - i)) & 1u)
+                    cv_rect(tx + 1 + i, y + (h - 7) / 2 + r, 1, 1, ic);
+        tx += 9;
+        tw -= 9;
+    }
+    GFX_HOOK_ALIGN(tx, y, tx + tw, y + h, AL_HV, "key cell name centred");
+    cv_text_in(tx, y + CAP_IN(S, h), tw, &AF_S, txt, ink, in);
+    bzx.prog = -1; bzx.wait = bzx.lock = bzx.icon = bzx.pulse = 0;
 }
 /* (a cell as before 0.6: no key's look, any width) */
 static void rl_cell(int32_t x, int32_t y, int32_t w, int32_t h, const char *txt, uint16_t col, uint32_t how)
