@@ -451,7 +451,7 @@ DENSITY, KNOB 2 RANGE** (1 or 2 octaves). **15 NEW**: a new line now. **16 KEEP*
 ### RAIL v8 (channel 16)
 
 RAIL → FM-1: **CC 33** FOLLOW (127 on, 1 off); **CC 36** an action (1 BUILD 4, 2 BUILD 8, 3 RISER, 4 DROP, 5 EXIT,
-6 BACKSPIN, 7 CAPTURE, 8 ALL OFF, 9 FILL, 10 SCATTER, 11 SHIFT LOCK); **CC 50–53** COLOR, MORPH, DEPTH, THROW (absolute;
+6 BACKSPIN, 7 CAPTURE, 8 ALL OFF, 9 FILL, 10 SCATTER, 11 SHIFT LOCK, 12 BOOST); **CC 50–53** COLOR, MORPH, DEPTH, THROW (absolute;
 a knob's first value is only noted, so nothing jumps). FM-1 → RAIL: **CC 33** FOLLOW's state, **CC 34** the SELECT
 nudge (64 ± tenths of a BPM). RAIL v8 learns MiniLab pads for the actions and knobs for tempo (fine, coarse) and the
 four knobs, and has FOLLOW and **Song BPM** (the Link tempo to the SET song's BPM).
@@ -510,3 +510,12 @@ held it asks **SAVE THE LOOP?** (OCT+ yes, OCT- no); saved (or SHIFT + white 12 
 PATTERN?**: yes makes a track (the SLICE track, else the selected one, else T3) SLICE of that USR slot with a pattern
 playing the slices in order (16 a bar; 32 for 4 bars), a pattern for a SONG; no asks **LOAD INTO SAMPLER?**: yes puts the
 loop on the keys (SAMPLE). UNDO brings the track back.
+
+## 0.14.1 — BOOST
+
+**SHIFT + black 6** (or RAIL's BOOST, CC 36 12) toggles **BOOST**: SNARE and CLAP — every hit, rolls, sequencer, pads —
+are driven at DRIVE's top into a higher ceiling (x2.5 before the knee, not x1.25), and ROLL / READY ROLLS hits on those
+lanes play at velocity 127. Measured at LEVEL 104: SNARE body −12.8 → −8.0 dB, CLAP −17.5 → −10.9 dB; KICK and the hats
+as they were. The master limiter still holds the peaks, so it is louder body, not clipping. The cell shows lit with a lock
+dot while on. Not saved: it is off at power-up.
+

@@ -1931,6 +1931,30 @@ int main(void)
         rl_ev_out = 0;
     }
 
+    /* 0.14.1 BOOST (SHIFT + black 6, RAIL's CC 36 12): SNARE and CLAP louder and harder, their roll hits at 127; the
+     * kick as it was; again: off */
+    home_reset();
+    ui.layer = LAYER_BLAZE;
+    {
+        uint32_t f0 = bz_fn_state(BZF_BOOST, bk(5));
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];
+        bz_ui_pass();
+        key_down(bk(5));
+        bz_ui_key(bk(5));
+        (key_up)(bk(5));
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        bz_ui_pass();
+        ok = f0 == BZS_IDLE && dv_boost == 6u && bz_fn_state(BZF_BOOST, bk(5)) == BZS_FILL;
+        midi_event(0xB0u, 15u, 36u, 12u);
+        bz_ui_pass();
+        ok &= dv_boost == 0u;
+        midi_event(0xB0u, 15u, 36u, 12u);
+        bz_ui_pass();
+        ok &= dv_boost == 6u;
+        bad += check("BOOST (0.14.1): SHIFT + black 6 on (SNARE CLAP), RAIL CC 36 12 off, on", ok);
+        dv_boost = 0;
+    }
+
     printf("%s\n", bad ? "BLAZE HOME: FAILED" : "BLAZE HOME: all ok");
     return bad != 0;
 }

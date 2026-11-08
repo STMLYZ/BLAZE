@@ -167,6 +167,9 @@ static uint32_t step_lanes(const step_t *s)
 /* .. and which of them are accented */
 static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? step_lanes(s) : s->acc & step_lanes(s); }
 
+/* BLAZE 0.14.1 BOOST (blaze_home.c sets it): the lanes played louder, harder (bit l: lane l; SNARE and CLAP) */
+static volatile uint8_t dv_boost;
+
 /* a step's notes that are a lane's note become that lane's hits (the same note, the same velocity: nothing
  * sounds different). Other notes (a low tom 41, a crash 49) stay notes, shown on their lane. A step accent
  * of a step left with hits only becomes the hits' accents. Pattern loads into a DRUM track, projects of
@@ -320,6 +323,18 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
         g = 4096 + drv * 3 * 4096 / 127;
         mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
+    }
+    if ((dv_boost >> ((uint32_t)v->s[0] & (DV_NLANE - 1u))) & 1u) {   /* BLAZE 0.14.1 BOOST: this lane driven harder
+                                                          * (x4: DRV's top) and x2.5 into a higher knee */
+        if (g < 4 * 4096) {
+            g = 4 * 4096;
+            mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
+        }
+        for (i = 0; i < n; i++) {
+            int32_t s = (softclip((y[i] * g) >> 12) * mk) >> 15;
+            out[i] += voice_amp(soft_knee(2 * s + (s >> 1), 28000), m, i) << 1;   /* (x2.5, not x1.25) */
+        }
+        return;
     }
     for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
         int32_t s = y[i];

@@ -60,6 +60,7 @@ enum {
     BZF_RATE0, BZF_RATE5 = BZF_RATE0 + 5, BZF_RIDE, BZF_MORPH, BZF_ONE, BZF_REL, BZF_FILL,
     BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW,
     BZF_PPR0, BZF_PPR5 = BZF_PPR0 + 5, BZF_PPF0, BZF_PPF5 = BZF_PPF0 + 5,
+    BZF_BOOST,                                   /* (0.14.1) */
     BZF_N
 };
 static const uint8_t BZW[2][16] = {
@@ -70,7 +71,7 @@ static const uint8_t BZW[2][16] = {
 static const uint8_t BZB[2][11] = {
     {BZF_RATE0, BZF_RATE0 + 1, BZF_RATE0 + 2, BZF_RATE0 + 3, BZF_RATE0 + 4, BZF_RATE5, BZF_RIDE, BZF_MORPH, BZF_ONE,
      BZF_REL, BZF_FILL},
-    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE}};
+    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_BOOST, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE}};
 /* key k's function on BLAZE's page: shift SHIFT on, pads a pad held (with SHIFT: a rate or an effect sets its PRESET) */
 static uint32_t bz_fn(uint32_t k, uint32_t shift, uint32_t pads)
 {
@@ -848,6 +849,8 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
 }
 
 /* 0.12: RAIL's action (CC 36's value) */
+/* 0.14.1 BOOST: the lanes it plays louder and harder (eng_drum.c dv_boost): SNARE and CLAP */
+#define BZ_BOOST_LANES (1u << 1 | 1u << 2)
 static void bz_rail_act(uint32_t q)
 {
     if (q == 1u || q == 2u)

@@ -664,6 +664,10 @@ static void bz_home_key(uint32_t k, uint32_t f)
         ui_say("ROLL SHAPE ", RLS_NAME[rl_shape]);
     } else if (f == BZF_FOLLOW)
         bz_follow_set(song.g[G_CLOCK] == 0);
+    else if (f == BZF_BOOST) {                      /* 0.14.1: SNARE and CLAP louder and harder (rolls cut through) */
+        dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
+        ui_message(dv_boost ? "BOOST ON: SNARE + CLAP LOUDER" : "BOOST OFF");
+    }
     ui.force = 1;
 }
 
@@ -1329,6 +1333,10 @@ static void bz_ui_pass(void)
                 bz_shlock = (uint8_t)!bz_shlock;
                 ui_message(bz_shlock ? "SHIFT LOCKED (RAIL)" : "SHIFT UNLOCKED (RAIL)");
                 ui.force = 1;
+            } else if (bz_cc[16] == 12u) {          /* (0.14.1 BOOST: here) */
+                dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
+                ui_message(dv_boost ? "BOOST ON (RAIL)" : "BOOST OFF (RAIL)");
+                ui.force = 1;
             } else
                 bz_req = bz_cc[16];
             bz_cc[16] = 0;
@@ -1762,6 +1770,7 @@ static uint32_t bz_fn_state(uint32_t f, uint32_t k)
         return song.g[G_CLOCK] ? BZS_DIM : (rlu.nk >> k) & 1u ? BZS_FILL : BZS_IDLE;
     case BZF_SHAPE: return rl_shape ? BZS_TINT : BZS_IDLE;
     case BZF_FOLLOW: return song.g[G_CLOCK] ? BZS_FILL : BZS_IDLE;
+    case BZF_BOOST: return dv_boost ? BZS_FILL : BZS_IDLE;
     default: return BZS_DIM;
     }
 }

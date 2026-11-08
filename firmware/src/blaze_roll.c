@@ -113,7 +113,7 @@ static void rl_hit(uint32_t p, uint32_t vel)
 {
     track_t *t = rl_track();
     uint32_t l = p % NLANE, note = DRUM_LANE_NOTE[l], mc = trk_midi_ch(trk_index(t));
-    if (p >= NLANE)
+    if (p >= NLANE || ((dv_boost >> l) & 1u))   /* (accented; 0.14.1 BOOST's lanes: full velocity) */
         vel = 127u;
     vel = vel < 1u ? 1u : vel > 127u ? 127u : vel;
     rl_vel_last = (uint8_t)vel;

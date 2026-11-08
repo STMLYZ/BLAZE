@@ -355,6 +355,7 @@ static const char *bz_fn_label(uint32_t f, char *nm)
     case BZF_NUP: return "FASTER";
     case BZF_SHAPE: return RLS_CELL[rl_shape % RLS_N];
     case BZF_FOLLOW: return "FOLLOW";
+    case BZF_BOOST: return "BOOST";
     default: return "-";
     }
 }
@@ -406,6 +407,8 @@ static void bz_fn_ext(uint32_t f)
         bzx.lock = (uint8_t)((bz_padl >> (f - BZF_PAD0)) & 1u);
     else if (f == BZF_MORPH)
         bzx.lock = bzm.on;
+    else if (f == BZF_BOOST)
+        bzx.lock = dv_boost != 0u;
 }
 static uint16_t bz_fn_col(uint32_t f)
 {
@@ -414,7 +417,7 @@ static uint16_t bz_fn_col(uint32_t f)
     if ((f >= BZF_FX0 && f <= BZF_FX5) || (f >= BZF_PPF0 && f <= BZF_PPF5) || f == BZF_SCAT || f == BZF_SPIN)
         return ux.bfx;                              /* (0.14: the palette's effects colour; before, ACCENT) */
     if (f == BZF_B4 || f == BZF_B8 || f == BZF_RISER || f == BZF_DROP || f == BZF_CAP || f == BZF_EOUT ||
-        f == BZF_FILL || f == BZF_CAPSAVE)
+        f == BZF_FILL || f == BZF_CAPSAVE || f == BZF_BOOST)
         return ux.btr;                              /* (0.14: the palette's transitions colour; before, REC) */
     if (f == BZF_TAP || f == BZF_NDN || f == BZF_NUP || f == BZF_ONE || f == BZF_REL || f == BZF_NONE)
         return T_MID;
