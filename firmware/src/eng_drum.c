@@ -278,7 +278,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     const int16_t *p = t->p;
     drum_lane_t *L = drum_lane_of(t, v);
     dv_param_t k;
-    int32_t y[CTL], mb[CTL], acc = clamp(p[P_E5] * v->vel * 4, 0, 65536), drv = p[P_E7], g = 0, mk = 0;   /* acc Q16 */
+    int32_t y[CTL], mb[CTL], acc = clamp(p[P_E5] * v->vel * 4, 0, 65536), drv = p[P_E7], g = 0, mk = 0, mul = 5, kn = 24000;   /* acc Q16 */
     int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (DV_NLANE - 1u))], 0, 127);
     uint32_t i, r;
     vmod_t ml;                                           /* (only its amplitude ramp is read: voice_amp) */
@@ -330,17 +330,14 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             g = 4 * 4096;
             mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
         }
-        for (i = 0; i < n; i++) {
-            int32_t s = (softclip((y[i] * g) >> 12) * mk) >> 15;
-            out[i] += voice_amp(soft_knee(2 * s + (s >> 1), 28000), m, i) << 1;   /* (x2.5, not x1.25) */
-        }
-        return;
+        mul = 10;
+        kn = 28000;
     }
-    for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
+    for (i = 0; i < n; i++) {                            /* x1.25 (BOOST x2.5: mul / 4) and the knee, in 32 bits */
         int32_t s = y[i];
         if (g)
             s = (softclip((s * g) >> 12) * mk) >> 15;
-        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
+        out[i] += voice_amp(soft_knee((s * mul) >> 2, kn), m, i) << 1;
     }
 }
 
