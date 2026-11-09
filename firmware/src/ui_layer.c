@@ -157,6 +157,8 @@ static void layer_masks(void)
 {
     uint32_t m = !layer_allowed() || (ui.ly && (ui.ly_t0 & LY_DEAD)) ? 0u
                : ui.ly ? ly_bit(ui.ly) : layer_bits() & ~fm1_in.buttons;
+    if (go_armed())                                     /* BLAZE 0.15 GO: HOME down, its keys the map's (silent) */
+        m |= 1u << panel.btn[B_HOME];
     kb_mask = m;
     perf_mask = m & ly_bit(LAYER_FX);
     roll_mask = m & ly_bit(LAYER_ROLL);                 /* BLAZE: ARP's keys are ROLL's (blaze_roll.c) */
@@ -1217,6 +1219,8 @@ static void layer_rec(void)
 
 #include "blaze_roll_draw.c"                       /* BLAZE: ROLL's map and cards */
 #include "blaze_home_draw.c"                       /* BLAZE: the home map and cards */
+#include "blaze_set.c"                             /* BLAZE 0.15: HOME's SET view, the decks from rail-bridge */
+#include "blaze_go.c"                              /* BLAZE 0.15: GO, the launcher (HOME held) */
 
 static void layer_cards(uint32_t l)
 {

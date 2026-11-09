@@ -8,8 +8,8 @@
  * record of before (or the editor's without one): its category follows from its engine (cat_of_engine) */
 #ifndef FELUCCA_CATEGORY
 #define FELUCCA_CATEGORY 1
-enum { CAT_NONE, CAT_BASS, CAT_LEAD, CAT_PAD, CAT_PLUCK, CAT_KEYS, CAT_DRUM, CAT_FX, CAT_OTHER, CAT_N };
-static const char *const CAT_NAME[CAT_N] = {"-", "BASS", "LEAD", "PAD", "PLUCK", "KEYS", "DRUM", "FX", "OTHER"};
+enum { CAT_NONE, CAT_BASS, CAT_LEAD, CAT_PAD, CAT_PLUCK, CAT_KEYS, CAT_DRUM, CAT_FX, CAT_OTHER, CAT_STAB, CAT_N };   /* (BLAZE 0.15: STAB, appended) */
+static const char *const CAT_NAME[CAT_N] = {"-", "BASS", "LEAD", "PAD", "PLUCK", "KEYS", "DRUM", "FX", "OTHER", "STAB"};
 /* the category a sound without one is listed under: a kit (DRUM, SLICE: engines 10, 13) DRUM, any other OTHER */
 static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u ? CAT_DRUM : CAT_OTHER; }
 
@@ -19,20 +19,23 @@ static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u ? CAT_DR
  * only; SAMPLE's retired PERC, past SMP_NPRESETS): its engine's (cat_of_engine). tests/ui_test.c checks every string
  * against its engine's preset count. A preset's category is a hint for browsing: nothing else reads it */
 static const char *const PRESET_CAT[16] = {
-    "LPBPBKLBULLP",              /* 0 ANALOG: SAW LEAD, SOFT PAD, SQR BASS, PWM STR, ACID, SINE KEY, RAVE, SUB BASS,
+    "LPBPBKLBULLP"
+    "BBBBBBLLSSUPPFF",           /* BLAZE 0.15: REESE ACID SQR, ACID SLIDE, OFFBEAT, ROLLER, DARK SUB, SUPERSAW, HOOVER, RAVE
+                                  * STAB, HOUSE STAB, TRANCE PLK, COLD STRNG, DARK PAD, SIREN, DOWNLIFTER (S: STAB) */
+                                 /* 0 ANALOG: SAW LEAD, SOFT PAD, SQR BASS, PWM STR, ACID, SINE KEY, RAVE, SUB BASS,
                                   * PLUCK, BRASS, WIND, STRINGS */
     "",                          /* 1 DIGITAL (retired) */
-    "LKPLUU",                    /* 2 PHASE: BRASS, ORGAN, STRING, RESO, BELL, WIRE */
-    "LBLLL",                     /* 3 LOFI: PULSE LD, WAVE BASS, ARP 8BIT, WAVE LEAD, STEP LEAD */
+    "LKPLUU" "BL",               /* (BLAZE 0.15: COLD BASS, POST LEAD) 2 PHASE: BRASS, ORGAN, STRING, RESO, BELL, WIRE */
+    "LBLLL" "F",                 /* (BLAZE 0.15: LASER) 3 LOFI: PULSE LD, WAVE BASS, ARP 8BIT, WAVE LEAD, STEP LEAD */
     "KKLL",                      /* 4 SAMPLE: PIANO, (PIANO: the retired TRANH's alias), FLUTE, SAX */
-    "PLBF",                      /* 5 VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
-    "BLLUP",                     /* 6 TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
-    "KKKKK",                     /* 7 WHEEL: the organs */
+    "PLBF" "LP",                 /* (BLAZE 0.15: ROBOT VOX, DARK CHOIR) 5 VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
+    "BLLUP" "LLB",               /* (BLAZE 0.15: SCREECH, FIDGET, ELECTRO) 6 TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
+    "KKKKK" "S",                 /* (BLAZE 0.15: ORGAN STAB) 7 WHEEL: the organs */
     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
-    "DDDD",                      /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
-    "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
+    "DDDD" "DDDD",               /* (BLAZE 0.15: HARD, TRANCE, BLOG, HOUSE KIT) 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
+    "FFFF" "F",                  /* (BLAZE 0.15: RISER) 11 NOISE: WIND, RAIN, ARCADE, METAL */
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
     "LLBBKKPD",                  /* 14 ADPCM: SQUARE LEAD, PULSE LEAD, SAW BASS, SUB BASS, SOFT SINE, ORGAN, ECHO PAD,
@@ -40,7 +43,7 @@ static const char *const PRESET_CAT[16] = {
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
 {
-    static const char L[] = "?BLPUKDFO";               /* (a letter's index is its CAT_*) */
+    static const char L[] = "?BLPUKDFOS";              /* (a letter's index is its CAT_*; S STAB: BLAZE 0.15) */
     const char *s = e < NELEM(PRESET_CAT) && PRESET_CAT[e] ? PRESET_CAT[e] : "";
     uint32_t i, c;
     for (i = 0; i < k && s[i]; i++)

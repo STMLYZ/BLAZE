@@ -355,6 +355,12 @@ static const preset_t DRUM_PRESETS[] = {
     {"DEEP KIT", {DK_DEEP, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 28), PAT(12)},
     {"TIGHT KIT", {DK_TIGHT, 64, 64, 56, 64, 100, 0, 16}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 8), PAT(12)},
     {"PERC KIT", {DK_PERC, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
+    /* BLAZE 0.15 sound pack, appended: the 10's swept kick tuned down, tight and driven (HARD); the 10 as it is with a
+     * little drive (TRANCE); the 80's, snappy (BLOG: bloghouse / electro); STD's ROUND kick, longer (HOUSE) */
+    {"HARD KIT", {DK_10, 52, 96, 34, 100, 120, 0, 96}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 10), PAT(12)},
+    {"TRANCE KIT", {DK_10, 62, 72, 56, 70, 110, 0, 36}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"BLOG KIT", {DK_80, 70, 80, 46, 96, 110, 0, 40}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 16), PAT(12)},
+    {"HOUSE KIT", {DK_STD, 64, 64, 66, 64, 100, 1, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
 };
 
 static const engine_t ENG_DRUM = {

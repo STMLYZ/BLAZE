@@ -106,9 +106,10 @@ static uint32_t sel_mode(void) { return ((ui_prefs2 >> 4) & 1u) | ((ui_prefs2 >>
  * Saved with the settings; read only while LEDS is INV (menu_items.c leds_row) */
 #define ui_leds_inv (favorites.factory[15][25])
 static uint32_t leds_inv(void) { return settings_leds == LEDS_INV && ui_leds_inv - 1u < 2u ? ui_leds_inv : 0u; }
-enum { HV_SCOPE, HV_TRACKS, HV_LEVELS, HV_COUNT };
+enum { HV_SCOPE, HV_TRACKS, HV_LEVELS, HV_SET, HV_COUNT };   /* (BLAZE 0.15: SET, appended: blaze_set.c) */
 static int home_tracks(void) { return ui_home_view == HV_TRACKS || ui_home_view == HV_LEVELS; }
 static int home_levels(void) { return ui_home_view == HV_LEVELS; }
+static int home_set(void) { return ui_home_view == HV_SET; }
 enum { RP_CLICK, RP_LEVEL, RP_COUNTIN };
 static uint32_t rp_get(uint32_t f)                     /* a field as the MENU steps it: 0..2 */
 {
@@ -387,15 +388,17 @@ static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.p
  *            is, the card labels in M;
  *   LK_OFF   LARGE off; the menu (its own LARGE: ui_menu.c), the dialogs and NAME keep their own layout in every case. */
 enum { LK_OFF, LK_LABEL, LK_TALL };
+static int go_shown(void);                              /* (BLAZE 0.15 GO, blaze_go.c) */
 static uint32_t large_kind(void)
 {
     uint32_t g;
     if (!(ui_prefs & PREF_LARGE))
         return LK_OFF;
-    if (ui.layer)
+    if (ui.layer || go_shown())                         /* (0.15 GO's map: as a layer's) */
         return LK_LABEL;
     if (ui.home)                                        /* (HOME > TRACKS: its rows need the panel, the cards as on */
-        return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
+        return home_tracks() || home_set() ? LK_LABEL : LK_TALL;   /* a list page; the rows' names in M: draw_home_tracks;
+                                                         * 0.15 SET: its own sizes) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
            g == GR_SLICES || g == GR_EVENTS ? LK_LABEL : LK_TALL;
@@ -421,6 +424,13 @@ static int32_t ink_w(const aafont_t *f, const char *s)
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
 enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_SEQ, LAYER_REC, LAYER_ROLL, LAYER_BLAZE, LAYER_N };   /* ROLL, BLAZE: BLAZE */
 static void draw_layer(void);
+/* BLAZE 0.15 GO, the launcher (blaze_go.c, included by ui_layer.c): HOME held */
+static int go_shown(void);
+static int go_armed(void);
+static int go_hold_ok(void);
+static void go_draw(void);
+static void go_poll(uint32_t now);
+static uint32_t go_keys(uint32_t lkeys);
 static const char *layer_head(void);
 static int layer_locked(void);
 static uint32_t layer_leds(uint32_t *br);
@@ -1411,6 +1421,9 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         for (i = 0; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
+#if !BLAZE_SOUNDS_OFF
+    bz_px_apply(t, t->eng_req % NENGINES, pi);        /* BLAZE 0.15: the sound pack's extras (blaze_sounds.c BZ_PX) */
+#endif
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
     load_end(t);
 }
@@ -1592,6 +1605,17 @@ static void list_set(uint32_t m)
     ui_lcat = (uint8_t)(m >= 2u && m < LIST_N ? m - 1u : 0u);
 }
 static const char *list_name(uint32_t m) { return m == 0u ? "ALL" : m == 1u ? "FAV" : CAT_NAME[(m - 1u) % CAT_N]; }
+/* BLAZE 0.15: the LIST knob's order (STAB, appended as a number, browses after PLUCK): ALL FAV BASS LEAD PAD PLUCK STAB
+ * KEYS DRUM FX OTHER, as list modes (1 + CAT_*) */
+static const uint8_t LIST_ORD[LIST_N] = {0, 1, 1 + CAT_BASS, 1 + CAT_LEAD, 1 + CAT_PAD, 1 + CAT_PLUCK, 1 + CAT_STAB,
+                                         1 + CAT_KEYS, 1 + CAT_DRUM, 1 + CAT_FX, 1 + CAT_OTHER};
+static uint32_t list_pos(uint32_t m)
+{
+    uint32_t i;
+    for (i = 0; i < LIST_N && LIST_ORD[i] != m; i++)
+        ;
+    return i < LIST_N ? i : 0u;
+}
 /* the category of list entry e, k (preset_all_at: NENGINES = user preset k) */
 static uint32_t sound_cat(uint32_t e, uint32_t k) { return e == NENGINES ? up_cat(k) : preset_cat(e, k); }
 static int list_keep(uint32_t e, uint32_t k)

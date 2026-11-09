@@ -438,8 +438,9 @@ static int test_sound_loads(void)
                  preset_pat_hint() == 12 && ui.ppick == 12 && str_eq(PATTERNS[12].name, "ARP"));
     t->p[P_AMODE] = 2;
     before = *t;
-    for (i = 0; i < 6u; i++)                      /* several loads, into the next engine */
-        turn(EN_PRESET, 1);
+    for (i = 0; i < 40u && t->eng_req == before.eng_req; i++)   /* several loads, into the next engine (BLAZE 0.15: */
+        turn(EN_PRESET, 1);                       /* ANALOG has its sound pack's too) */
+    turn(EN_PRESET, 1);
     bad += check("browsing on, into another engine: the steps still untouched", t->eng_req != before.eng_req &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_AMODE] == 2);
     bad += check("browsing keeps the copy from before the first load", undo.trk == 1u && undo.what == UNDO_SOUND &&
@@ -1437,7 +1438,7 @@ static int test_categories(void)
         if (!eng_ok(e) || e == ENGI_DIGITAL) continue;    /* (DIGITAL: FELUCCA_FM4 builds only, its sounds no category) */
         ok &= str_len(c) == ENGINES[e]->npresets;
         for (k = 0; k < ENGINES[e]->npresets; k++)
-            ok &= preset_cat(e, k) >= CAT_BASS && preset_cat(e, k) <= CAT_OTHER;
+            ok &= preset_cat(e, k) >= CAT_BASS && preset_cat(e, k) < CAT_N;   /* (BLAZE 0.15: STAB, after OTHER) */
     }
     bad += check("categories: every factory preset of every engine has one (the table's strings == the preset counts)",
                  ok && preset_cat(0, 2) == CAT_BASS && preset_cat(ENGI_DRUM, 0) == CAT_DRUM && preset_cat(ENGI_FM6, 0) == CAT_KEYS &&
@@ -1461,8 +1462,8 @@ static int test_categories(void)
     turn(EN_K4, 1);
     pos = preset_pos(&total);
     for (n = 0, e = 0; e < NENGINES; e++)
-        for (k = 0; eng_ok(e) && k < preset_shown(e); k++)
-            n += preset_cat(e, k) == CAT_BASS;
+        for (k = 0; eng_ok(e) && k < ENGINES[e]->npresets; k++)   /* (BLAZE 0.15: shown ones, a hidden one between) */
+            n += preset_vis(ENGINES[e], k) && preset_cat(e, k) == CAT_BASS;
     bad += check("  KNOB 4: ALL, FAV, then BASS: the list holds the factory basses only, the sound not loaded",
                  list_mode() == 2u && str_eq(list_name(list_mode()), "BASS") && !favorites.filter && ui_lcat == CAT_BASS &&
                  total == n && n >= 6u && pos == total && TSEL->eng_req == 0u && TSEL->preset == 0u);
@@ -1473,7 +1474,7 @@ static int test_categories(void)
     }
     bad += check("  the PRESETS knob steps through basses only (every engine), and round", ok && preset_pos(&total) == total - 1u);
     turn(EN_K4, 20);
-    bad += check("  .. right to OTHER and no further (no wrap)", list_mode() == LIST_N - 1u && str_eq(list_name(list_mode()), "OTHER"));
+    bad += check("  .. right to OTHER and no further (no wrap)", list_mode() == 1u + CAT_OTHER && str_eq(list_name(list_mode()), "OTHER"));
 #if !FELUCCA_FM4                                           /* (DIGITAL's presets: OTHER's) */
     {
         track_t before = *TSEL;
@@ -1483,6 +1484,11 @@ static int test_categories(void)
                      msg_is("NO SOUNDS IN LIST") && !memcmp(TSEL, &before, sizeof before));
     }
 #endif
+    turn(EN_K4, -20);
+    turn(EN_K4, 6);                                        /* BLAZE 0.15: ALL FAV BASS LEAD PAD PLUCK STAB */
+    bad += check("  BLAZE 0.15: STAB comes after PLUCK; its list: the sound pack's stabs", str_eq(list_name(list_mode()), "STAB") &&
+                 (preset_pos(&total), total == 3u));
+
     {   /* the settings: the category's byte, unknown = none; FAV clears it */
         persist_t p;
         list_set(1u + CAT_PAD);
@@ -8661,7 +8667,8 @@ static int test_head_centres(void)
                 okp = nhel > 0 && hel[0][0] == 4;      /* the track cushion first, its ink from x 4 */
                 if (s != HS_GLO_TURN) {                /* the battery last, in its cell; nothing between 208 and it */
                     okp &= head_span2(HEAD_BAT_X, 239, &a, &b) && a >= 214 && b <= 236;
-                    okp &= !head_span2(HEAD_GRP_R, HEAD_BAT_X - 1, &a, &b);
+                    okp &= head_cpu_x > HEAD_GRP_R + 2 && !head_span2(HEAD_GRP_R, head_cpu_x - 1, &a, &b);   /* (0.15: the
+                                                        * CPU meter between, alone) */
                 } else {                               /* GLO, the tempo turned: the BPM, its lock, the label after */
                     head_geo_t g;
                     head_geo(&g, "124");
@@ -9476,7 +9483,7 @@ static int test_home_tracks(void)
     int16_t v0;
     ui_power_on();
     memcpy(before, favorites.factory[15], 32);
-    ok = ui_home_view == 0u && !home_tracks() && menu_get(MI_HOME) == 0u && menu_n(MI_HOME) == 3u &&
+    ok = ui_home_view == 0u && !home_tracks() && menu_get(MI_HOME) == 0u && menu_n(MI_HOME) == 4u && str_eq(menu_vname(MI_HOME, 3), "SET") &&   /* (BLAZE 0.15: SET) */
          str_eq(MI_NAME[MI_HOME], "HOME") && str_eq(menu_vname(MI_HOME, 0), "SCOPE") &&
          str_eq(menu_vname(MI_HOME, 1), "TRACKS") && str_eq(menu_vname(MI_HOME, 2), "LEVELS") &&   /* (1.5: LEVELS) */
          MI_TAB[MI_HOME] == MTAB_DISPLAY && MI_HOME < MI_VALUES;
@@ -9500,8 +9507,10 @@ static int test_home_tracks(void)
     for (i = 0; i < 7u; i++) turn(EN_PRESET, 1);
     ok = ui.menu == 1 && ui.menu_sel == MI_HOME;
     turn(EN_K1, 1); ok &= home_tracks() && !home_levels();
-    turn(EN_K3, 1); ok &= home_levels();               /* (1.5: LEVELS, the last) */
-    turn(EN_K3, 1); ok &= home_levels();               /* (stops there) */
+    turn(EN_K3, 1); ok &= home_levels();               /* (1.5: LEVELS) */
+    turn(EN_K3, 1); ok &= home_set();                  /* (BLAZE 0.15: SET, the last) */
+    turn(EN_K3, 1); ok &= home_set();                  /* (stops there) */
+    press(B_OCTDN); ok &= home_levels();
     press(B_OCTDN); ok &= home_tracks() && !home_levels();
     press(B_OCTDN); ok &= !home_tracks();
     press(B_OCTUP); ok &= home_tracks();

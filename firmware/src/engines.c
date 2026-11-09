@@ -92,6 +92,8 @@ static const engine_t ENG_MISSING = {
 };
 #endif
 
+#include "blaze_sounds.c"       /* BLAZE 0.15: the sound pack (Felucca-Engines' six as ENG_*_BZ) */
+
 /* the editor protocol, user presets and projects store these indices: append, never reorder. With FELUCCA_PLUGINS
  * a plugin can take an engine's place (plugin.c plg_add), so the table is in RAM then, and the numbers past
  * Felucca's are ENG_MISSING until a plugin plays one */
@@ -100,18 +102,18 @@ static const engine_t *ENGINES[NENGINES] = {
 #else
 static const engine_t *const ENGINES[NENGINES] = {
 #endif
-    &ENG_ANALOG,                 /* 0 */
+    &ENG_ANALOG_BZ,                 /* 0 */
 #if FELUCCA_FM4
     &ENG_DIGITAL,                /* 1 (ENGI_DIGITAL) */
 #else
     &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: its sounds convert to FM6, fm4_convert.c) */
 #endif
-    &ENG_PHASE,                  /* 2 */
-    &ENG_LOFI,                   /* 3 */
+    &ENG_PHASE_BZ,                  /* 2 */
+    &ENG_LOFI_BZ,                   /* 3 */
     &ENG_SAMPLE,                 /* 4 */
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
-    &ENG_TRIO,                   /* 6 */
-    &ENG_WHEEL,                  /* 7 */
+    &ENG_TRIO_BZ,                   /* 6 */
+    &ENG_WHEEL_BZ,                  /* 7 */
     &ENG_GRAIN,                  /* 8 */
 #if FELUCCA_PHYS
     &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
@@ -119,7 +121,7 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_PHYS_GONE,              /* 9: reserved (PHYS, left out of BLAZE's FM-1 build) */
 #endif
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
-    &ENG_NOISE,                  /* 11 */
+    &ENG_NOISE_BZ,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
 #if FELUCCA_SLICE
     &ENG_SLICE,                  /* 13 (FELUCCA_SLICE=0 builds without it) */

@@ -1027,7 +1027,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         } else if (slot == 2u) {
             preset_mark(steps > 0);
         } else if (slot == 3u) {                          /* LIST: ALL FAV BASS .. OTHER (ui.c list_mode), no wrap */
-            uint32_t m = (uint32_t)clamp((int32_t)list_mode() + steps, 0, (int32_t)LIST_N - 1);
+            uint32_t m = LIST_ORD[clamp((int32_t)list_pos(list_mode()) + steps, 0, (int32_t)LIST_N - 1)];   /* (0.15: in LIST_ORD) */
             if (m != list_mode()) {
                 list_set(m);
                 ui.force = 1;
@@ -1556,7 +1556,9 @@ static void ui_input(void)
         pressed &= ~(1u << panel.btn[B_OCTUP]);
         ui_message("KEPT");
     }
-    home = btn_hold(&ui.home_t0, B_HOME, now, 1);
+    go_poll(now);                                       /* BLAZE 0.15 GO: HOME held, the map; let go: the MENU (blaze_go.c) */
+    home = btn_hold(&ui.home_t0, B_HOME, now, ui.menu || go_hold_ok());   /* (held: in the menu, leaves it; where
+                                                         * the map can't show, opens it at 0.7 s as always) */
     rec = btn_hold(&ui.rec_t0, B_REC, now, 0);          /* (a tap; held, the REC layer: ui_layer.c) */
     save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     layer_lock_input(pressed);                          /* (#83: a button closes a locked layer) */
@@ -1627,6 +1629,7 @@ static void ui_input(void)
     }
     lytap = layer_gesture(now, combo);
     layer_show();
+    lkeys = go_keys(lkeys);                             /* (HOME down: the keys go places, blaze_go.c) */
     layer_keys(lkeys);
     for (k = 0; k < 4u; k++)
         if (ks[k]) {

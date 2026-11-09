@@ -60,13 +60,15 @@ static int32_t batt_pct(void)
     p = clamp(p, 0, 100);
     return (p + 5) / 10 * 10;
 }
-static void draw_battery(int32_t bx)
+static int32_t draw_battery(int32_t bx)            /* (BLAZE 0.15: -> the left end of its ink, for the CPU meter) */
 {
     int32_t lvl = batt_shown(), p, w;
     char t[6];
     if (lvl == 4 || !song.batt_raw) {                   /* (USB power; no reading yet: the glyph) */
+        int32_t ib[4];
+        icon_ink(24, batt_icon(lvl), ib);
         cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), lvl == 4 ? T_OK : T_MID, T_BG);   /* 24 px: wide and short */
-        return;
+        return bx + ib[0];
     }
     p = batt_pct();
     fmt_int(t, p);
@@ -74,6 +76,33 @@ static void draw_battery(int32_t bx)
     w = text_w(&AF_S, t);
     GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
     cv_text_on(237 - w, CAP_IN(S, H_HEAD), &AF_S, t, lvl == 1 ? T_WARN : lvl == 0 ? T_REC : T_THEME, T_BG);
+    return 237 - w;
+}
+
+/* BLAZE 0.15: the CPU load (audio.c song.cpu_q8: the audio interrupt's share of its time, averaged) in the header,
+ * left of the battery on every page: a meter 3 px wide, 14 tall, MID up to 70 %, ACCENT to 85, REC above; at 70 %
+ * and over, and with the right slot free (no octave, song row or message), its number too ("CPU 78"). The SET view
+ * shows it in full. cpu_pct: 0..100; cpu_hot: 0 calm, 1 >= 70 %, 2 >= 85 % */
+static uint32_t cpu_pct(void) { uint32_t p = song.cpu_q8 * 100u / 256u; return p > 100u ? 100u : p; }
+static uint32_t cpu_hot(void) { uint32_t p = cpu_pct(); return p >= 85u ? 2u : p >= 70u ? 1u : 0u; }
+static uint16_t cpu_col(void) { return cpu_hot() == 2u ? T_REC : cpu_hot() ? T_ACCENT : T_MID; }
+#define CPU_MTR_H 14
+static int16_t head_cpu_x;                             /* (the meter's left as drawn: ui_test.c) */
+static int32_t draw_cpu(int32_t rx, int number)       /* rx: its right end; -> its left end */
+{
+    int32_t x = rx - 3, f = (int32_t)(cpu_pct() * CPU_MTR_H + 50u) / 100, y0 = (H_HEAD - CPU_MTR_H) / 2;
+    head_cpu_x = (int16_t)x;
+    cv_rect(x, y0, 3, CPU_MTR_H, T_SURF);
+    if (f)
+        cv_rect(x, y0 + CPU_MTR_H - f, 3, f, cpu_col());
+    if (number && cpu_hot()) {
+        char t[8] = "CPU ";
+        fmt_int(t + 4, (int32_t)cpu_pct());
+        x -= 4 + text_w(&AF_S, t);
+        GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
+        cv_text(x, CAP_IN(S, H_HEAD), &AF_S, t, cpu_col());
+    }
+    return x;
 }
 
 /* ---------------------------------------------------- rolling digits --- */
@@ -188,7 +217,7 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
 #define HEAD_REC_X 20                                  /* the REC mark's cell (ink 23..33), after the slot letter if any */
 #define HEAD_SLOT_X 23                                 /* the slot letter's pen (ui_draw.c head_slot) */
 #define HEAD_BAT_X 214                                 /* the battery's cell */
-#define HEAD_GRP_R 208                                 /* the octave / song row ends here */
+#define HEAD_GRP_R 197                                 /* the octave / song row ends here (0.15: 208 -> 197, the CPU meter) */
 #define HEAD_MSG_W 166                                 /* a message centred on x 120: 37..203 (after the REC mark) */
 #define HEAD_GAP 4                                     /* ink to ink: the metronome -> the BPM -> the lock */
 #define HEAD_PLAY_GAP 6                                /* the play state -> the metronome */
@@ -357,7 +386,8 @@ static void draw_head(void)
                    (ui.msg_t ? str_hash(7u, ui.msg) : ui.layer * 7919u + (uint32_t)layer_locked() * 3u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
                    (uint32_t)seq_counting() * 7u + (ui_prefs & PREF_BPM_LOCK) * 4099u +
                    (uint32_t)batt_shown() * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) +
-                   (slot ? str_hash(11u, sl) : 0u) + (uint32_t)midi_lit(song.sel) * 15485863u;   /* (1.5.5) */
+                   (slot ? str_hash(11u, sl) : 0u) + (uint32_t)midi_lit(song.sel) * 15485863u +   /* (1.5.5) */
+                   (cpu_pct() / 5u) * 1299709u;       /* (0.15: the CPU meter, in 5 % steps) */
     int msg = ui.msg_t || ui.layer;
     int centre = !msg || ui.bpm_t || ui.layer == LAYER_GLO;   /* the BPM being changed: it stays, the message right */
     int32_t rx = HEAD_REC_X;
@@ -430,8 +460,8 @@ static void draw_head(void)
     }
     if (!msg && (chain.running || song.octave))
         head_group();
-    if (!(msg && centre))
-        draw_battery(HEAD_BAT_X);
+    if (!(msg && centre))                              /* (0.15: the CPU meter left of it; its number when hot) */
+        draw_cpu(draw_battery(HEAD_BAT_X) - 4, !msg && !chain.running && !song.octave);
     cv_blit(0, Y_HEAD);
 }
 /* LINE: 1 px dividers in the BG gaps between the strips, not around them: under the header, above and
@@ -1672,6 +1702,23 @@ static void ui_draw_page(uint32_t counting)
     }
     if (name_on()) {                                    /* NAME: a user preset's or a project's (ui_name.c) */
         name_draw();
+        return;
+    }
+    if (go_shown()) {                                   /* BLAZE 0.15 GO: HOME held, the map of places (blaze_go.c) */
+        if (ui.force)
+            draw_frame();
+        draw_head();
+        go_draw();
+        if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {   /* (the timers run on, as under a layer's map) */
+            str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
+            ui.msg2[0] = 0;
+            ui.msg_t = 60;
+        }
+        if (ui.hot_t)
+            ui.hot_t--;
+        if (ui.bpm_t)
+            ui.bpm_t--;
+        ui.force = 0;
         return;
     }
     if (ui.layer) {                                     /* a layer's map over the page (ui_layer.c) */

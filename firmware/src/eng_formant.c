@@ -216,6 +216,9 @@ static const preset_t FORMANT_PRESETS[] = {
     {"VOX LEAD", {32, 0, 0, 2, 90, 8, 72, 0}, {6, 70, 105, 55}, 0, 1, FX(0, 20, 45, 40), PAT(4)},
     {"WOW BASS", {95, 0, 68, 0, 100, 0, 80, 0}, {0, 70, 70, 30}, 0, 1, FX(10, 0, 10, 10), PAT(8)},
     {"WHISPER", {0, 95, 88, 3, 50, 120, 50, 0}, {50, 90, 110, 90}, 0, 0, FX(0, 40, 30, 70), PAT(5)},
+    /* BLAZE 0.15 sound pack, appended: a talking buzz with a random vowel per note (ROBOT VOX); a low, dark choir */
+    {"ROBOT VOX", {80, 20, 70, 0, 120, 0, 100, 40}, {0, 60, 100, 30}, 0, 1, FX(10, 0, 40, 20), PAT(4)},
+    {"DARK CHOIR", {20, 60, 20, -5, 30, 30, 70, 0}, {90, 90, 115, 100}, 0, 0, FX(0, 70, 20, 95), PAT(5)},
 };
 
 static const engine_t ENG_FORMANT = {

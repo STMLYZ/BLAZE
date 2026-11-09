@@ -698,6 +698,7 @@ static void state(void)                          /* a playing song with steps on
     bz_slice = 0; bz_sl_page = 0; bz_sl_q = 0; bz_rb = 0; bz_rb_deck = 0; bz_rb_val[0] = 64;
     memset((void *)rl_pp_rate, 0, sizeof rl_pp_rate); memset((void *)rl_pp_fx, 0, sizeof rl_pp_fx); rl_pp = 0;
     bz_g_auto = 0; bz_g_mel = 0; bz_g_every = 1; bz_shlock = 0; bz_padl = 0; bz_build = 0; bz_riser = 0; bz_drop = 0; rl_ready = 0; rd_on = 0; rd_latch = 0; rl_extra = 0; bz_cfg3[BZC3_MAGIC_I] = 0; bz_cfg_apply();
+    memset(&bzw, 0, sizeof bzw); memset(&go, 0, sizeof go); dv_boost = 0; song.cpu_q8 = 0;   /* (BLAZE 0.15) */
     memset((void *)bz_kfn, 0, sizeof bz_kfn);
     rl_latch = 0; rl_rates = 0; rl_nr = 0; bz_pads = 0; bzm.ok = 0; bzm.on = 0; bzm.pos = 0; bz_spin = 0; perf_latched = 0;
     { uint32_t k; for (k = 0; k < NTRK; k++) { bz_lp_op[k] = 0; bz_fd_len[k] = 0; bz_fill_left[k] = 0; } bz_lp_restart = 0; }
@@ -819,7 +820,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_BLAZE_LOOPS, S_BLAZE_KEYS_BLEND, S_BLAZE_CHORD_BLEND, S_BLAZE_BATT,
        S_BLAZE_HELD, S_BLAZE_KITS, S_BLAZE_KEYS_SHIFT, S_BLAZE_SLICE,
        S_BLAZE_SLICE_NONE, S_BLAZE_RB, S_BLAZE_PP, S_BLAZE_PP_EDIT, S_BLAZE_MORPH, S_BLAZE_DROP, S_BLAZE_SHLOCK,
-       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_BLAZE_READY, S_BLAZE_CAPSAVE, S_BLAZE_CAPSLICE, S_COUNT };   /* BLAZE */
+       S_BLAZE_BUILDSET, S_BLAZE_DROPSET, S_BLAZE_GEN, S_BLAZE_MELODY, S_BLAZE_ROLLON, S_BLAZE_STATES, S_BLAZE_READY, S_BLAZE_CAPSAVE, S_BLAZE_CAPSLICE,
+       S_BLAZE_SET, S_BLAZE_SET_EMPTY, S_BLAZE_GO, S_BLAZE_CPU_HOT, S_COUNT };   /* BLAZE */
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -856,7 +858,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "blaze_riser_edit", "blaze_riser_synth", "blaze_eout", "blaze_chord", "blaze_chord7",
     "blaze_loops", "blaze_keys_blend", "blaze_chord_blend", "blaze_batt", "blaze_held",
     "blaze_kits", "blaze_keys_shift", "blaze_slice", "blaze_slice_none", "blaze_rb", "blaze_pp", "blaze_pp_edit",
-    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states", "blaze_ready", "blaze_capsave", "blaze_capslice"};
+    "blaze_morph", "blaze_drop", "blaze_shlock", "blaze_buildset", "blaze_dropset", "blaze_gen", "blaze_melody", "blaze_rollon", "blaze_states", "blaze_ready", "blaze_capsave", "blaze_capslice",
+    "blaze_set", "blaze_set_empty", "blaze_go", "blaze_cpu_hot"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1712,6 +1715,47 @@ static void setup(int s)
     case S_CONFIRM_CLEAN: ui.confirm = CF_CLEAN_SOUND; ui.confirm_trk = 0; break;
     case S_BLAZE_CAPSAVE: ui.confirm = CF_CAP_SAVE; ui.confirm_trk = 0; break;           /* (0.14 LOOP CAPTURE) */
     case S_BLAZE_CAPSLICE: ui.confirm = CF_CAP_SLICE; ui.confirm_trk = 2u << 4 | 2u; break;
+    case S_BLAZE_SET: case S_BLAZE_SET_EMPTY: case S_BLAZE_CPU_HOT:   /* (0.15: HOME's SET; two decks from rail-bridge) */
+        go_home(); ui_home_view = HV_SET; song.cpu_q8 = s == S_BLAZE_CPU_HOT ? 225u : 105u;
+        trk[0].p[P_ROOT] = 9; trk[0].p[P_SCALE] = 2; song.sel = 0;
+        if (s == S_BLAZE_SET) {
+            static uint8_t f[600];
+            uint32_t d, i;
+            dv_boost = 6; bz_drop = BZD_ARMED;
+            for (d = 0; d < 2u; d++) {
+                static const char *const T[2] = {"MIND FIELDS", "SWEET DREAMS (VIP)"};
+                uint32_t len = 30u * (d ? 412u : 351u), pos = d ? 30u * 15u : 30u * 230u;
+                memset(f, 0, sizeof f);
+                f[0] = 1; f[1] = (uint8_t)d; f[2] = 1;
+                f[3] = (uint8_t)((d ? 13050u : 12800u) & 127u); f[4] = (uint8_t)((d ? 13050u : 12800u) >> 7 & 127u); f[5] = 0;
+                f[6] = d ? 10 : 8; f[7] = 0;
+                f[8] = (uint8_t)(len & 127u); f[9] = (uint8_t)(len >> 7 & 127u); f[10] = (uint8_t)(len >> 14);
+                f[11] = 40; f[12] = 0; f[13] = 0;
+                { uint32_t bp = 30u * 256u * 60u * 100u / (d ? 13050u : 12800u); f[14] = (uint8_t)(bp & 127u); f[15] = (uint8_t)(bp >> 7 & 127u); f[16] = (uint8_t)(bp >> 14); }
+                memcpy(f + 17, T[d], strlen(T[d]) + 1u);
+                bz_wave_frame(f, 18u + (uint32_t)strlen(T[d]));
+                f[0] = 2; f[1] = (uint8_t)d;
+                for (i = 0; i < BZW_OV; i++) f[2 + i] = (uint8_t)(i < 20u || i > 200u ? 3u + i % 3u : 8u + (i * 37u) % 8u);
+                bz_wave_frame(f, 2u + BZW_OV);
+                f[0] = 3; f[1] = (uint8_t)d; f[2] = 2; f[3] = 1;
+                f[4] = (uint8_t)((pos + 90u) & 127u); f[5] = (uint8_t)((pos + 90u) >> 7 & 127u); f[6] = (uint8_t)((pos + 90u) >> 14);
+                f[7] = 0; f[8] = (uint8_t)(900u & 127u); f[9] = (uint8_t)(900u >> 7); f[10] = 0;
+                bz_wave_frame(f, 11);
+                f[0] = 4; f[1] = (uint8_t)d; { uint32_t b = pos - 224u; f[2] = (uint8_t)(b & 127u); f[3] = (uint8_t)(b >> 7 & 127u); f[4] = (uint8_t)(b >> 14); }
+                f[5] = (uint8_t)(BZW_WIN & 127u); f[6] = (uint8_t)(BZW_WIN >> 7);
+                for (i = 0; i < BZW_WIN; i++) f[7 + i] = (uint8_t)(i % 14u < 2u ? 14u : 5u + (i * 7u) % 6u);
+                bz_wave_frame(f, 7u + BZW_WIN);
+                f[0] = 5; f[1] = (uint8_t)d; f[2] = 1;
+                { uint32_t p16 = pos * 16u; f[3] = (uint8_t)(p16 & 127u); f[4] = (uint8_t)(p16 >> 7 & 127u); f[5] = (uint8_t)(p16 >> 14); }
+                { uint32_t sp = d ? 9900u : 10150u; f[6] = (uint8_t)(sp & 127u); f[7] = (uint8_t)(sp >> 7 & 127u); f[8] = (uint8_t)(sp >> 14); }
+                bz_wave_frame(f, 9);
+            }
+            f[0] = 6; f[1] = 0; bz_wave_frame(f, 2);
+            bzw.d[1].playing = 0;
+        }
+        break;
+    case S_BLAZE_GO:                                    /* (0.15 GO: HOME held, the map; ROLL locked: its cell lit) */
+        go_home(); go.down = go.ok = go.shown = 1; fm1_in.buttons = 1u << panel.btn[B_HOME]; ui.lock = LAYER_ROLL; break;
     case S_DRUM_LOCKS: case S_DRUM_LOCK_HELD:
         drum(0); go_page(GR_ROLL); ui.cursor = 4; ui.lane = 1; trk[3].seq_idx = 9;
         motion_set_lock(TSEL, 2, P_E1, 90); motion_set_lock(TSEL, 4, P_REV, 100); motion_set_lock(TSEL, 4, P_DLY, 70);

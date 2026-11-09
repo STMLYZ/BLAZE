@@ -915,13 +915,23 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     ed_send();
 }
 
+#if BZ_WAVE_STUB                                         /* (a host test without the BLAZE UI: tests/editor_test.c) */
+static void bz_wave_frame(const uint8_t *a, uint32_t n) { (void)a; (void)n; }
+#endif
 /* main loop: editor frames first; anything else stays for ota_service() */
 static void ed_service(void)
 {
     const uint8_t *p;
     uint32_t n;
     ed_sync();                                             /* v2 pushes (while watched) */
-    if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
+    if (!ota_frame_get(&p, &n) || n < 4u)
+        return;
+    if (p[0] == 0x7Du && p[1] == 0x42u && p[2] == 0x5Au) {   /* BLAZE 0.15: rail-bridge's decks ("BZ"), no reply */
+        bz_wave_frame(p + 3, n - 3u);
+        ota_frame_done();
+        return;
+    }
+    if (p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
     if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */

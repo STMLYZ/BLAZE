@@ -37,7 +37,7 @@ static uint32_t eng_noise(void)
 {
     uint32_t e;
     for (e = 0; e < NENGINES; e++)
-        if (ENGINES[e] == &ENG_NOISE)
+        if (ENGINES[e] == &ENG_NOISE_BZ)
             return e;
     return 0;
 }
@@ -48,7 +48,7 @@ static const int16_t *pe(uint32_t pi)
     static int16_t e[8];
     uint32_t i;
     for (i = 0; i < 8u; i++)
-        e[i] = ENG_NOISE.presets[pi].e[i];
+        e[i] = ENG_NOISE_BZ.presets[pi].e[i];
     return e;
 }
 
@@ -264,7 +264,7 @@ static void dc_and_clip(void)
     double worst = 0;
     int32_t vmax = 0, omax = 0;
     char what[160];
-    for (pi = 0; pi < ENG_NOISE.npresets; pi++) {
+    for (pi = 0; pi < ENG_NOISE_BZ.npresets; pi++) {
         double mean = 0, r = 0, m1;
         for (k = 0; k < 16u; k++) {                   /* 16 notes (16 seeds): brown noise's own slow wander averages out */
             voice_render(pe(pi), 48 + k, Y, FS);
@@ -272,12 +272,12 @@ static void dc_and_clip(void)
             mean += m1 / 16;
         }
         if (getenv("VERBOSE"))
-            printf("noise:   %-10s RMS %6.1f dB  mean %+.5f\n", ENG_NOISE.presets[pi].name, 20 * log10(r + 1e-12), mean);
+            printf("noise:   %-10s RMS %6.1f dB  mean %+.5f\n", ENG_NOISE_BZ.presets[pi].name, 20 * log10(r + 1e-12), mean);
         if (fabs(mean) * 32768.0 / VOICE_FS > worst)
             worst = fabs(mean) * 32768.0 / VOICE_FS, worst_p = pi;
     }
     snprintf(what, sizeof what, "no DC: worst |mean| %.2f %% of a voice's full scale (%s)", worst * 100,
-             ENG_NOISE.presets[worst_p].name);
+             ENG_NOISE_BZ.presets[worst_p].name);
     check(what, worst < 0.01);
     for (m = 0; m < 4u; m++)
         for (k = 0; k < 64u; k++) {                   /* the corners of COLR FREQ RES DENS CRSH TRK */
@@ -313,7 +313,7 @@ static void determinism(void)
 {
     static int32_t a[FS / 2], b[CTL];
     uint32_t pi, i, k, same = 1;
-    for (pi = 0; pi < ENG_NOISE.npresets; pi++) {
+    for (pi = 0; pi < ENG_NOISE_BZ.npresets; pi++) {
         const int16_t *e = pe(pi);
         setup(e);
         trk_note_on(&trk[0], 62, 100);
@@ -374,10 +374,10 @@ static void cost(void)
     }
     idle = mix_cost(HEAVY, 0);
     printf("noise: cost, host instructions per sample and voice (8 held; device estimate 1.7 %% per 100):\n");
-    for (pi = 0; pi <= ENG_NOISE.npresets; pi++) {
-        const int16_t *e = pi < ENG_NOISE.npresets ? pe(pi) : HEAVY;
+    for (pi = 0; pi <= ENG_NOISE_BZ.npresets; pi++) {
+        const int16_t *e = pi < ENG_NOISE_BZ.npresets ? pe(pi) : HEAVY;
         c = (mix_cost(e, 8) - idle) / 8;
-        printf("noise:   %-10s %5.0f  ~%.2f %%\n", pi < ENG_NOISE.npresets ? ENG_NOISE.presets[pi].name : "(corner)", c,
+        printf("noise:   %-10s %5.0f  ~%.2f %%\n", pi < ENG_NOISE_BZ.npresets ? ENG_NOISE_BZ.presets[pi].name : "(corner)", c,
                c * 0.017);
         worst = c > worst ? c : worst;
     }
@@ -390,7 +390,7 @@ static void cost(void)
 static void demo(const char *dir, uint32_t pi)
 {
     static int32_t o[2 * CTL];
-    const preset_t *pr = &ENG_NOISE.presets[pi];
+    const preset_t *pr = &ENG_NOISE_BZ.presets[pi];
     uint32_t pat = pr->pat ? pr->pat - 1u : 4u, step = FS / 8u, s, i, held = 0, frames = 0;
     char path[512], nm[32];
     FILE *w;
@@ -440,9 +440,9 @@ static void demo(const char *dir, uint32_t pi)
 static void demos(const char *dir)
 {
     uint32_t pi;
-    for (pi = 0; pi < ENG_NOISE.npresets; pi++)
+    for (pi = 0; pi < ENG_NOISE_BZ.npresets; pi++)
         demo(dir, pi);
-    printf("noise: demos in %s: the %u presets, each playing its suggested pattern\n", dir, (uint32_t)ENG_NOISE.npresets);
+    printf("noise: demos in %s: the %u presets, each playing its suggested pattern\n", dir, (uint32_t)ENG_NOISE_BZ.npresets);
 }
 
 int main(int argc, char **argv)

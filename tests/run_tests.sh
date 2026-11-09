@@ -341,6 +341,10 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray, MONO neutral" "$OUT/ui_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_roll_test" tests/blaze_roll_test.c -lm
     run "BLAZE ROLL: pads, rates on their grid, GROOVE / LAST, the 16 / 4 / 1 lockout, PADS, ARP's layer, NUDGE" "$OUT/blaze_roll_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_go_test" tests/blaze_go_test.c -lm
+    run "BLAZE GO (HOME held: a key goes there, let go: MENU), SET's decks from rail-bridge, the CPU meter" "$OUT/blaze_go_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_sounds_test" tests/blaze_sounds_test.c -lm
+    run "BLAZE sound pack: the six engines as ENG_*_BZ (their rows first), every new preset sounds, categories, BZ_PX" "$OUT/blaze_sounds_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/blaze_home_test" tests/blaze_home_test.c -lm
     run "BLAZE home: ENV's layer, the 4 pads, effects tap / hold, BUILD 4 / 8, IMPACT, RELEASE, THE ONE, RAIL's key" "$OUT/blaze_home_test"
     $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_c1" tests/ui_test.c -lm

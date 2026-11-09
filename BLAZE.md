@@ -519,3 +519,36 @@ lanes play at velocity 127. Measured at LEVEL 104: SNARE body −12.8 → −8.0
 as they were. The master limiter still holds the peaks, so it is louder body, not clipping. The cell shows lit with a lock
 dot while on. Not saved: it is off at power-up.
 
+
+## 0.15 — SET, GO, the sound pack, the decks
+
+**SET** (MENU › HOME › SET, or GO + white 8): HOME's glance view for a set. The tempo big, the key in Camelot (its
+colour) with its note name, the CPU load, the phrase (16 bars, the DROP's bar outlined), what runs now as chips (DROP IN
+n, BOOST, FOLLOW, latched effects, BUILD, READY, SHIFT), and both rekordbox decks from rail-bridge v6: a waveform
+scrolling round each playhead (beats ticked, bars taller, memory cues marked, ones named **DROP** in the transitions'
+colour), the whole track under it, the title, the key, the BPM as played and the time left (red under 30 s). The deck
+on air (the bridge's guess from the faders) has its letter lit. The four cards above stay HOME's.
+
+**GO** (HOME held): a map of every place on the keys; a key goes there at once. White: BLAZE ROLL KEYS CHORD / LOOPS
+SLICE RB MIDI SET / PRESETS EDIT FILTER ENV / LFO FX ARP MOD. Black: STEP SONG AUTO MIXER / PROJECT USER CLOCK SCALE /
+INSERT TOOLS MENU. Let go of HOME without a key: the MENU (as holding HOME always did). A tap of HOME: HOME, as before.
+The keys pressed with HOME sound nothing.
+
+**CPU**: a meter left of the battery on every page (orange from 70 %, red from 85 %), its number too when it is high
+and the slot is free; SET shows it in full. It is the audio interrupt's share of its time (MENU › INFO's reading).
+
+**The sound pack** (29 sounds, appended after each engine's own, so every stored sound number plays what it did):
+ANALOG REESE, ACID SQR, ACID SLIDE, OFFBEAT, ROLLER, DARK SUB (basses), SUPERSAW (UNISON), HOOVER, RAVE STAB, HOUSE STAB,
+TRANCE PLK, COLD STRNG, DARK PAD, SIREN, DOWNLIFTER; PHASE COLD BASS, POST LEAD; LOFI LASER; VOICE ROBOT VOX, DARK
+CHOIR; TRIO SCREECH, FIDGET, ELECTRO; WHEEL ORGAN STAB; NOISE RISER; DRUM HARD KIT, TRANCE KIT, BLOG KIT, HOUSE KIT.
+Level-matched against the factory sounds by rendering each through the firmware's own engines. A new category, **STAB**,
+browses after PLUCK (PRESETS › LIST). Felucca-Engines' six engines (a submodule BLAZE can't change) play as their own
+engine with BLAZE's rows after theirs (blaze_sounds.c, checked field for field by tests/blaze_sounds_test.c). BZ_PX
+gives a preset what a row cannot: UNISON, glide, the LFO, the INSERT.
+
+**rail-bridge v6** sends the decks as SysEx `F0 7D 42 5A <cmd> … F7` (no reply): INFO, OVERVIEW, CUES, WINDOW, POS,
+FOCUS (blaze_set.c has the layout). It reads rekordbox's analysis files (ANLZ) for the waveforms, beat grid and cues, a
+rekordbox XML export (if there is one) for names, keys and cue names, and follows the FLX4's PLAY, CUE, hot cues, LOAD,
+tempo faders and SYNC for where each deck is. Which track is on which deck: RAIL v12's DECKS panel, or `--auto`
+(pyrekordbox, rekordbox's history). The position is an estimate: loops, jog nudges and scratching drift it; a SYNCed
+deck is pulled onto the Link beat.

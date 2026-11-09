@@ -1232,7 +1232,7 @@ static uint32_t graph_signature(void)
 #if FELUCCA_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
-    if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
+    if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL_BZ || t->eng_req % NENGINES == ENGI_FM6 ||
                                    (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if ((pg->scope == SC_ENGINE || fop_page(pg->graph)) && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm,
@@ -2230,6 +2230,7 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
+static void bz_set_draw(void);                       /* BLAZE 0.15: HOME's SET view (blaze_set.c) */
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -2242,6 +2243,13 @@ static void draw_graph(void)
     }
     if (ui.home && home_tracks()) {                  /* MENU > HOME TRACKS (1.3) */
         draw_home_tracks();
+        return;
+    }
+    if (ui.home && home_set()) {                     /* BLAZE 0.15: MENU > HOME SET (blaze_set.c), every other frame */
+        if (ui.force || (ui.frame / 2u) != ui.graph_sig) {
+            ui.graph_sig = ui.frame / 2u;
+            bz_set_draw();
+        }
         return;
     }
     if (!ui.home && pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) sample_wave_tick(t);
@@ -2344,7 +2352,7 @@ static void draw_graph(void)
             if (fop_ok()) graph_fm6env(t, c);
             break;
         default:
-            if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
+            if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL_BZ) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
 #if FELUCCA_FM4
