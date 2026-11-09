@@ -62,6 +62,7 @@ enum {
     BZF_PPR0, BZF_PPR5 = BZF_PPR0 + 5, BZF_PPF0, BZF_PPF5 = BZF_PPF0 + 5,
     BZF_BOOST,                                   /* (0.14.1) */
     BZF_DECKS,                                   /* (0.16) */
+    BZF_SNAP,                                    /* (0.17) */
     BZF_N
 };
 static const uint8_t BZW[2][16] = {
@@ -72,7 +73,7 @@ static const uint8_t BZW[2][16] = {
 static const uint8_t BZB[2][11] = {
     {BZF_RATE0, BZF_RATE0 + 1, BZF_RATE0 + 2, BZF_RATE0 + 3, BZF_RATE0 + 4, BZF_RATE5, BZF_RIDE, BZF_MORPH, BZF_ONE,
      BZF_REL, BZF_FILL},
-    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_BOOST, BZF_DECKS, BZF_NONE, BZF_NONE, BZF_NONE, BZF_NONE}};
+    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_BOOST, BZF_DECKS, BZF_SNAP, BZF_NONE, BZF_NONE, BZF_NONE}};
 /* key k's function on BLAZE's page: shift SHIFT on, pads a pad held (with SHIFT: a rate or an effect sets its PRESET) */
 static uint32_t bz_fn(uint32_t k, uint32_t shift, uint32_t pads)
 {
@@ -97,6 +98,7 @@ static volatile uint32_t home_mask;            /* main: the ENV button's bit whi
 static volatile uint8_t bz_chord;              /* main: the layer is CHORD (blaze_chord.c) */
 static void bz_chord_key(uint32_t p);
 static void bz_chord_stop(void);
+static volatile uint8_t bz_ch_sel;             /* (blaze_chord.c: the chord latched, its degree + 1) */
 static volatile uint8_t bz_loops;              /* main: the layer is LOOPS (blaze_loops.c) */
 static volatile uint8_t bz_slice;              /* main: the layer is SLICE (blaze_slice.c, 0.8) */
 /* 0.9 REKORDBOX (OCT- after SLICE): the FM-1 as a second controller. Every key sends a MIDI note (on 127, off on its
@@ -114,6 +116,19 @@ static volatile uint32_t bz_rb_down;           /* ISR: keys down here (the main 
 static uint8_t bz_rb_kch[27];                  /* ISR: the channel each key's note went on (its note-off: the same) */
 static void bz_loops_key(uint32_t p);
 static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-) */
+/* 0.17 PLAY: one page to play on (blaze_home.c play_key; the lead notes: seq.c kb_key): white 1..7 the key's chords
+ * (CHORD's, on its track), 8..16 lead notes in key (KEYS', on its track, its octave); black 1..3 a roll at 1/8 1/16
+ * 1/32 (SHIFT: the next drum), 4 FILL on that drum, 5 BUILD 4, 6 DROP, 7 BOOST, 8 QUANTIZE (the lead notes on the
+ * 1/16), 9 / 10 OCT- / OCT+ (the lead notes), 11 HOLD (the next chord or roll stays on until pressed again) */
+static volatile uint8_t bz_play;               /* main: the layer is PLAY */
+static volatile uint8_t pl_hold;               /* ISR: HOLD armed */
+static volatile uint8_t pl_quant;              /* main: QUANTIZE the lead notes */
+static volatile uint8_t pl_chord;              /* ISR: the chord key held (1..7; 0 none) */
+static volatile uint8_t pl_msg;                /* ISR -> main: a message to show (1 BOOST, 2 QUANTIZE, 3 drum, 4 HOLD) */
+static volatile uint8_t bz_fill_lane = 255;    /* ISR: FILL's drum when PLAY started it (255: BUILD's) */
+#define PL_N 11u
+/* 0.14.1 BOOST: the lanes it plays louder and harder (eng_drum.c dv_boost): SNARE and CLAP */
+#define BZ_BOOST_LANES (1u << 1 | 1u << 2)
 static volatile uint8_t bz_ktrk;               /* main: the KEYS track */
 static volatile int8_t bz_koct;                /* main: KEYS' octave, -2..2 (0: the root at C3 .. B3) */
 static volatile uint32_t bz_s16;               /* ISR: 1/16 steps since the transport started */
@@ -328,7 +343,7 @@ static void bz_build_start(uint32_t bars)
 static __attribute__((noinline)) void bz_build_more(uint32_t adv)
 {
     uint32_t total = bz_b_total, r, b = beat_samples(), x;
-    uint32_t pad = bz_b_lane % NLANE, sw = bz_b_swell > 100u ? 100u : bz_b_swell;
+    uint32_t pad = (bz_b_fill && bz_fill_lane < NLANE ? bz_fill_lane : bz_b_lane) % NLANE, sw = bz_b_swell > 100u ? 100u : bz_b_swell;
     while (bz_next < adv) {                      /* (hits due in this block: on their own grid) */
         uint32_t at = bz_age + bz_next;
         if (at >= total) {
@@ -631,6 +646,8 @@ static void bz_release_all(void)
     bz_pads = 0;
     bz_padl = 0;                                 /* (0.13: the pads rolling on their own) */
     rd_on = rd_latch = 0;                        /* (0.14: READY ROLLS) */
+    pl_on = pl_latch = 0;                        /* (0.17: PLAY's roll, HOLD) */
+    pl_hold = 0;
     bz_rk_on = 0;
     bz_rx = 0;
     rl_extra = 0;
@@ -743,8 +760,10 @@ static __attribute__((noinline)) void bz_fn_down(uint32_t f, uint32_t k)
         bz_org = ((bz_s16 + (clk_pos != CLK_START && clk_pos * 2u >= div_samples(2) ? 1u : 0u)) + 2u) & ~3u;
     else if (f == BZF_REL)
         bz_release_all();
-    else if (f == BZF_FILL)
+    else if (f == BZF_FILL) {
+        bz_fill_lane = 255;                      /* (0.17: BUILD's drum; PLAY's FILL: its roll's) */
         bz_fill_tap();
+    }
     else if (f >= BZF_PPR0 && f <= BZF_PPR5)     /* 0.9: a pad + SHIFT + a rate: the pad's own rate */
         bz_pp_set(f - BZF_PPR0 + 2u, 0);
     else if (f >= BZF_PPF0 && f <= BZF_PPF5)     /* .. + an effect: the pad's own effect */
@@ -793,6 +812,67 @@ static __attribute__((noinline)) void bz_fn_up(uint32_t f, uint32_t k, uint32_t 
     (void)k;
 }
 
+static void bz_chord_key(uint32_t p);
+static void bz_chord_stop(void);
+/* 0.17 PLAY: a key (ISR) */
+static __attribute__((noinline)) void play_key(uint32_t k, uint32_t p, int down)
+{
+    if (!key_black(k)) {                         /* white 1..7: a chord while held (HOLD armed: on until pressed again) */
+        if (p >= 7u)
+            return;                              /* (8..16: lead notes, seq.c) */
+        if (down) {
+            if (bz_ch_sel == p + 1u && !pl_chord) {   /* (on, held: this press stops it) */
+                bz_chord_stop();
+                return;
+            }
+            if (bz_ch_sel != p + 1u)
+                bz_chord_key(p);
+            pl_chord = pl_hold ? 0u : (uint8_t)(p + 1u);
+            pl_hold = 0;
+        } else if (pl_chord == p + 1u) {
+            pl_chord = 0;
+            if (bz_ch_sel == p + 1u)
+                bz_chord_stop();
+        }
+        return;
+    }
+    if (p < 3u) {                                /* black 1..3: the roll; SHIFT: the next drum */
+        if (down && bz_shift_on) {
+            pl_lane = (uint8_t)(pl_lane % 6u + 1u);
+            pl_msg = 3;
+            return;
+        }
+        pl_roll(p, down, pl_hold);
+        if (down)
+            pl_hold = 0;
+        return;
+    }
+    if (!down)
+        return;
+    switch (p) {
+    case 3:                                      /* FILL on the roll's drum */
+        bz_fill_lane = pl_lane;
+        bz_fill_tap();
+        break;
+    case 4: bz_fn_down(BZF_B4, k); break;
+    case 5: bz_fn_down(BZF_DROP, k); break;
+    case 6:
+        dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
+        pl_msg = 1;
+        break;
+    case 7:
+        pl_quant = (uint8_t)!pl_quant;
+        pl_msg = 2;
+        break;
+    case 8: bz_koct = (int8_t)(bz_koct > -2 ? bz_koct - 1 : bz_koct); break;
+    case 9: bz_koct = (int8_t)(bz_koct < 2 ? bz_koct + 1 : bz_koct); break;
+    default:
+        pl_hold = (uint8_t)!pl_hold;
+        pl_msg = 4;
+        break;
+    }
+}
+
 static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
 {
     uint32_t p = key_place(k), f;
@@ -826,6 +906,10 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         }
         return;
     }
+    if (bz_play) {                               /* 0.17 PLAY (the lead notes, white 8..16: seq.c) */
+        play_key(k, p, down);
+        return;
+    }
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
         if (!key_black(k) && down && !(bz_shift_on && p == 12u))   /* (0.14 SHIFT + white 13: CAPTURE, the main loop's) */
             bz_chord_key(p);
@@ -855,8 +939,6 @@ static uint8_t bzd_follow = 1;
 static void bzd_toggle(void);
 static void bzd_key_now(void);
 static void bz_deck_poll(void);
-/* 0.14.1 BOOST: the lanes it plays louder and harder (eng_drum.c dv_boost): SNARE and CLAP */
-#define BZ_BOOST_LANES (1u << 1 | 1u << 2)
 static void bz_rail_act(uint32_t q)
 {
     if (q == 1u || q == 2u)

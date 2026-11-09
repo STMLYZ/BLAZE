@@ -571,3 +571,25 @@ rekordbox's decks.
 rail-bridge v6.1 + RAIL v13: **SNAP** (tap on a 1 you hear: the deck goes to the nearest bar line of its grid), **BAR −
 / BAR +** (a whole bar), the **DECK BARS** knob (a bar a detent), **DECK A/B** (which deck those act on; else the one
 alone on air), all learnable to MiniLab pads / a knob. Turning DECKS off leaves the key and the phrase to you and RAIL.
+
+## 0.17a — PLAY, SET's knobs, SNAP on the FM-1
+
+**PLAY** (OCT− from BLAZE, or GO + white 2): one page to play on, both hands at once.
+
+| Keys | |
+|---|---|
+| White 1–7 | the key's 7 chords (CHORD's, on its track) while held; with ARP on that track, a riff |
+| White 8–16 | lead notes in key (KEYS', on its track and octave) |
+| Black 1–3 | a roll at 1/8, 1/16, 1/32 while held; one drum for all three, **SHIFT + a roll key** the next (SNARE CLAP HAT OPEN TOM RIM) |
+| Black 4 | FILL, on the roll's drum |
+| Black 5–7 | BUILD 4, DROP, BOOST |
+| Black 8 | QUANTIZE: lead notes played past a 1/16's middle sound on the next 1/16 |
+| Black 9–10 | OCT− / OCT+ for the lead notes |
+| Black 11 | HOLD: the next chord or roll stays on until it's pressed again |
+
+The chords go to another notes track than the lead when there is one. GO's white keys: BLAZE PLAY ROLL KEYS / CHORD
+LOOPS SLICE SET / PRESETS EDIT FILTER ENV / LFO FX ARP RB MIDI (MOD left GO: EDIT's pages reach it).
+
+**SET's knobs** (HOME's SET view): K1 **COLOR** (BLAZE's filter: LP / OPEN / HP), K2 **LEVEL** (the four tracks
+together), K3 **OFFSET** (rail-bridge's clock, −50..+50 ms, ch16 CC 60 = 64 + ms), K4 **DECK** (the lead deck a bar on /
+back a detent, CC 61). **SNAP** is SHIFT + black 8 (CC 62). rail-bridge v6.2 listens to the FM-1 for these.

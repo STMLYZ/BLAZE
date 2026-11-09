@@ -1882,7 +1882,9 @@ static void ui_input(void)
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }
-        if (ui.home) {
+        if (ui.home && home_set()) {                    /* BLAZE 0.17: SET's knobs: COLOR LEVEL OFFSET DECK */
+            bz_set_knob(k, s);
+        } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);
             *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));

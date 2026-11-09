@@ -66,7 +66,7 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_SEQ, LK_SET, FAM_SEQ, "[SEQ] TOOLS", {{KC_KEYS, "TOOLS"}, {KC_OCTDN, "UNDO"}, {KC_SEQ, "DONE"}}},
     {B_REC, LK_SET, FAM_HOME, "[REC] SET", {{KC_KEYS, "RECORDING"}, {KC_OCTDN, "UNDO"}, {KC_REC, "DONE"}}},
     {B_ARP, LK_HOLD, FAM_HOME, "[ARP] ROLL", {{KC_KEYS, "ROLL"}, {KC_OCTDN, "READY"}, {KC_OCTUP, "GROOVE"}}},   /* BLAZE */
-    {B_ENV, LK_HOLD, FAM_HOME, "[ENV] BLAZE", {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "KEYS"}, {KC_OCTUP, "SHIFT"}}},   /* BLAZE */
+    {B_ENV, LK_HOLD, FAM_HOME, "[ENV] BLAZE", {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "PLAY"}, {KC_OCTUP, "SHIFT"}}},   /* BLAZE */
 };
 static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_REC, KC_ARP, KC_ENV};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
@@ -87,12 +87,13 @@ typedef char ly_init_fits[LY_CLEAN < 16u ? 1 : -1];   /* (a white key: F3 .. G5)
 static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_OCTDN, "ALL OFF"}};
 static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
+static const khint_t BZ_PLAY_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "KEYS"}, {KC_OCTUP, "SHIFT"}};   /* (0.17 PLAY) */
 static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "CHORD"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
 static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "LOOPS"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
 static const khint_t BZ_LOOPS_FOOT[3] = {{KC_KEYS, "LAYERS"}, {KC_OCTDN, "SLICE"}, {0, 0}};   /* (BLAZE LOOPS) */
 static const khint_t BZ_SLICE_FOOT[3] = {{KC_KEYS, "SLICES"}, {KC_OCTDN, "RKBX"}, {0, 0}};   /* (BLAZE SLICE, 0.8) */
 static const khint_t BZ_RB_FOOT[3] = {{KC_KEYS, "MIDI OUT"}, {KC_OCTDN, "BLAZE"}, {0, 0}};   /* (REKORDBOX, 0.9) */
-static const khint_t BZ_SHLOCK_FOOT[3] = {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "KEYS"}, {KC_OCTUP, "OFF"}};   /* (0.11.1: SHIFT LOCK; "UNLOCK" does not fit) */
+static const khint_t BZ_SHLOCK_FOOT[3] = {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "PLAY"}, {KC_OCTUP, "OFF"}};   /* (0.11.1: SHIFT LOCK; "UNLOCK" does not fit) */
 static const khint_t EU_FOOT[3] = {{KC_OCTUP, "APPLY"}, {KC_OCTDN, "CANCEL"}, {0, 0}};   /* (SEQ TOOLS' EUCLID open) */
 /* the FX layer's key map (perform.c perf_map_of / perf_map_put: 16 x 5 bits; all 0, every older setting: the default
  * map) in 10 bytes no engine uses, kept with the settings */
@@ -1349,7 +1350,7 @@ static void draw_layer(void)
         cv_begin(240, H_FOOT, T_BG);
         const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : l == LAYER_SEQ && eu.on ? EU_FOOT :
-                            l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT : l == LAYER_BLAZE && bz_slice ? BZ_SLICE_FOOT : l == LAYER_BLAZE && bz_rb ? BZ_RB_FOOT : l == LAYER_BLAZE && bz_shlock ? BZ_SHLOCK_FOOT :
+                            l == LAYER_BLAZE && bz_play ? BZ_PLAY_FOOT : l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT : l == LAYER_BLAZE && bz_slice ? BZ_SLICE_FOOT : l == LAYER_BLAZE && bz_rb ? BZ_RB_FOOT : l == LAYER_BLAZE && bz_shlock ? BZ_SHLOCK_FOOT :
                             LAYERS[l].foot;
         int h = help_on() && help_row(l == LAYER_SEQ && eu.on ? H_EUCLID : HELP_LAYER[l], 21);   /* 1.5, HELP ON: a
                                                          * second row, what this one does not say */

@@ -666,6 +666,10 @@ static void bz_home_key(uint32_t k, uint32_t f)
         bz_follow_set(song.g[G_CLOCK] == 0);
     else if (f == BZF_DECKS)                        /* 0.16: the key and the phrase follow the decks, or not */
         bzd_toggle();
+    else if (f == BZF_SNAP) {                       /* 0.17: the lead deck onto its nearest bar line (rail-bridge) */
+        bz_tx_cc(62u, 127u);
+        ui_message("SNAP: THE DECK ON THE BAR");
+    }
     else if (f == BZF_BOOST) {                      /* 0.14.1: SNARE and CLAP louder and harder (rolls cut through) */
         dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
         ui_message(dv_boost ? "BOOST ON: SNARE + CLAP LOUDER" : "BOOST OFF");
@@ -936,9 +940,35 @@ static uint32_t bz_slice_first(void)               /* SLICE's track: the selecte
             return i;
     return bz_strk % NTRK;
 }
-static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> BLAZE) */
+/* 0.17 PLAY opens: its lead notes on KEYS' track, its chords on another notes track when there is one */
+static void bz_play_open(void)
 {
-    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
+    uint32_t i;
+    bz_ktrk = (uint8_t)bz_keys_track();
+    if (!bz_notes_track(&trk[bz_ctrk % NTRK]) || bz_ctrk % NTRK == bz_ktrk % NTRK)
+        for (i = 0; i < NTRK; i++)
+            if (i != bz_ktrk % NTRK && bz_notes_track(&trk[i])) {
+                bz_ctrk = (uint8_t)i;
+                break;
+            }
+    if (!bz_notes_track(&trk[bz_ctrk % NTRK]))
+        bz_ctrk = bz_ktrk;
+    bz_play = 1;
+}
+static void bz_play_close(void)
+{
+    bz_play = 0;
+    pl_chord = 0;
+    pl_hold = 0;
+    if (!pl_latch)
+        pl_on = 0;
+}
+static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> PLAY -> KEYS -> CHORD -> LOOPS -> SLICE -> RB -> BLAZE) */
+{
+    if (!bz_play && !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
+        bz_play_open();
+    } else if (bz_play) {
+        bz_play_close();
         bz_ktrk = (uint8_t)bz_keys_track();
         bz_keys = 1;
     } else if (bz_keys) {
@@ -960,7 +990,7 @@ static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> KEYS -> C
     } else {
         bz_rb = 0;
     }
-    ui_message(bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
+    ui_message(bz_play ? "PLAY: CHORDS, LEAD, ROLLS AT ONCE" : bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
                : bz_loops ? "LOOPS: LAYERS IN AND OUT ON THE BEAT"
                : bz_slice ? (bz_sl_ok ? "SLICE: THE SAMPLE ON THE KEYS" : "SLICE: NO SLICE TRACK (SHIFT + T1..T4 MAKES ONE)")
                : bz_rb ? "REKORDBOX: THE KEYS SEND MIDI (MIDI LEARN)"
@@ -1219,6 +1249,10 @@ static void bz_ui_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     track_t *t;
+    if (bz_play) {                                  /* 0.17 PLAY: the ISR's (blaze_home.c play_key), the map redrawn */
+        ui.force = 1;
+        return;
+    }
     if ((bz_chord || bz_slice) && bz_shift() && !key_black(k) && p == 12u) {   /* 0.14: SHIFT + white 13: CAPTURE */
         bz_req = 7u;                                /* (the ISR's: as RAIL's CC 36 7) */
         ui_message(bz_cap == BZC_SOLO || bz_cap == BZC_MIX ? "CAPTURE: NEXT STAGE" : "CAPTURE: FROM THE NEXT BAR");
@@ -1312,6 +1346,20 @@ static void bz_ui_pass(void)
         bz_cfg_apply();
     }
     bz_deck_poll();                                 /* 0.16: the decks lead the key and the phrase (blaze_set.c) */
+    if (pl_msg) {                                   /* 0.17 PLAY: what the ISR did */
+        static const char *const DR[7] = {"KICK", "SNARE", "CLAP", "HAT", "OPEN HAT", "TOM", "RIM"};
+        uint32_t m = pl_msg;
+        pl_msg = 0;
+        if (m == 1u)
+            ui_message(dv_boost ? "BOOST ON: SNARE + CLAP LOUDER" : "BOOST OFF");
+        else if (m == 2u)
+            ui_message(pl_quant ? "QUANTIZE: LEAD NOTES ON THE 1/16" : "QUANTIZE OFF");
+        else if (m == 3u)
+            ui_say("ROLL: ", DR[pl_lane % 7u]);
+        else
+            ui_message(pl_hold ? "HOLD: THE NEXT CHORD OR ROLL STAYS ON" : "HOLD OFF");
+        ui.force = 1;
+    }
     if (bz_rel) {
         bz_rel = 0;
         perf_k[0] = perf_k[2] = perf_k[3] = 0;    /* (COLOR to the middle, THROW off, DEPTH full) */
@@ -1779,6 +1827,7 @@ static uint32_t bz_fn_state(uint32_t f, uint32_t k)
     case BZF_FOLLOW: return song.g[G_CLOCK] ? BZS_FILL : BZS_IDLE;
     case BZF_BOOST: return dv_boost ? BZS_FILL : BZS_IDLE;
     case BZF_DECKS: return bzd_follow ? BZS_FILL : BZS_IDLE;
+    case BZF_SNAP: return BZS_IDLE;
     default: return BZS_DIM;
     }
 }
@@ -1878,10 +1927,11 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
-    str_cpy(h, bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_build_held() ? "[ENV] BUILD SETUP" : bz_drop_held() ? "[ENV] DROP SETUP" : bz_riser_held() ? "[ENV] RISER SOUND"
+    str_cpy(h, bz_play ? (pl_hold ? "[ENV] PLAY HOLD" : bz_shift() ? "[ENV] PLAY SHIFT" : "[ENV] PLAY")
+               : bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_build_held() ? "[ENV] BUILD SETUP" : bz_drop_held() ? "[ENV] DROP SETUP" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
                : bz_shlock ? "[ENV] SHIFT LOCK" : bz_shift() ? "[ENV] BLAZE SHIFT" : "[ENV] BLAZE", sizeof h);
-    if (!bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb && bz_drop != BZD_IDLE) {   /* 0.14 */
+    if (!bz_play && !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb && bz_drop != BZD_IDLE) {   /* 0.14 */
         uint32_t n = bz_drop_left();
         str_cpy(h, bz_drop == BZD_RUN && n <= 1u ? "[ENV] DROP IN 1" : "[ENV] DROP IN ", sizeof h);
         if (!(bz_drop == BZD_RUN && n <= 1u)) {

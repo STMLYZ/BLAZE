@@ -179,6 +179,63 @@ static void layer_chord_map(void)
     }
 }
 
+/* 0.17 PLAY: white 1..7 the chords, 8..16 the lead notes; black the roll (its drum on the cells), FILL BUILD DROP BOOST
+ * QUANTIZE OCT- OCT+ HOLD */
+static void layer_play_map(void)
+{
+    static const char *const DR[7] = {"KICK", "SNARE", "CLAP", "HAT", "OPEN", "TOM", "RIM"};
+    static const char *const RT[3] = {"8 ", "16 ", "32 "};
+    const track_t *ct = &trk[bz_ctrk % NTRK], *lt = &trk[bz_ktrk % NTRK];
+    uint32_t i, b, cam = bz_camelot(&b, (char[16]){0}, 16);
+    uint16_t rc = cam ? bz_cam_col(cam) : T_THEME;
+    char nm[16];
+    bzk_held_update();
+    bz_phrase_bar();
+    for (i = 0; i < 16u; i++) {
+        int32_t x = BZX(i % 4u), y = BZD_Y7 + 16 * (int32_t)(i / 4u);
+        if (i < 7u) {
+            char *j;
+            bz_chord_name(ct, i, nm, sizeof nm);
+            for (j = nm; *j; j++)
+                if (j[0] == 'm' && j[1] == 'a' && j[2] == 'j') {
+                    j[0] = 'M';
+                    str_cpy(j + 1, j + 3, sizeof nm - (uint32_t)(j + 1 - nm));
+                    break;
+                }
+            bzk_cell(x, y, 14, nm, T_THEME, bz_ch_sel == i + 1u ? RLC_FILL : !bzc_fits(ct, i) ? RLC_DIM : RLC_IDLE,
+                     BZK_W, i + 1u);
+        } else {
+            uint32_t note = bz_key_note(lt, i - 7u);
+            int root = note % 12u == (uint32_t)lt->p[P_ROOT] % 12u;
+            bzk_cell(x, y, 14, N_NOTE[note % 12u], root ? rc : ux.bfx,
+                     ((bzk_held_w >> i) & 1u) ? RLC_FILL : root ? RLC_TINT : RLC_IDLE, BZK_W, i + 1u);
+        }
+    }
+    for (i = 0; i < 11u; i++) {
+        int32_t y = BZD_YB + 18 * (int32_t)(i / 4u), h = i < 8u ? 16 : 14;
+        const char *lab;
+        uint16_t c = T_MID;
+        uint32_t how = RLC_IDLE;
+        if (i < 3u) {
+            str_cpy(nm, RT[i], sizeof nm);
+            str_cpy(nm + str_len(nm), DR[pl_lane % 7u], sizeof nm - str_len(nm));
+            lab = nm;
+            c = rl_lane_col(pl_lane % NLANE);
+            how = (pl_on >> i) & 1u ? RLC_FILL : RLC_IDLE;
+            bzx.lock = (uint8_t)((pl_latch >> i) & 1u);
+        } else {
+            static const char *const L[8] = {"FILL", "BUILD", "DROP", "BOOST", "QUANT", "OCT-", "OCT+", "HOLD"};
+            lab = L[i - 3u];
+            c = i < 6u ? ux.btr : i == 6u ? ux.btr : i == 10u ? T_ACCENT : T_MID;
+            how = i == 6u ? (dv_boost ? RLC_FILL : RLC_IDLE) : i == 7u ? (pl_quant ? RLC_FILL : RLC_IDLE)
+                : i == 8u ? (bz_koct < 0 ? RLC_TINT : RLC_IDLE) : i == 9u ? (bz_koct > 0 ? RLC_TINT : RLC_IDLE)
+                : i == 10u ? (pl_hold ? RLC_FILL : RLC_IDLE)
+                : i == 3u ? (bz_build && bz_b_fill ? RLC_FILL : RLC_IDLE) : RLC_IDLE;
+        }
+        bzk_cell(BZX(i % 4u), y, h, lab, c, how, BZK_B, i + 1u);
+    }
+}
+
 static void layer_keys_map(void)
 {
     const track_t *t = &trk[bz_ktrk % NTRK];
@@ -357,6 +414,7 @@ static const char *bz_fn_label(uint32_t f, char *nm)
     case BZF_FOLLOW: return "FOLLOW";
     case BZF_BOOST: return "BOOST";
     case BZF_DECKS: return "DECKS";
+    case BZF_SNAP: return "SNAP";
     default: return "-";
     }
 }
@@ -441,6 +499,10 @@ static void layer_blaze(void)
     track_t *t = rl_track();
     uint32_t i, fx = perf_kill ? 0u : perf_held | perf_latched, ok = perf_avail(), pe;
     int drum = drum_track(t), ext = song.g[G_CLOCK] != 0;
+    if (bz_play) {                                      /* 0.17 */
+        layer_play_map();
+        return;
+    }
     if (bz_keys) {
         layer_keys_map();
         return;

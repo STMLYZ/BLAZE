@@ -383,8 +383,10 @@ int main(void)
     trk[0].p[P_AMODE] = 0;
     trk[0].p[P_AHOLD] = 0;
     song.sel = 0;
+    press(B_OCTDN);                                      /* (0.17: PLAY first) */
+    ok = bz_play && !strncmp(bz_head(), "[ENV] PLAY", 10);
     press(B_OCTDN);
-    ok = bz_keys && bz_ktrk == 0u && !strncmp(bz_head(), "[ENV] KEYS", 10);
+    ok = ok && bz_keys && !bz_play && bz_ktrk == 0u && !strncmp(bz_head(), "[ENV] KEYS", 10);
     v0 = vage;
     key_down(wk(0)); key_down(wk(2)); key_down(wk(7));
     ok &= kb_note[wk(0)] == 57u && kb_note[wk(2)] == 60u && kb_note[wk(7)] == 69u && kb_trk[wk(0)] == 0u;
@@ -544,7 +546,9 @@ int main(void)
     btn_down(B_ENV);
     frames(800);
     press(B_OCTDN);
-    ok = bz_keys && !bz_chord;
+    ok = bz_play && !bz_keys;                            /* (0.17: PLAY first) */
+    press(B_OCTDN);
+    ok &= bz_keys && !bz_chord && !bz_play;
     press(B_OCTDN);
     ok &= !bz_keys && bz_chord && !strncmp(bz_head(), "[ENV] CHORD", 11);
     press(B_OCTDN);
@@ -555,7 +559,7 @@ int main(void)
     ok &= !bz_slice && bz_rb;
     press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb;
-    bad += check("UI: OCT- steps BLAZE -> KEYS -> CHORD -> LOOPS -> SLICE -> REKORDBOX -> BLAZE", ok);
+    bad += check("UI: OCT- steps BLAZE -> PLAY -> KEYS -> CHORD -> LOOPS -> SLICE -> REKORDBOX -> BLAZE", ok);
     bz_cfg[BZC_MAGIC_I] = 0;
     bz_cfg_apply();
     key_down(wk(BZ_RISER));

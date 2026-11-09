@@ -276,6 +276,61 @@ static void bz_deck_poll(void)
     }
 }
 
+/* ---- 0.17 SET's knobs: K1 COLOR (BLAZE's filter, perf_k[0]), K2 LEVEL (the four tracks together), K3 OFFSET (the
+ * bridge's clock, ms: ch16 CC 60 = 64 + ms), K4 DECK (the lead deck a bar a detent: CC 61 = 64 + bars); SNAP: CC 62 ---- */
+static int8_t bzs_off;                                  /* the offset sent (-50..50 ms) */
+static void bz_set_knob(uint32_t k, int32_t s)
+{
+    uint32_t i;
+    if (k == 0u) {
+        perf_k[0] = (int8_t)clamp(perf_k[0] + s * 2, -100, 100);
+    } else if (k == 1u) {
+        for (i = 0; i < NTRK; i++)
+            trk[i].p[P_LEVEL] = (int16_t)clamp(trk[i].p[P_LEVEL] + s, 0, 127);
+    } else if (k == 2u) {
+        bzs_off = (int8_t)clamp(bzs_off + s, -50, 50);
+        bz_tx_cc(60u, (uint32_t)(64 + bzs_off));
+    } else {
+        bz_tx_cc(61u, (uint32_t)clamp(64 + s, 54, 74));
+        ui_message(s > 0 ? "DECK: A BAR ON" : "DECK: A BAR BACK");
+    }
+    ui.force = 1;
+}
+static uint32_t bzd_lead(void);
+static int32_t bzd_b16(uint32_t d);
+static void bz_set_cards(void)
+{
+    char v[12];
+    uint32_t i, sum = 0, ld = bzd_lead();
+    int32_t f = perf_k[0], b16;
+    /* COLOR: LP n / OPEN / HP n */
+    if (f < -2 || f > 2) {
+        str_cpy(v, f < 0 ? "LP " : "HP ", sizeof v);
+        fmt_int(v + 3, f < 0 ? -f : f);
+    } else
+        str_cpy(v, "OPEN", sizeof v);
+    draw_column(0, "COLOR", v, "", VAL(0), (f + 100) * 1000 / 200, ICON_NONE);
+    for (i = 0; i < NTRK; i++)
+        sum += (uint32_t)trk[i].p[P_LEVEL];
+    {
+        const char *unit;
+        param_format(&TP[P_LEVEL], (int16_t)(sum / NTRK), v, &unit);
+        draw_column(1, "LEVEL", v, unit, VAL(1), (int32_t)(sum / NTRK) * 1000 / 127, ICON_NONE);
+    }
+    fmt_int(v, bzs_off);
+    draw_column(2, "OFFSET", bzs_off > 0 ? (str_cpy(v, "+", sizeof v), fmt_int(v + 1, bzs_off), v) : v, "ms",
+                bzw_live() ? VAL(2) : T_DIM, (bzs_off + 50) * 1000 / 100, ICON_NONE);
+    if (ld < 2u && (b16 = bzd_b16(ld)) != 0x7FFFFFFF && b16 >= 0) {
+        v[0] = (char)('A' + ld);
+        v[1] = ' ';
+        fmt_int(v + 2, b16 / 64 + 1);
+        str_cpy(v + str_len(v), ".", sizeof v - str_len(v));
+        fmt_int(v + str_len(v), b16 / 16 % 4 + 1);
+    } else
+        str_cpy(v, "-", sizeof v);
+    draw_column(3, "DECK", v, "", bzw_live() ? VAL(3) : T_DIM, -1, ICON_NONE);
+}
+
 /* ---- drawing (ui_graph.c draw_graph: HOME with MENU > HOME SET) ---- */
 #define BZS_X 8                                         /* the view's left and right ink */
 #define BZS_R 232
@@ -509,5 +564,8 @@ static void bz_set_draw(void)
     bzs_deck(0, 58);
     bzs_deck(1, 88);
     cv_blit(0, graph_y());
+    if (ui.frame % 8u == 0u && !ui.force)              /* (0.17: the DECK card's bar.beat runs on; after the panel's
+                                                         * blit: the cards draw on their own canvas) */
+        bz_set_cards();
 }
 /* what the view shows changes: the frame (the decks, the playheads) is enough, every other frame as the scope */

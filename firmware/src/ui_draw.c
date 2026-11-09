@@ -1029,6 +1029,10 @@ static void draw_columns(void)
     char val[12];
     const char *unit;
     (void)motion_mask(song.sel, card_mot_mask);       /* (PLAY OFF: no scan) */
+    if (ui.home && home_set()) {                       /* BLAZE 0.17: SET's own four (blaze_set.c) */
+        bz_set_cards();
+        return;
+    }
     if (ui.home) {
         for (c = 0; c < 4u; c++) {
             int16_t *vp;

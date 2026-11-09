@@ -815,6 +815,31 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
 static uint32_t kb_bz;                           /* .. in the BLAZE layer */
 static uint32_t kb_bzn;                          /* .. BLAZE KEYS' white keys playing notes */
+static uint32_t kb_qpend, kb_qrel, kb_qoff;      /* .. 0.17 PLAY QUANTIZE: waiting for the next 1/16; let go meanwhile;
+                                                  * to end on the next 1/16 */
+static void key_on(uint32_t k, track_t *t);
+static void key_off(uint32_t k, track_t *t);
+/* the 1/16 (click_tick): the lead notes waiting sound; the ones let go meanwhile end on the next */
+static void pl_tick(void)
+{
+    uint32_t k, m = kb_qoff;
+    kb_qoff = 0;
+    for (k = 0; m; k++, m >>= 1)
+        if ((m & 1u) && ((kb_bzn >> k) & 1u)) {
+            kb_bzn &= ~(1u << k);
+            key_off(k, &trk[kb_trk[k] % NTRK]);
+        }
+    for (k = 0, m = kb_qpend; m; k++, m >>= 1)
+        if (m & 1u) {
+            kb_bzn |= 1u << k;
+            kb_raw = 1;
+            key_on(k, &trk[kb_trk[k] % NTRK]);
+            kb_raw = 0;
+            if ((kb_qrel >> k) & 1u)
+                kb_qoff |= 1u << k;
+        }
+    kb_qpend = kb_qrel = 0;
+}
 
 /* BLAZE SLICE: white key k down (out of line: keyboard_block's loop stays as it was) */
 static __attribute__((noinline)) void kb_slice_press(uint32_t k)
@@ -890,9 +915,14 @@ static __attribute__((noinline)) void kb_key(uint32_t k, uint32_t down, uint32_t
             kb_note[k] = KB_SILENT;
             return;
         }
-        if (lay && home && bz_keys && !key_black(k)) {   /* BLAZE KEYS: the key plays the KEYS track's scale */
+        if (lay && home && !key_black(k) && (bz_keys || (bz_play && key_place(k) >= 7u))) {   /* BLAZE KEYS: the key
+                                              * plays the KEYS track's scale (0.17 PLAY: white 8..16, from its 1st) */
             kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
-            kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], key_place(k));
+            kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], bz_play ? key_place(k) - 7u : key_place(k));
+            if (bz_play && pl_quant && song.playing && clk_pos != CLK_START && clk_pos * 2u >= div_samples(2)) {
+                kb_qpend |= 1u << k;          /* (0.17 QUANTIZE: past a 1/16's middle: on the next one, pl_tick) */
+                return;
+            }
             kb_bzn |= 1u << k;
             kb_raw = 1;
             key_on(k, &trk[kb_trk[k]]);
@@ -918,6 +948,10 @@ static __attribute__((noinline)) void kb_key(uint32_t k, uint32_t down, uint32_t
         kb_lat(k);
 #endif
     } else {
+        if ((kb_qpend >> k) & 1u) {           /* (0.17: let go before its 1/16: it sounds there, a 1/16 long) */
+            kb_qrel |= 1u << k;
+            return;
+        }
         if ((kb_bzn >> k) & 1u) {             /* (BLAZE KEYS: its notes end, on the track they played) */
             kb_bzn &= ~(1u << k);
             key_off(k, &trk[kb_trk[k] % NTRK]);
@@ -1448,6 +1482,8 @@ static void click_tick(uint32_t adv)
             clk_pos -= p;
             clk_step = (clk_step + 1u) & 15u;
             bz_s16++;
+            if (kb_qpend | kb_qoff)
+                pl_tick();                      /* (0.17 PLAY QUANTIZE: the lead notes on this 1/16) */
             if (!(clk_step & 3u))
                 beat = clk_step ? 1u : 2u;
         }

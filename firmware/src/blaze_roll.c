@@ -76,6 +76,37 @@ static uint16_t rd_x;                          /* ISR: keys whose press stopped 
 static uint8_t rd_vel[16];                     /* ISR: each one's velocity */
 static uint32_t rd_n[16], rd_dn[16];           /* ISR: samples to its next hit; when (fm1_ms) it was pressed */
 
+/* 0.17 PLAY's rolls (blaze_home.c play_key): black 1..3 roll one drum (pl_lane) at 1/8, 1/16, 1/32 while held, or on
+ * once HOLD armed them (pl_latch); one at a time (another rate takes over). Hits on the rate's grid, as READY's */
+static void rl_hit(uint32_t p, uint32_t vel);
+static uint32_t rl_wait(uint32_t r);
+static const uint8_t PL_RATE[3] = {2, 4, 6};    /* (RL_DIV's index: 1/8, 1/16, 1/32) */
+static volatile uint8_t pl_lane = 1;           /* main / ISR: the drum (SNARE CLAP HAT OPEN TOM RIM: 1..6) */
+static volatile uint8_t pl_on, pl_latch;       /* ISR: the rate rolling (bit 0..2), latched */
+static uint8_t pl_vel;
+static uint32_t pl_n;                          /* ISR: samples to its next hit */
+static void pl_roll(uint32_t r, int down, int latch)
+{
+    uint8_t b = (uint8_t)(1u << r);
+    if (!down) {
+        if (!(pl_latch & b))
+            pl_on = (uint8_t)(pl_on & ~b);
+        return;
+    }
+    if (pl_on & b) {                             /* (rolling: this press stops it) */
+        pl_on = pl_latch = 0;
+        return;
+    }
+    pl_on = b;                                   /* (one rate at a time) */
+    pl_latch = latch ? b : 0u;
+    pl_vel = (uint8_t)kb_vel;
+    pl_n = rl_wait(PL_RATE[r]);
+    if (!pl_n) {
+        rl_hit(pl_lane % NLANE, pl_vel);
+        pl_n = div_samples(RL_DIV[PL_RATE[r]]);
+    }
+}
+
 static uint16_t rl_live(void)
 {
     return rl_padmode == RL_PADS4 ? rl_live4 : rl_padmode == RL_PADS1 ? rl_live1 : (uint16_t)RL_ALL_PADS;
@@ -366,6 +397,17 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
                 }
                 rl_ppn[p] -= adv;
             }
+    if (pl_on) {                                 /* 0.17 PLAY's roll */
+        uint32_t r = pl_on & 1u ? 0u : pl_on & 2u ? 1u : 2u, period = div_samples(RL_DIV[PL_RATE[r]]);
+        if (!period)
+            period = 1;
+        if (pl_n < adv) {
+            rl_hit(pl_lane % NLANE, pl_vel);
+            while (pl_n < adv)
+                pl_n += period;
+        }
+        pl_n -= adv;
+    }
     if (rd_on)                                   /* 0.14 READY ROLLS: each at its own rate */
         for (p = 0; p < 16u; p++)
             if ((rd_on >> p) & 1u) {

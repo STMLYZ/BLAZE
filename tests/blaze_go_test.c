@@ -63,14 +63,14 @@ int main(void)
     press(B_HOME);
     frames(50);
     ok = !ui.menu;
-    go_key(wk(2));                                      /* white 3: KEYS */
+    go_key(wk(3));                                      /* white 4: KEYS (0.17) */
     ok &= ui.lock == LAYER_BLAZE && bz_keys && !ui.menu && !voices();
-    bad += check("GO: HOME + white 3: BLAZE's KEYS, locked open; the key sounded nothing; HOME's release no menu", ok);
-    go_key(wk(1));                                      /* white 2: ROLL */
+    bad += check("GO: HOME + white 4: BLAZE's KEYS, locked open; the key sounded nothing; HOME's release no menu", ok);
+    go_key(wk(2));                                      /* white 3: ROLL (0.17) */
     ok = ui.lock == LAYER_ROLL;
     go_key(bk(3));                                      /* black 4: MIXER */
     ok &= !ui.lock && !ui.home && str_eq(cur_page()->title, "MIXER");
-    bad += check("GO: white 2 ROLL (BLAZE's lock closed), black 4 MIXER (ROLL's closed)", ok);
+    bad += check("GO: white 3 ROLL (BLAZE's lock closed), black 4 MIXER (ROLL's closed)", ok);
     go_key(wk(7));                                      /* white 8: SET */
     ok = ui.home && home_set() && !ui.lock;
     go_key(wk(8));                                      /* white 9: PRESETS */
@@ -184,6 +184,50 @@ int main(void)
         ok &= ((bz_s16 - bz_org) / 4u) % 64u == 2u;
         bad += check("DECKS: the phrase follows the lead deck's grid, bar 1 its DROP cue (beat 2 now), the same shift twice", ok);
         song.playing = 0; song.g[G_CLOCK] = 0;
+    }
+    /* 0.17 PLAY: GO + white 2; a roll while held, HOLD latches the next, SHIFT + a roll key the next drum; a chord
+     * while held; a lead note; QUANTIZE: past a 1/16's middle, on the next */
+    {
+        uint32_t v0;
+        ui_power_on();
+        frame();
+        go_key(wk(1));
+        ok = bz_play && ui.lock == LAYER_BLAZE && !bz_keys;
+        key_down(bk(0)); ok &= pl_on == 1u && pl_lane == 1u;
+        key_up(bk(0)); ok &= !pl_on;
+        key_down(bk(10)); key_up(bk(10)); ok &= pl_hold;
+        key_down(bk(1)); key_up(bk(1)); ok &= pl_on == 2u && pl_latch == 2u && !pl_hold;
+        key_down(bk(1)); key_up(bk(1)); ok &= !pl_on;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; frame();
+        key_down(bk(2)); key_up(bk(2));
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+        ok &= pl_lane == 2u && !pl_on;
+        bad += check("PLAY: GO + white 2; black 1 rolls while held; HOLD + black 2 rolls on, pressed again off; SHIFT + black 3: CLAP", ok);
+        key_down(wk(0)); ok = bz_ch_sel == 1u;
+        key_up(wk(0)); ok &= bz_ch_sel == 0u;
+        v0 = voices();
+        key_down(wk(8)); ok &= voices() > v0 && ((kb_bzn >> wk(8)) & 1u);
+        key_up(wk(8)); ok &= !((kb_bzn >> wk(8)) & 1u);
+        bad += check("PLAY: white 1 a chord while held; white 9 a lead note on KEYS' track", ok);
+        pl_quant = 1; song.playing = 1; clk_pos = div_samples(2) * 3u / 4u;
+        key_down(wk(9)); ok = ((kb_qpend >> wk(9)) & 1u) && !((kb_bzn >> wk(9)) & 1u);
+        pl_tick(); ok &= ((kb_bzn >> wk(9)) & 1u) && !kb_qpend;
+        key_up(wk(9));
+        pl_quant = 0; song.playing = 0; clk_pos = CLK_START;
+        bad += check("PLAY QUANTIZE: a lead note past the 1/16's middle waits for the next (pl_tick)", ok);
+        bz_play_close();
+    }
+    /* 0.17 SET's knobs */
+    {
+        int16_t l0 = trk[0].p[P_LEVEL];
+        perf_k[0] = 0;
+        bz_set_knob(0, 5); ok = perf_k[0] == 10;
+        bz_set_knob(1, -4); ok &= trk[0].p[P_LEVEL] == l0 - 4;
+        bz_set_knob(2, 3); ok &= bzs_off == 3;
+        bz_set_knob(2, 100); ok &= bzs_off == 50;
+        perf_k[0] = 0; trk[0].p[P_LEVEL] = l0; bzs_off = 0;
+        ui_home_view = HV_SET; go_home(); ui.force = 1; ui_draw(); ui_home_view = HV_SCOPE;
+        bad += check("SET knobs: COLOR (filter), LEVEL (all four), OFFSET (-50..50 ms); the cards draw", ok);
     }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;

@@ -16,11 +16,11 @@ typedef struct {
 /* the white keys 1..16 (4 rows of 4): perform, then the views, then the sound; the black keys 1..11: the song,
  * the project, the rest */
 static const go_t GO_W[16] = {
-    {"BLAZE", GO_BLAZE, 0, 0}, {"ROLL", GO_ROLL, 0, 0}, {"KEYS", GO_BLAZE, 1, 0}, {"CHORD", GO_BLAZE, 2, 0},
-    {"LOOPS", GO_BLAZE, 3, 0}, {"SLICE", GO_BLAZE, 4, 0}, {"RB MIDI", GO_BLAZE, 5, 0}, {"SET", GO_SET, 0, 0},
+    {"BLAZE", GO_BLAZE, 0, 0}, {"PLAY", GO_BLAZE, 6, 0}, {"ROLL", GO_ROLL, 0, 0}, {"KEYS", GO_BLAZE, 1, 0},
+    {"CHORD", GO_BLAZE, 2, 0}, {"LOOPS", GO_BLAZE, 3, 0}, {"SLICE", GO_BLAZE, 4, 0}, {"SET", GO_SET, 0, 0},
     {"PRESETS", GO_PAGE, 0, "PRESETS"}, {"EDIT", GO_PAGE, 0, "EDIT 1"}, {"FILTER", GO_PAGE, 0, "FILTER"},
     {"ENV", GO_PAGE, 0, "ENV"}, {"LFO", GO_PAGE, 0, "LFO"}, {"FX", GO_PAGE, 0, "FX"}, {"ARP", GO_PAGE, 0, "ARP"},
-    {"MOD", GO_PAGE, 0, "MOD"}};
+    {"RB MIDI", GO_BLAZE, 5, 0}};   /* (0.17: PLAY in, MOD out: EDIT's pages reach it) */
 static const go_t GO_B[11] = {
     {"STEP", GO_PAGE, 0, "STEP"}, {"SONG", GO_PAGE, 0, "SONG"}, {"AUTO", GO_PAGE, 0, "AUTOMATION"},
     {"MIXER", GO_PAGE, 0, "MIXER"}, {"PROJECT", GO_PAGE, 0, "PROJECT"}, {"USER", GO_PAGE, 0, "USER"},
@@ -82,8 +82,12 @@ static void go_to(const go_t *g)
         layer_let_go(1);
     switch (g->kind) {
     case GO_BLAZE:
+        if (bz_play)
+            bz_play_close();
         bz_keys = bz_chord = bz_loops = bz_slice = bz_rb = 0;
-        if (g->arg == 1u) {
+        if (g->arg == 6u) {
+            bz_play_open();
+        } else if (g->arg == 1u) {
             bz_ktrk = (uint8_t)bz_keys_track();
             bz_keys = 1;
         } else if (g->arg == 2u) {
@@ -168,9 +172,9 @@ static int go_here(const go_t *g)
 {
     switch (g->kind) {
     case GO_BLAZE:
-        return ui.lock == LAYER_BLAZE && (g->arg == 1u ? bz_keys : g->arg == 2u ? bz_chord : g->arg == 3u ? bz_loops
+        return ui.lock == LAYER_BLAZE && (g->arg == 6u ? bz_play : g->arg == 1u ? bz_keys : g->arg == 2u ? bz_chord : g->arg == 3u ? bz_loops
                                           : g->arg == 4u ? bz_slice : g->arg == 5u ? bz_rb
-                                          : !(bz_keys || bz_chord || bz_loops || bz_slice || bz_rb));
+                                          : !(bz_play || bz_keys || bz_chord || bz_loops || bz_slice || bz_rb));
     case GO_ROLL:
         return ui.lock == LAYER_ROLL;
     case GO_SET:

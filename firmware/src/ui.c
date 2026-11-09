@@ -431,6 +431,8 @@ static int go_hold_ok(void);
 static void go_draw(void);
 static void go_poll(uint32_t now);
 static uint32_t go_keys(uint32_t lkeys);
+static void bz_set_cards(void);                       /* BLAZE 0.17: SET's knobs (blaze_set.c) */
+static void bz_set_knob(uint32_t k, int32_t s);
 static const char *layer_head(void);
 static int layer_locked(void);
 static uint32_t layer_leds(uint32_t *br);
