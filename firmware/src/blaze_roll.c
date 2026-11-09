@@ -107,6 +107,19 @@ static void pl_roll(uint32_t r, int down, int latch)
     }
 }
 
+static __attribute__((noinline)) void pl_block(uint32_t adv)   /* (out of roll_block: target_budget) */
+{
+    uint32_t r = pl_on & 1u ? 0u : pl_on & 2u ? 1u : 2u, period = div_samples(RL_DIV[PL_RATE[r]]);
+    if (!period)
+        period = 1;
+    if (pl_n < adv) {
+        rl_hit(pl_lane % NLANE, pl_vel);
+        while (pl_n < adv)
+            pl_n += period;
+    }
+    pl_n -= adv;
+}
+
 static uint16_t rl_live(void)
 {
     return rl_padmode == RL_PADS4 ? rl_live4 : rl_padmode == RL_PADS1 ? rl_live1 : (uint16_t)RL_ALL_PADS;
@@ -397,17 +410,8 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
                 }
                 rl_ppn[p] -= adv;
             }
-    if (pl_on) {                                 /* 0.17 PLAY's roll */
-        uint32_t r = pl_on & 1u ? 0u : pl_on & 2u ? 1u : 2u, period = div_samples(RL_DIV[PL_RATE[r]]);
-        if (!period)
-            period = 1;
-        if (pl_n < adv) {
-            rl_hit(pl_lane % NLANE, pl_vel);
-            while (pl_n < adv)
-                pl_n += period;
-        }
-        pl_n -= adv;
-    }
+    if (pl_on)                                   /* 0.17 PLAY's roll */
+        pl_block(adv);
     if (rd_on)                                   /* 0.14 READY ROLLS: each at its own rate */
         for (p = 0; p < 16u; p++)
             if ((rd_on >> p) & 1u) {

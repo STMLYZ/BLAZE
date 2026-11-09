@@ -820,7 +820,21 @@ static uint32_t kb_qpend, kb_qrel, kb_qoff;      /* .. 0.17 PLAY QUANTIZE: waiti
 static void key_on(uint32_t k, track_t *t);
 static void key_off(uint32_t k, track_t *t);
 /* the 1/16 (click_tick): the lead notes waiting sound; the ones let go meanwhile end on the next */
-static void pl_tick(void)
+/* BLAZE KEYS / PLAY's lead key k down (out of the scan's loop: target_budget) */
+static __attribute__((noinline)) void kb_bz_note(uint32_t k)
+{
+    kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
+    kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], bz_play ? key_place(k) - 7u : key_place(k));
+    if (bz_play && pl_quant && song.playing && clk_pos != CLK_START && clk_pos * 2u >= div_samples(2)) {
+        kb_qpend |= 1u << k;                  /* (0.17 QUANTIZE: past a 1/16's middle: on the next one, pl_tick) */
+        return;
+    }
+    kb_bzn |= 1u << k;
+    kb_raw = 1;
+    key_on(k, &trk[kb_trk[k]]);
+    kb_raw = 0;
+}
+static __attribute__((noinline)) void pl_tick(void)
 {
     uint32_t k, m = kb_qoff;
     kb_qoff = 0;
@@ -917,16 +931,7 @@ static __attribute__((noinline)) void kb_key(uint32_t k, uint32_t down, uint32_t
         }
         if (lay && home && !key_black(k) && (bz_keys || (bz_play && key_place(k) >= 7u))) {   /* BLAZE KEYS: the key
                                               * plays the KEYS track's scale (0.17 PLAY: white 8..16, from its 1st) */
-            kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
-            kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], bz_play ? key_place(k) - 7u : key_place(k));
-            if (bz_play && pl_quant && song.playing && clk_pos != CLK_START && clk_pos * 2u >= div_samples(2)) {
-                kb_qpend |= 1u << k;          /* (0.17 QUANTIZE: past a 1/16's middle: on the next one, pl_tick) */
-                return;
-            }
-            kb_bzn |= 1u << k;
-            kb_raw = 1;
-            key_on(k, &trk[kb_trk[k]]);
-            kb_raw = 0;
+            kb_bz_note(k);
             return;
         }
         if (lay) {                            /* a layer's button held (or locked): the key is the layer's */
