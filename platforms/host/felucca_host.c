@@ -480,7 +480,11 @@ FH_API void fh_test_heavy(void)
 FH_API uint32_t fh_test_engine(uint32_t e, uint32_t p)
 {
     uint8_t eng[3][2];
+#if !BLAZE_SOUNDS_OFF
+    uint32_t n = bz_own_npresets(ENGINES[e % NENGINES]), k;               /* (BLAZE 0.15: its own presets, not the sound pack's) */
+#else
     uint32_t n = ENGINES[e % NENGINES]->npresets, k;
+#endif
     for (k = 0; k < 3u; k++) {
         eng[k][0] = (uint8_t)(e % NENGINES);
         eng[k][1] = (uint8_t)(n ? (p + k) % n : 0u);

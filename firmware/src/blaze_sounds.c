@@ -233,6 +233,15 @@ static const engine_t ENG_NOISE_BZ = {
     .desc = noise_desc,
 };
 
+/* engine e's presets as Felucca-Engines has them (its plugin's): BLAZE's appended ones left out (platforms/host
+ * fh_test_engine: an engine and its plugin compared preset for preset) */
+static uint32_t bz_own_npresets(const engine_t *x)
+{
+    return x == &ENG_ANALOG_BZ ? NELEM(ANALOG_PRESETS) : x == &ENG_PHASE_BZ ? NELEM(PHASE_PRESETS)
+         : x == &ENG_LOFI_BZ ? NELEM(LOFI_PRESETS) : x == &ENG_TRIO_BZ ? NELEM(TRIO_PRESETS)
+         : x == &ENG_WHEEL_BZ ? NELEM(WHEEL_PRESETS) : x == &ENG_NOISE_BZ ? NELEM(NOISE_PRESETS) : x->npresets;
+}
+
 /* BZ_PX: a preset's extra values (engine, preset, then up to 7 parameter = value pairs, 0 = none) */
 typedef struct {
     uint8_t e, k;
