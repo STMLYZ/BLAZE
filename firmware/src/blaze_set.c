@@ -282,6 +282,11 @@ static int8_t bzs_off;                                  /* the offset sent (-50.
 static void bz_set_knob(uint32_t k, int32_t s)
 {
     uint32_t i;
+    if (bz_shift_held() && k < 3u) {                    /* 0.17b: SHIFT + K1 K2 K3: the DJ EQ, LOW MID HIGH (fx.c) */
+        bz_eq_v[k] = (int8_t)clamp(bz_eq_v[k] + s, -32, 32);
+        ui.force = 1;
+        return;
+    }
     if (k == 0u) {
         perf_k[0] = (int8_t)clamp(perf_k[0] + s * 2, -100, 100);
     } else if (k == 1u) {
@@ -298,11 +303,39 @@ static void bz_set_knob(uint32_t k, int32_t s)
 }
 static uint32_t bzd_lead(void);
 static int32_t bzd_b16(uint32_t d);
+/* an EQ band's value, v -32..32 (gain 1 + v/32): KILL, 0, or 20 log10 of the gain in tenths of a dB */
+static const int16_t BZ_EQ_DB[65] = {0, -301, -241, -206, -181, -161, -145, -132, -120, -110, -101, -93, -85, -78, -72, -66, -60, -55, -50, -45, -41, -37, -33, -29, -25, -21, -18, -15, -12, -9, -6, -3, 0, 3, 5, 8, 10, 13, 15, 17, 19, 22, 24, 26, 28, 30, 32, 33, 35, 37, 39, 40, 42, 44, 45, 47, 49, 50, 52, 53, 55, 56, 57, 59, 60};
+static void bz_eq_fmt(char *v, int32_t e)
+{
+    int32_t d = BZ_EQ_DB[clamp(e, -32, 32) + 32], m = d < 0 ? -d : d;
+    if (e <= -32) {
+        str_cpy(v, "KILL", 12);
+        return;
+    }
+    if (!e) {
+        str_cpy(v, "0", 12);
+        return;
+    }
+    v[0] = d < 0 ? '-' : '+';
+    fmt_int(v + 1, m / 10);
+    str_cpy(v + str_len(v), ".", 12 - str_len(v));
+    fmt_int(v + str_len(v), m % 10);
+}
 static void bz_set_cards(void)
 {
     char v[12];
     uint32_t i, sum = 0, ld = bzd_lead();
     int32_t f = perf_k[0], b16;
+    if (bz_shift_held()) {                              /* 0.17b: SHIFT: the DJ EQ */
+        static const char *const NM[3] = {"LOW", "MID", "HIGH"};
+        for (i = 0; i < 3u; i++) {
+            bz_eq_fmt(v, bz_eq_v[i]);
+            draw_column(i, NM[i], v, bz_eq_v[i] > -32 && bz_eq_v[i] ? "dB" : "", bz_eq_v[i] <= -32 ? T_DIM : VAL(i),
+                        (bz_eq_v[i] + 32) * 1000 / 64, ICON_NONE);
+        }
+        draw_column(3, "EQ", "SHIFT", "", T_DIM, 0, ICON_NONE);
+        return;
+    }
     /* COLOR: LP n / OPEN / HP n */
     if (f < -2 || f > 2) {
         str_cpy(v, f < 0 ? "LP " : "HP ", sizeof v);

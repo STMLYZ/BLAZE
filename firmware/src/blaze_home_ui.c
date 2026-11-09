@@ -953,6 +953,11 @@ static void bz_play_open(void)
             }
     if (!bz_notes_track(&trk[bz_ctrk % NTRK]))
         bz_ctrk = bz_ktrk;
+    if (!trk[bz_ktrk % NTRK].p[P_ATDST]) {              /* 0.17b: the lead's pressure to VIBRATO, unless it goes elsewhere */
+        trk[bz_ktrk % NTRK].p[P_ATSNS] = 6;
+        trk[bz_ktrk % NTRK].p[P_ATDST] = 11;
+        trk[bz_ktrk % NTRK].p[P_ATAMT] = 3;      /* (full pressure: PIT +6, about a semitone) */
+    }
     bz_play = 1;
 }
 static void bz_play_close(void)

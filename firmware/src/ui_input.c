@@ -1780,6 +1780,8 @@ static void ui_input(void)
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if (act_cols() || layer_set_open() || ui.ml.on)   /* action pages: enter / back (below); SET layers: OCT-; */
                 break;                                  /* MIDI LEARN: clear / done (below) */
+            if (b == B_OCTUP && ui.home && home_set())  /* BLAZE 0.17b: the SET view: OCT+ is SHIFT (the EQ) */
+                break;
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
             else

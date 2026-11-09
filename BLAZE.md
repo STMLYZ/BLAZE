@@ -593,3 +593,16 @@ LOOPS SLICE SET / PRESETS EDIT FILTER ENV / LFO FX ARP RB MIDI (MOD left GO: EDI
 **SET's knobs** (HOME's SET view): K1 **COLOR** (BLAZE's filter: LP / OPEN / HP), K2 **LEVEL** (the four tracks
 together), K3 **OFFSET** (rail-bridge's clock, −50..+50 ms, ch16 CC 60 = 64 + ms), K4 **DECK** (the lead deck a bar on /
 back a detent, CC 61). **SNAP** is SHIFT + black 8 (CC 62). rail-bridge v6.2 listens to the FM-1 for these.
+
+## 0.17b — the DJ EQ, PLAY's vibrato
+
+**DJ EQ** on the SET view: hold **OCT+ (SHIFT)**, then **K1 LOW / K2 MID / K3 HIGH** — the FM-1's whole master
+(everything it plays, FX returns and LOOP CAPTURE included). Each band KILL .. 0 .. +6 dB; the cards show the bands
+while SHIFT is held. Two Linkwitz-Riley crossovers (250 Hz, 2.5 kHz): flat within 0.2 dB at 0; KILL takes LOW
+25 dB down at 60 Hz, HIGH 28 dB at 10 kHz, MID 15 dB at 1 kHz. All three at 0: off, no CPU. Not saved (a live tool).
+On the SET view OCT+ no longer moves the octave (OCT− still does).
+
+**Vibrato**: opening PLAY routes the lead track's key pressure to VIB (AT SENS 6, ATDST VIB, ATAMT 3: full pressure
+about a semitone deep, at the track's LFO RATE), unless that track's pressure already goes somewhere. Pressure is
+read on the keys of the analog rows only (notes 0..19): of PLAY's lead keys, white 8..12 (F G A B C); the top four
+are not.

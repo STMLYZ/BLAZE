@@ -229,6 +229,43 @@ int main(void)
         ui_home_view = HV_SET; go_home(); ui.force = 1; ui_draw(); ui_home_view = HV_SCOPE;
         bad += check("SET knobs: COLOR (filter), LEVEL (all four), OFFSET (-50..50 ms); the cards draw", ok);
     }
+    /* 0.17b: SHIFT + K1..K3 on SET: the DJ EQ; KILL LOW takes a low tone out, KILL HIGH leaves it; PLAY's vibrato */
+    {
+        uint32_t i, j, n = CTL;
+        int32_t lowk, highk, peak;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];
+        bz_set_knob(0, -40); ok = bz_eq_v[0] == -32;
+        bz_set_knob(2, 5); ok &= bz_eq_v[2] == 5;
+        ui_home_view = HV_SET; go_home(); ui.force = 1; ui_draw(); ui_home_view = HV_SCOPE;
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        bz_eq_v[2] = 0;
+        /* a 60 Hz tone through KILL LOW, then KILL HIGH: the level left after a settle */
+        for (j = 0; j < 2u; j++) {
+            bz_eq_v[0] = j ? 0 : -32;
+            bz_eq_v[2] = j ? -32 : 0;
+            bz_eq_run = 0;
+            peak = 0;
+            for (i = 0; i < 44100u; i += n) {
+                uint32_t q;
+                for (q = 0; q < n; q++) {
+                    mix_l[q] = mix_r[q] = (int32_t)(40000.0 * sin(6.2831853 * 60.0 * (i + q) / 44100.0));
+                    wet[q] = 0;
+                }
+                bz_eq_block(n);
+                if (i > 22050u)
+                    for (q = 0; q < n; q++)
+                        peak = mix_l[q] > peak ? mix_l[q] : peak;
+            }
+            if (j) highk = peak; else lowk = peak;
+        }
+        bz_eq_v[0] = bz_eq_v[1] = bz_eq_v[2] = 0;
+        ok &= lowk < 40000 / 12 && highk > 40000 * 9 / 10;
+        printf("  (60 Hz at 40000: KILL LOW leaves %d, KILL HIGH %d)\n", (int)lowk, (int)highk);
+        bz_play_open();
+        ok &= trk[bz_ktrk % NTRK].p[P_ATDST] == 11 && trk[bz_ktrk % NTRK].p[P_ATSNS] > 0;
+        bz_play_close();
+        bad += check("SET + SHIFT: the DJ EQ (KILL LOW, HIGH); PLAY: the lead's pressure to VIBRATO", ok);
+    }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;
 }

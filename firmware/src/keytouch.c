@@ -56,7 +56,7 @@ static void kt_set(int on)
 /* the main loop, every pass: the readings on or off, and every 5 ms the pressures */
 static void kt_poll(uint32_t now)
 {
-    uint32_t k, want = trk[song.sel].p[P_ATSNS] > 0, ch = 0;
+    uint32_t k, want = trk[song.sel].p[P_ATSNS] > 0 || (bz_play && trk[bz_ktrk % NTRK].p[P_ATSNS] > 0), ch = 0;   /* (BLAZE 0.17b: PLAY's lead track) */
     for (k = 0; k < KT_ROWKEYS && !want; k++)
         want = kt_p[k] != 0;
     kt_set((int)want);
