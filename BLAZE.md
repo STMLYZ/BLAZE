@@ -552,3 +552,22 @@ rekordbox XML export (if there is one) for names, keys and cue names, and follow
 tempo faders and SYNC for where each deck is. Which track is on which deck: RAIL v12's DECKS panel, or `--auto`
 (pyrekordbox, rekordbox's history). The position is an estimate: loops, jog nudges and scratching drift it; a SYNCed
 deck is pulled onto the Link beat.
+
+## 0.16 — DECKS lead the key and the phrase; SNAP
+
+**DECKS** (on by default; SHIFT + black 7, or RAIL's DECKS, CC 36 13): with rail-bridge running, the FM-1 follows
+rekordbox's decks.
+- **The key**: the deck alone on air (the bridge's guess from the channel faders and the crossfader) is the FM-1's key,
+  set on every notes track as RAIL's key sets it. In a blend (both on air) the key stays the one it was and the other
+  deck's becomes the next key: BLEND, the notes both keys share. **KEY NOW** (RAIL CC 36 14) takes the other deck's key
+  at once.
+- **The phrase**: the newest deck playing on air (the incoming one in a blend) sets BLAZE's 16-bar phrase from its beat
+  grid: bar 1 is its DROP cue (a memory cue named DROP), else its first downbeat. So BUILD / DROP land on the track's
+  drop, LOOPS and the chords count the track's bars. It needs the FM-1 on rekordbox's clock (FOLLOW); it moves the
+  phrase by whole beats only, after seeing the same shift twice, never while a BUILD / DROP runs.
+- SET shows each deck's **bar.beat** (orange, before the title: compare with rekordbox's), the lead deck's **DROP n**
+  (bars to its DROP cue) and **DECKS** while following.
+
+rail-bridge v6.1 + RAIL v13: **SNAP** (tap on a 1 you hear: the deck goes to the nearest bar line of its grid), **BAR −
+/ BAR +** (a whole bar), the **DECK BARS** knob (a bar a detent), **DECK A/B** (which deck those act on; else the one
+alone on air), all learnable to MiniLab pads / a knob. Turning DECKS off leaves the key and the phrase to you and RAIL.

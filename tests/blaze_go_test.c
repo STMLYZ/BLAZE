@@ -130,6 +130,61 @@ int main(void)
     ok &= cpu_pct() == 15u && !cpu_hot() && head_cpu_x >= 200;
     bad += check("SET draws; the CPU meter left of the battery, its number when 70 % and over", ok);
     ui_home_view = HV_SCOPE;
+
+    /* 0.16 DECKS: the deck alone on air is the key; a blend: the other's the next key (BLEND); KEY NOW takes it; the
+     * phrase follows the lead deck's grid (bar 1: its DROP cue), whole beats, the same shift twice */
+    {
+        static uint8_t f[64];
+        uint32_t d;
+        memset(&bzw, 0, sizeof bzw);
+        bzd.keyd = 255; bzd.keyk = bzd.nextk = 0; bzd.pend = 0;
+        bzd_follow = 1;
+        for (d = 0; d < 2u; d++) {                      /* A 8A, B 10A; 128 BPM, 30 * 60 / 128 columns a beat */
+            memset(f, 0, sizeof f);
+            f[0] = 1; f[1] = (uint8_t)d; f[2] = 1; frame_u21(f + 3, 12800); f[6] = d ? 10 : 8; f[7] = 0;
+            frame_u21(f + 8, 30 * 300); frame_u21(f + 11, 0); frame_u21(f + 14, 30 * 256 * 60 / 128);
+            f[17] = 'T'; f[18] = 0;
+            bz_wave_frame(f, 20);
+        }
+        f[0] = 3; f[1] = 0; f[2] = 1; f[3] = 1; frame_u21(f + 4, 1800);   /* A: DROP at 60 s = beat 128, bar 33 */
+        bz_wave_frame(f, 7);
+        f[0] = 6; f[1] = 0; bz_wave_frame(f, 2);        /* FOCUS A */
+        bz_deck_poll();
+        ok = trk[0].p[P_ROOT] == 9 && trk[0].p[P_SCALE] == 2 && !bz_blend;
+        f[0] = 6; f[1] = 2; bz_wave_frame(f, 2);        /* both on air */
+        bz_deck_poll();
+        ok &= trk[0].p[P_ROOT] == 9 && bz_blend != 0;   /* (A still; B the next key: BLEND) */
+        bzd_key_now();
+        bz_deck_poll();
+        ok &= trk[0].p[P_ROOT] == 11 && trk[0].p[P_SCALE] == 2;   /* (10A: B minor) */
+        f[0] = 6; f[1] = 0; bz_wave_frame(f, 2);
+        bz_deck_poll();
+        ok &= trk[0].p[P_ROOT] == 9 && !bz_blend;
+        bad += check("DECKS: A alone 8A (A minor); a blend: B's 10A the next key (BLEND); KEY NOW: B minor; A alone again", ok);
+
+        /* the phrase: A playing at beat 130 (2 beats past its DROP: the phrase's beat 2); the FM-1 at beat 5 */
+        song.playing = 1; song.g[G_CLOCK] = 1; bz_drop = BZD_IDLE;
+        bz_s16 = 1000u; bz_org = 1000u - 5u * 4u;
+        f[0] = 5; f[1] = 0; f[2] = 1;
+        { uint32_t p16 = (uint32_t)(130 * 30 * 60 / 128) * 16u; frame_u21(f + 3, p16); }
+        frame_u21(f + 6, 10000);
+        bz_wave_frame(f, 9);
+        bzw.d[0].pos_ms = fm1_ms;
+        bzw.d[0].playing = 0;                           /* (held still: no run-on while the test waits) */
+        bzd.ph_ms = fm1_ms - 1000u;
+        bzd.pend = 0;
+        bz_deck_poll();
+        ok = bz_org == 1000u - 20u;                     /* (seen once: not yet) */
+        bzw.d[0].playing = 1;
+        bzw.d[0].pos_ms = fm1_ms;
+        bzd.ph_ms = fm1_ms - 1000u;
+        bz_deck_poll();
+        bzd.ph_ms = fm1_ms - 1000u;
+        bz_deck_poll();
+        ok &= ((bz_s16 - bz_org) / 4u) % 64u == 2u;
+        bad += check("DECKS: the phrase follows the lead deck's grid, bar 1 its DROP cue (beat 2 now), the same shift twice", ok);
+        song.playing = 0; song.g[G_CLOCK] = 0;
+    }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;
 }

@@ -664,6 +664,8 @@ static void bz_home_key(uint32_t k, uint32_t f)
         ui_say("ROLL SHAPE ", RLS_NAME[rl_shape]);
     } else if (f == BZF_FOLLOW)
         bz_follow_set(song.g[G_CLOCK] == 0);
+    else if (f == BZF_DECKS)                        /* 0.16: the key and the phrase follow the decks, or not */
+        bzd_toggle();
     else if (f == BZF_BOOST) {                      /* 0.14.1: SNARE and CLAP louder and harder (rolls cut through) */
         dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
         ui_message(dv_boost ? "BOOST ON: SNARE + CLAP LOUDER" : "BOOST OFF");
@@ -1309,6 +1311,7 @@ static void bz_ui_pass(void)
         cfg = 1;
         bz_cfg_apply();
     }
+    bz_deck_poll();                                 /* 0.16: the decks lead the key and the phrase (blaze_set.c) */
     if (bz_rel) {
         bz_rel = 0;
         perf_k[0] = perf_k[2] = perf_k[3] = 0;    /* (COLOR to the middle, THROW off, DEPTH full) */
@@ -1333,6 +1336,10 @@ static void bz_ui_pass(void)
                 bz_shlock = (uint8_t)!bz_shlock;
                 ui_message(bz_shlock ? "SHIFT LOCKED (RAIL)" : "SHIFT UNLOCKED (RAIL)");
                 ui.force = 1;
+            } else if (bz_cc[16] == 13u) {          /* (0.16 DECKS on / off, KEY NOW: blaze_set.c) */
+                bzd_toggle();
+            } else if (bz_cc[16] == 14u) {
+                bzd_key_now();
             } else if (bz_cc[16] == 12u) {          /* (0.14.1 BOOST: here) */
                 dv_boost = dv_boost ? 0u : BZ_BOOST_LANES;
                 ui_message(dv_boost ? "BOOST ON (RAIL)" : "BOOST OFF (RAIL)");
@@ -1771,6 +1778,7 @@ static uint32_t bz_fn_state(uint32_t f, uint32_t k)
     case BZF_SHAPE: return rl_shape ? BZS_TINT : BZS_IDLE;
     case BZF_FOLLOW: return song.g[G_CLOCK] ? BZS_FILL : BZS_IDLE;
     case BZF_BOOST: return dv_boost ? BZS_FILL : BZS_IDLE;
+    case BZF_DECKS: return bzd_follow ? BZS_FILL : BZS_IDLE;
     default: return BZS_DIM;
     }
 }

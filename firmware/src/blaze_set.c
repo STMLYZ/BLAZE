@@ -29,7 +29,7 @@ static struct {
     struct {
         uint8_t loaded, playing, cam, b, ncue;
         uint8_t title[16];
-        uint32_t bpm100, len, beat0, beat256, pos16, pos_ms, speed;
+        uint32_t bpm100, len, beat0, beat256, pos16, pos_ms, speed, start_ms;
         uint32_t wbase;                                 /* the window's first column */
         uint16_t wn;
         uint8_t ov[BZW_OV / 2u];                        /* heights, 2 per byte */
@@ -119,6 +119,8 @@ static void bz_wave_frame(const uint8_t *a, uint32_t n)
         case 5:                                         /* POS */
             if (n < 7u)
                 return;
+            if ((a[0] & 1u) && !d->playing)             /* (0.16: when it started: the newer one leads the phrase) */
+                d->start_ms = fm1_ms | 1u;
             d->playing = a[0] & 1u;
             d->pos16 = bzw_u21(a + 1);
             d->speed = bzw_u21(a + 4);
@@ -140,6 +142,138 @@ static uint32_t bzw_pos(uint32_t d)
     e = e > 2000u ? 2000u : e;
     r = BZW_COLS_S * 16u * (bzw.d[d].speed > 30000u ? 30000u : bzw.d[d].speed) / 10000u;   /* (x16 columns a second) */
     return bzw.d[d].pos16 + e * r / 1000u;
+}
+
+/* ---- 0.16 DECKS: the decks lead the key and the phrase (bzd_follow, SHIFT + black 7 DECKS, RAIL CC 36 13) ----
+ * The key: the deck alone on air (FOCUS 0 / 1) is the FM-1's key (every notes track's ROOT and MAJ / MIN, as RAIL's
+ * key sets them: bz_key_apply). Both on air (a blend): the key stays the one it was, and the other deck's is the next
+ * key (BLEND: the notes both share, as RAIL's next key); KEY NOW (RAIL CC 36 14) takes the other deck's key at once.
+ * The phrase: the newest deck playing on air (the incoming one in a blend) sets BLAZE's 16-bar phrase from its beat
+ * grid: bar 1 its first DROP cue (a memory cue named DROP), else its first downbeat. With the FM-1 on rekordbox's
+ * clock (FOLLOW) the beats already agree: the phrase moves by whole beats only, the same shift twice in a row, at
+ * most twice a second, never while a BUILD / DROP runs. */
+static struct {
+    uint8_t keyd;                                       /* the deck whose key the FM-1 has (255: none yet) */
+    uint8_t keyk, nextk;                                /* the keys sent (cam | B << 4 | 1 << 5; 0: none) */
+    int8_t pend;                                        /* the phrase shift seen once (beats; 0: none) */
+    uint32_t ph_ms;
+} bzd = {255, 0, 0, 0, 0};
+
+/* deck d's playhead in beats x 16 from its first downbeat (its grid; 0x7FFFFFFF: no grid) */
+static int32_t bzd_b16(uint32_t d)
+{
+    const __typeof__(bzw.d[0]) *k = &bzw.d[d];
+    if (k->beat256 < 256u)
+        return 0x7FFFFFFF;
+    return (int32_t)(((int32_t)bzw_pos(d) - (int32_t)k->beat0) * 256 / (int32_t)k->beat256);
+}
+/* .. a column's, the same way */
+static int32_t bzd_col_b16(uint32_t d, uint32_t col)
+{
+    const __typeof__(bzw.d[0]) *k = &bzw.d[d];
+    if (k->beat256 < 256u)
+        return 0;
+    return (int32_t)(((int32_t)(col * 16u) - (int32_t)k->beat0) * 256 / (int32_t)k->beat256);
+}
+/* deck d's first DROP cue's beats x 16, or its first downbeat's (0) */
+static int32_t bzd_anchor(uint32_t d)
+{
+    const __typeof__(bzw.d[0]) *k = &bzw.d[d];
+    uint32_t i;
+    for (i = 0; i < k->ncue; i++)
+        if (k->cue_k[i] == 1u)
+            return bzd_col_b16(d, k->cue_c[i]);
+    return 0;
+}
+/* the deck the phrase follows: alone on air, or the newer one playing in a blend (255: none) */
+static uint32_t bzd_lead(void)
+{
+    uint32_t a = bzw.d[0].loaded && bzw.d[0].playing, b = bzw.d[1].loaded && bzw.d[1].playing;
+    if (bzw.focus < 2u)
+        return bzw.d[bzw.focus].loaded ? bzw.focus : 255u;
+    if (a && b)
+        return (int32_t)(bzw.d[1].start_ms - bzw.d[0].start_ms) > 0 ? 1u : 0u;
+    return a ? 0u : b ? 1u : 255u;
+}
+static uint32_t bzd_root(uint32_t cam, uint32_t b)          /* a Camelot key's root (0 C .. 11 B) */
+{
+    uint32_t r;
+    for (r = 0; r < 12u && (b ? BZ_CAM_MAJ[r] : BZ_CAM_MIN[r]) != cam; r++)
+        ;
+    return r % 12u;
+}
+static uint8_t bzd_k(uint32_t d) { return bzw.d[d].loaded && bzw.d[d].cam ? (uint8_t)(bzw.d[d].cam | bzw.d[d].b << 4 | 32u) : 0u; }
+static void bzd_send_key(void)                          /* bzd.keyk / nextk -> RAIL's key bytes, then applied */
+{
+    bz_cc[0] = (uint8_t)(bzd.keyk & 15u);
+    bz_cc[1] = (uint8_t)(bzd.keyk & 16u ? 127u : 0u);
+    bz_cc[2] = (uint8_t)bzd_root(bzd.keyk & 15u, (bzd.keyk >> 4) & 1u);
+    bz_cc[3] = (uint8_t)(bzd.nextk & 15u);
+    bz_cc[4] = (uint8_t)(bzd.nextk & 16u ? 127u : 0u);
+    bz_cc[5] = (uint8_t)(bzd.nextk ? bzd_root(bzd.nextk & 15u, (bzd.nextk >> 4) & 1u) : 0u);
+    bz_key_apply();
+}
+static void bzd_toggle(void)
+{
+    bzd_follow = (uint8_t)!bzd_follow;
+    bzd.keyk = bzd.nextk = 0;
+    bzd.pend = 0;
+    ui_message(bzd_follow ? "DECKS: KEY + PHRASE FOLLOW REKORDBOX" : "DECKS OFF: KEY + PHRASE YOURS");
+    ui.force = 1;
+}
+static void bzd_key_now(void)                           /* KEY NOW: the other deck's key, at once */
+{
+    uint32_t o = bzd.keyd < 2u ? 1u - bzd.keyd : bzw.focus < 2u ? 1u - bzw.focus : 1u;
+    if (!bzd_k(o)) {
+        ui_message("KEY NOW: NO KEY ON THE OTHER DECK");
+        return;
+    }
+    bzd.keyd = (uint8_t)o;
+    ui_message(o ? "KEY NOW: DECK B" : "KEY NOW: DECK A");
+}
+
+/* every main-loop pass (bz_ui_pass) */
+static void bz_deck_poll(void)
+{
+    uint32_t lead;
+    if (!bzd_follow || !bzw_live())
+        return;
+    /* the key */
+    if (bzw.focus < 2u && bzd_k(bzw.focus))
+        bzd.keyd = bzw.focus;
+    if (bzd.keyd < 2u) {
+        uint8_t k = bzd_k(bzd.keyd), nx = bzw.focus == 2u ? bzd_k(1u - bzd.keyd) : 0u;
+        if (nx == k)
+            nx = 0;
+        if (k && (k != bzd.keyk || nx != bzd.nextk)) {
+            bzd.keyk = k;
+            bzd.nextk = nx;
+            bzd_send_key();
+        }
+    }
+    /* the phrase */
+    lead = bzd_lead();
+    if (lead < 2u && song.playing && song.g[G_CLOCK] && bz_drop != BZD_RUN && bzw.d[lead].playing &&
+        fm1_ms - bzd.ph_ms >= 500u) {
+        int32_t b16 = bzd_b16(lead), want, have, diff, k;
+        bzd.ph_ms = fm1_ms;
+        if (b16 == 0x7FFFFFFF)
+            return;
+        want = ((b16 - bzd_anchor(lead)) % 1024 + 1024) % 1024;       /* (64 beats x 16: a phrase) */
+        have = (int32_t)(((bz_s16 - bz_org) * 4u) % 1024u);
+        diff = ((want - have) % 1024 + 1024 + 512) % 1024 - 512;      /* (-512 .. 511) */
+        k = (diff + (diff >= 0 ? 8 : -8)) / 16;                        /* (whole beats) */
+        if (!k || diff - k * 16 > 6 || diff - k * 16 < -6) {
+            bzd.pend = 0;
+            return;
+        }
+        if (bzd.pend != k) {                                           /* (the same shift twice: then) */
+            bzd.pend = (int8_t)k;
+            return;
+        }
+        bzd.pend = 0;
+        bz_org -= (uint32_t)(4 * k);
+    }
 }
 
 /* ---- drawing (ui_graph.c draw_graph: HOME with MENU > HOME SET) ---- */
@@ -179,6 +313,23 @@ static void bzs_chips(int32_t y)
     for (i = 0; i < NELEM(F); i++)
         if (bz_fn_state(F[i], 0) == BZS_FILL)
             x = bzs_chip(x, y, bz_fn_label(F[i], nm), bz_fn_col(F[i]), 1);
+    {   /* 0.16: the lead deck's DROP cue ahead: its bars to go; DECKS following */
+        uint32_t ld = bzd_lead(), c;
+        if (ld < 2u && bzw_live() && bzd_b16(ld) != 0x7FFFFFFF)
+            for (c = 0; c < bzw.d[ld].ncue; c++)
+                if (bzw.d[ld].cue_k[c] == 1u) {
+                    int32_t left = bzd_col_b16(ld, bzw.d[ld].cue_c[c]) - bzd_b16(ld);
+                    if (left > 0 && left <= 64 * 64) {
+                        char tt[16] = "A DROP ";
+                        tt[0] = (char)('A' + ld);
+                        fmt_int(tt + 7, (left + 63) / 64);
+                        x = bzs_chip(x, y, tt, ux.btr, 0);
+                        break;
+                    }
+                }
+        if (bzd_follow && bzw_live())
+            x = bzs_chip(x, y, "DECKS", T_THEME, 0);
+    }
     if (rl_ready)
         x = bzs_chip(x, y, "READY", ux.btr, 1);
     if (bz_shlock)
@@ -243,7 +394,20 @@ static void bzs_deck(uint32_t d, int32_t y)
         cv_text_on(rx, y + CAP_IN(S, 10), &AF_S, t, bz_cam_col(k->cam), T_SURF);
         rx -= 6;
     }
-    cv_free_text(BZS_X + 16, y + CAP_IN(S, 10), &AF_S, (const char *)k->title, T_TEXT, T_SURF, rx - BZS_X - 20);
+    {   /* 0.16: bar.beat from its grid (compare with rekordbox's; SNAP in RAIL if it's off) */
+        int32_t b16 = bzd_b16(d), x = BZS_X + 16;
+        if (b16 != 0x7FFFFFFF) {
+            int32_t bt = b16 >= 0 ? b16 / 16 : -1 - (-b16 - 1) / 16;
+            if (bt >= 0) {
+                fmt_int(t, bt / 4 + 1);
+                str_cpy(t + str_len(t), ".", sizeof t - str_len(t));
+                fmt_int(t + str_len(t), bt % 4 + 1);
+            } else
+                str_cpy(t, "0.0", sizeof t);
+            x = cv_text_on(x, y + CAP_IN(S, 10), &AF_S, t, T_ACCENT, T_SURF) + 5;
+        }
+        cv_free_text(x, y + CAP_IN(S, 10), &AF_S, (const char *)k->title, T_TEXT, T_SURF, rx - x - 4);
+    }
     /* the window: column pc at mid; mirrored bars, played (left) dim; beats ticked, bars taller; cues */
     for (i = 0; i < BZS_DW; i++) {
         int32_t c = (int32_t)pc - BZS_DW / 2 + (int32_t)i, h;
