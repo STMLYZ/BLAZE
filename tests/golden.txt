@@ -86,6 +86,9 @@ preset/DRUM/04_HARD_KIT e09d8c47f45fd84c
 preset/DRUM/05_TRANCE_KIT 034af79bc209fb90
 preset/DRUM/06_BLOG_KIT 1f5acb0e00c2d250
 preset/DRUM/07_HOUSE_KIT eb4826fd9d0e0598
+preset/DRUM/08_09_KIT ad7b8feb16895c34
+preset/DRUM/09_RAVE_KIT e8e376efbe7e6ad0
+preset/DRUM/10_ROLL_KIT 84c30c6d75e34ab8
 preset/NOISE/00_WIND 1c6641c3d683e27c
 preset/NOISE/01_RAIN 6c08f98161409d14
 preset/NOISE/02_ARCADE 6ca2c9a2a067976c
@@ -110,6 +113,9 @@ drums/kit_77 1e3617b89fd7e2fc
 drums/kit_DEEP 2ea94ee6260bafc8
 drums/kit_TIGHT 76257d66faea703c
 drums/kit_PERC 7fe9f8ae26b89f20
+drums/kit_09 068f354e65bd8f98
+drums/kit_RAVE 056ac68d83e80914
+drums/kit_ROLL e7ed65ba7c9d4d60
 mode/ANALOG/POLY 37fb068bc75b2f5c
 mode/ANALOG/MONO 4904e99e3020a8b0
 mode/ANALOG/LEGATO 8fff1c8dc8b7ded8

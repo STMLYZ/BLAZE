@@ -63,6 +63,7 @@ enum {
     BZF_BOOST,                                   /* (0.14.1) */
     BZF_DECKS,                                   /* (0.16) */
     BZF_SNAP,                                    /* (0.17) */
+    BZF_SCENE,                                   /* (0.18) */
     BZF_N
 };
 static const uint8_t BZW[2][16] = {
@@ -73,7 +74,7 @@ static const uint8_t BZW[2][16] = {
 static const uint8_t BZB[2][11] = {
     {BZF_RATE0, BZF_RATE0 + 1, BZF_RATE0 + 2, BZF_RATE0 + 3, BZF_RATE0 + 4, BZF_RATE5, BZF_RIDE, BZF_MORPH, BZF_ONE,
      BZF_REL, BZF_FILL},
-    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_BOOST, BZF_DECKS, BZF_SNAP, BZF_NONE, BZF_NONE, BZF_NONE}};
+    {BZF_TAP, BZF_NDN, BZF_NUP, BZF_SHAPE, BZF_FOLLOW, BZF_BOOST, BZF_DECKS, BZF_SNAP, BZF_SCENE, BZF_NONE, BZF_NONE}};
 /* key k's function on BLAZE's page: shift SHIFT on, pads a pad held (with SHIFT: a rate or an effect sets its PRESET) */
 static uint32_t bz_fn(uint32_t k, uint32_t shift, uint32_t pads)
 {
@@ -124,7 +125,33 @@ static volatile uint8_t bz_play;               /* main: the layer is PLAY */
 static volatile uint8_t pl_hold;               /* ISR: HOLD armed */
 static volatile uint8_t pl_quant;              /* main: QUANTIZE the lead notes */
 static volatile uint8_t pl_chord;              /* ISR: the chord key held (1..7; 0 none) */
-static volatile uint8_t pl_msg;                /* ISR -> main: a message to show (1 BOOST, 2 QUANTIZE, 3 drum, 4 HOLD) */
+static volatile uint8_t pl_msg;                /* ISR -> main: a message to show (1 BOOST, 2 QUANTIZE, 3 drum, 4 HOLD);
+                                                * 0.18: SHIFT + black 4..7, the main loop's: 5 RIFF, 6 its UNDO, 7 its
+                                                * BARS, 8 SAVE SCENE */
+/* 0.18 SCENES: RAIL keeps a scene with each song of its SET and sends it when the set moves there: channel 16 CC 38
+ * (the length), CC 39 (a byte, in order), CC 40 (the sum of the bytes & 127: then it is whole). The FM-1 sends one
+ * the same way on CC 44 45 46 (SAVE SCENE: blaze_home_ui.c). The bytes: BZ_SC_N (blaze_home_ui.c bz_scene_put) */
+#define BZ_SC_N 35u
+static volatile uint8_t bz_sc_rx[BZ_SC_N], bz_sc_n, bz_sc_len, bz_sc_ready;
+static __attribute__((noinline)) void bz_scene_rx(uint32_t cc, uint32_t v)
+{
+    uint32_t i, s = 0;
+    if (cc == 38u) {
+        bz_sc_len = (uint8_t)v;
+        bz_sc_n = 0;
+        bz_sc_ready = 0;
+    } else if (cc == 39u) {
+        if (bz_sc_n < BZ_SC_N)
+            bz_sc_rx[bz_sc_n] = (uint8_t)v;
+        if (bz_sc_n < 255u)
+            bz_sc_n++;
+    } else {
+        for (i = 0; i < BZ_SC_N; i++)
+            s += bz_sc_rx[i];
+        bz_sc_ready = (uint8_t)(bz_sc_len == BZ_SC_N && bz_sc_n == BZ_SC_N && (s & 127u) == v);
+        bz_sc_n = 0;
+    }
+}
 static volatile uint8_t bz_fill_lane = 255;    /* ISR: FILL's drum when PLAY started it (255: BUILD's) */
 #define PL_N 11u
 /* 0.14.1 BOOST: the lanes it plays louder and harder (eng_drum.c dv_boost): SNARE and CLAP */
@@ -849,6 +876,10 @@ static __attribute__((noinline)) void play_key(uint32_t k, uint32_t p, int down)
     }
     if (!down)
         return;
+    if (bz_shift_on && p >= 3u && p <= 6u) {     /* 0.18: SHIFT + black 4..7: RIFF, UNDO, BARS, SAVE SCENE */
+        pl_msg = (uint8_t)(5u + p - 3u);
+        return;
+    }
     switch (p) {
     case 3:                                      /* FILL on the roll's drum */
         bz_fill_lane = pl_lane;

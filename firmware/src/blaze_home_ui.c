@@ -515,6 +515,7 @@ static void bz_ride_key(void)
 /* 0.12 FOLLOW (SHIFT + black 5, or RAIL's): on, the FM-1 runs on the clock from RAIL's bridge (rekordbox's Link);
  * off, on its own at the tempo it had, playing on. Back on: the clock's tempo again (the bars may sit apart from
  * rekordbox's: RAIL's Start on next 1 lines them up). RAIL hears it (CC 33 on channel 16: 127 on, 0 off) */
+static void bz_scene_save(void);                    /* (0.18: below) */
 static uint8_t bz_follow_src = 1;                   /* the external clock FOLLOW goes back to (USB 1, TRS 2) */
 static void bz_tx_cc(uint32_t cc, uint32_t v)       /* a CC on channel 16 out, by the ISR */
 {
@@ -666,6 +667,8 @@ static void bz_home_key(uint32_t k, uint32_t f)
         bz_follow_set(song.g[G_CLOCK] == 0);
     else if (f == BZF_DECKS)                        /* 0.16: the key and the phrase follow the decks, or not */
         bzd_toggle();
+    else if (f == BZF_SCENE)                        /* 0.18: this song's scene to RAIL */
+        bz_scene_save();
     else if (f == BZF_SNAP) {                       /* 0.17: the lead deck onto its nearest bar line (rail-bridge) */
         bz_tx_cc(62u, 127u);
         ui_message("SNAP: THE DECK ON THE BAR");
@@ -941,6 +944,8 @@ static uint32_t bz_slice_first(void)               /* SLICE's track: the selecte
     return bz_strk % NTRK;
 }
 /* 0.17 PLAY opens: its lead notes on KEYS' track, its chords on another notes track when there is one */
+static uint8_t pl_vib, pl_vsns;                     /* PLAY's vibrato: the track + 1 it was put on; what its SENS was */
+static int8_t pl_vamt;
 static void bz_play_open(void)
 {
     uint32_t i;
@@ -953,47 +958,51 @@ static void bz_play_open(void)
             }
     if (!bz_notes_track(&trk[bz_ctrk % NTRK]))
         bz_ctrk = bz_ktrk;
-    if (!trk[bz_ktrk % NTRK].p[P_ATDST]) {              /* 0.17b: the lead's pressure to VIBRATO, unless it goes elsewhere */
-        trk[bz_ktrk % NTRK].p[P_ATSNS] = 6;
-        trk[bz_ktrk % NTRK].p[P_ATDST] = 11;
-        trk[bz_ktrk % NTRK].p[P_ATAMT] = 3;      /* (full pressure: PIT +6, about a semitone) */
+    if (!trk[bz_ktrk % NTRK].p[P_ATDST] && !pl_vib) {   /* 0.17b: the lead's pressure to VIBRATO, unless it goes elsewhere */
+        track_t *t = &trk[bz_ktrk % NTRK];
+        pl_vib = (uint8_t)(1u + bz_ktrk % NTRK);        /* (0.18: while PLAY is open only: bz_play_close puts it back) */
+        pl_vsns = (uint8_t)t->p[P_ATSNS];
+        pl_vamt = (int8_t)t->p[P_ATAMT];
+        t->p[P_ATSNS] = 6;
+        t->p[P_ATDST] = 11;
+        t->p[P_ATAMT] = 3;                              /* (full pressure: PIT +6, about a semitone) */
     }
     bz_play = 1;
 }
+static void bz_riff_stop(void);
 static void bz_play_close(void)
 {
+    bz_riff_stop();
+    if (pl_vib) {
+        track_t *t = &trk[(pl_vib - 1u) % NTRK];
+        if (t->p[P_ATDST] == 11 && t->p[P_ATAMT] == 3) {    /* (still ours: not changed meanwhile) */
+            t->p[P_ATSNS] = pl_vsns;
+            t->p[P_ATDST] = 0;
+            t->p[P_ATAMT] = pl_vamt;
+        }
+        pl_vib = 0;
+    }
     bz_play = 0;
     pl_chord = 0;
     pl_hold = 0;
     if (!pl_latch)
         pl_on = 0;
 }
-static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> PLAY -> KEYS -> CHORD -> LOOPS -> SLICE -> RB -> BLAZE) */
+static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> PLAY -> LOOPS -> SLICE -> BLAZE; 0.18: KEYS, CHORD
+                                                     * and RB MIDI are GO's (blaze_go.c); from them: BLAZE) */
 {
     if (!bz_play && !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
         bz_play_open();
     } else if (bz_play) {
         bz_play_close();
-        bz_ktrk = (uint8_t)bz_keys_track();
-        bz_keys = 1;
-    } else if (bz_keys) {
-        bz_keys = 0;
-        if (!bz_notes_track(&trk[bz_ctrk % NTRK]))
-            bz_ctrk = (uint8_t)bz_keys_track();
-        bz_chord = 1;
-    } else if (bz_chord) {
-        bz_chord = 0;
         bz_loops = 1;
     } else if (bz_loops) {
         bz_loops = 0;
         bz_strk = (uint8_t)bz_slice_first();
         bz_sl_ok = (uint8_t)bz_slice_trk(&trk[bz_strk % NTRK]);
         bz_slice = 1;
-    } else if (bz_slice) {
-        bz_slice = 0;
-        bz_rb = 1;
     } else {
-        bz_rb = 0;
+        bz_keys = bz_chord = bz_slice = bz_rb = 0;
     }
     ui_message(bz_play ? "PLAY: CHORDS, LEAD, ROLLS AT ONCE" : bz_keys ? "KEYS: THE KEYS PLAY IN KEY" : bz_chord ? "CHORD: THE KEY'S SEVEN CHORDS"
                : bz_loops ? "LOOPS: LAYERS IN AND OUT ON THE BEAT"
@@ -1342,6 +1351,165 @@ static void bz_ui_key(uint32_t k)
     bz_home_key(k, bz_fn(k, (uint32_t)bz_shift(), bz_pads != 0u));
 }
 
+/* ---- 0.18 RIFF CAPTURE (PLAY: SHIFT + black 4; 5 its UNDO, 6 its BARS). What the lead keys play goes into their
+ * track's pattern and loops there as notes: the pattern emptied, its LEN 1 2 or 4 bars of 1/16, the track armed
+ * (seq.c rec_note: on the steps, held lengths as ties) until the key is pressed again (more can be played over the
+ * loop meanwhile); then it plays on. UNDO: the pattern, LEN and DIV as they were before the capture. The transport
+ * must run ---- */
+static struct {
+    uint8_t on, trk, has, bars;
+    int16_t slen, sdiv;
+    step_t step[NSTEP];
+} bzriff = {0, 0, 0, 4};
+static void bz_riff_stop(void)
+{
+    if (!bzriff.on)
+        return;
+    song.rec &= (uint8_t)~(1u << bzriff.trk);
+    bzriff.on = bz_riff_on = 0;
+    ui.force = 1;
+}
+static void bz_riff_toggle(void)
+{
+    track_t *t = &trk[bz_ktrk % NTRK];
+    uint32_t i;
+    char m[4];
+    if (bzriff.on) {
+        bz_riff_stop();
+        ui_message("RIFF: LOOPING (SHIFT + BLACK 5: UNDO)");
+        return;
+    }
+    if (!song.playing || chain.running) {
+        ui_message(chain.running ? "RIFF: NOT IN SONG MODE" : "RIFF: PRESS PLAY FIRST");
+        return;
+    }
+    bzriff.trk = (uint8_t)(bz_ktrk % NTRK);
+    bzriff.slen = t->p[P_SLEN];
+    bzriff.sdiv = t->p[P_SDIV];
+    memcpy(bzriff.step, t->step, sizeof bzriff.step);
+    bzriff.has = 1;
+    fm1_irq_off();
+    for (i = 0; i < NSTEP; i++)
+        step_clear(&t->step[i]);
+    t->p[P_SLEN] = (int16_t)(16u * bzriff.bars);
+    t->p[P_SDIV] = 2;                               /* 1/16 */
+    song.rec |= (uint8_t)(1u << bzriff.trk);
+    bzriff.on = bz_riff_on = 1;
+    fm1_irq_on();
+    fmt_int(m, bzriff.bars);
+    ui_say("RIFF: PLAY IT. BARS: ", m);
+    ui.force = 1;
+}
+static void bz_riff_undo(void)
+{
+    track_t *t = &trk[bzriff.trk % NTRK];
+    if (!bzriff.has) {
+        ui_message("RIFF: NOTHING TO UNDO");
+        return;
+    }
+    bz_riff_stop();
+    fm1_irq_off();
+    memcpy(t->step, bzriff.step, sizeof bzriff.step);
+    t->p[P_SLEN] = bzriff.slen;
+    t->p[P_SDIV] = bzriff.sdiv;
+    fm1_irq_on();
+    panic_req |= (uint8_t)(1u << bzriff.trk);       /* (what the riff holds: let go) */
+    bzriff.has = 0;
+    ui_message("RIFF UNDONE: THE PATTERN AS IT WAS");
+    ui.force = 1;
+}
+static void bz_riff_bars(void)
+{
+    char m[4];
+    if (bzriff.on) {
+        ui_message("RIFF BARS: NOT WHILE IT RECORDS");
+        return;
+    }
+    bzriff.bars = (uint8_t)(bzriff.bars == 4u ? 1u : bzriff.bars * 2u);
+    fmt_int(m, bzriff.bars);
+    ui_say("RIFF BARS: ", m);
+    ui.force = 1;
+}
+
+/* ---- 0.18 SCENES. SAVE SCENE (BLAZE: SHIFT + black 9; PLAY: SHIFT + black 7) sends the FM-1's state to RAIL, which
+ * keeps it with the SET's song and sends it back when the set moves there (blaze_home.c bz_scene_rx). BZ_SC_N bytes:
+ * 0 the version (1); each track, 8: engine, preset, LEVEL, MUTE (+ 2: a user preset played: its sound is left alone),
+ * DIST, CHO, DLY, REV; 33 the DRUM track's KIT; 34 BOOST. A scene sets the sounds that differ (engine or preset: as
+ * loading that preset; the same preset: its edits stay), then the levels, mutes, sends, the kit and BOOST ---- */
+static uint8_t bz_sc_tx[BZ_SC_N], bz_sc_txn;        /* the scene going out, the bytes sent + 2 (0: none; 1: the header) */
+static void bz_scene_save(void)
+{
+    uint32_t i, j;
+    track_t *d = rl_track();
+    bz_sc_tx[0] = 1;
+    for (i = 0; i < NTRK; i++) {
+        const track_t *t = &trk[i];
+        uint8_t *b = &bz_sc_tx[1u + 8u * i];
+        b[0] = (uint8_t)(t->eng_req % NENGINES);
+        b[1] = (uint8_t)(t->preset & 127u);
+        b[2] = (uint8_t)clamp(t->p[P_LEVEL], 0, 127);
+        b[3] = (uint8_t)((t->p[P_MUTE] ? 1u : 0u) | (t->user ? 2u : 0u));
+        for (j = 0; j < 4u; j++)
+            b[4u + j] = (uint8_t)clamp(t->p[P_DIST + j], 0, 127);
+    }
+    bz_sc_tx[33] = (uint8_t)(drum_track(d) ? clamp(d->p[P_E0], 0, 126) + 1 : 0);
+    bz_sc_tx[34] = (uint8_t)(dv_boost ? 1u : 0u);
+    bz_sc_txn = 1;
+    ui_message(usb.config ? "SCENE SENT TO RAIL (THIS SONG)" : "SCENE: NO USB (RAIL KEEPS THEM)");
+    ui.force = 1;
+}
+/* each pass: the scene out, as the queue takes it (CC 44 the length, 45 the bytes, 46 the sum) */
+static void bz_scene_pass_tx(void)
+{
+    uint32_t i, s = 0;
+    while (bz_sc_txn && (uint8_t)(bz_tx_w - bz_tx_r) < 8u) {
+        if (bz_sc_txn == 1u)
+            bz_tx_cc(44u, BZ_SC_N);
+        else if (bz_sc_txn < BZ_SC_N + 2u)
+            bz_tx_cc(45u, bz_sc_tx[bz_sc_txn - 2u]);
+        else {
+            for (i = 0; i < BZ_SC_N; i++)
+                s += bz_sc_tx[i];
+            bz_tx_cc(46u, s & 127u);
+            bz_sc_txn = 0;
+            break;
+        }
+        bz_sc_txn++;
+    }
+}
+static void bz_scene_apply(void)
+{
+    uint8_t b[BZ_SC_N];
+    uint32_t i, j;
+    track_t *d;
+    for (i = 0; i < BZ_SC_N; i++)
+        b[i] = bz_sc_rx[i];
+    bz_sc_ready = 0;
+    if (b[0] != 1u)
+        return;
+    for (i = 0; i < NTRK; i++) {
+        track_t *t = &trk[i];
+        const uint8_t *s = &b[1u + 8u * i];
+        if (!(s[3] & 2u) && s[0] < NENGINES && ENGINES[s[0]]->npresets) {
+            if (s[0] != t->eng_req % NENGINES) {
+                set_engine_of(t, s[0]);
+                apply_preset_to(t, s[1]);
+            } else if (s[1] != t->preset || t->user)
+                apply_preset_to(t, s[1]);
+        }
+        t->p[P_LEVEL] = s[2];
+        t->p[P_MUTE] = (int16_t)(s[3] & 1u);
+        for (j = 0; j < 4u; j++)
+            t->p[P_DIST + j] = (int16_t)param_fit(&TP[P_DIST + j], s[4u + j]);
+    }
+    d = rl_track();
+    if (b[33] && drum_track(d))
+        d->p[P_E0] = (int16_t)param_fit(track_desc(d, P_E0), b[33] - 1);
+    dv_boost = b[34] ? BZ_BOOST_LANES : 0u;
+    ui_message("SCENE: THIS SONG'S SOUNDS AND LEVELS");
+    ui.force = 1;
+}
+
 /* each pass: RELEASE's knobs, RAIL's key, RISER's 16 said */
 static void bz_ui_pass(void)
 {
@@ -1361,10 +1529,23 @@ static void bz_ui_pass(void)
             ui_message(pl_quant ? "QUANTIZE: LEAD NOTES ON THE 1/16" : "QUANTIZE OFF");
         else if (m == 3u)
             ui_say("ROLL: ", DR[pl_lane % 7u]);
+        else if (m == 5u)                           /* 0.18: SHIFT + black 4..7 */
+            bz_riff_toggle();
+        else if (m == 6u)
+            bz_riff_undo();
+        else if (m == 7u)
+            bz_riff_bars();
+        else if (m == 8u)
+            bz_scene_save();
         else
             ui_message(pl_hold ? "HOLD: THE NEXT CHORD OR ROLL STAYS ON" : "HOLD OFF");
         ui.force = 1;
     }
+    if (bzriff.on && (!song.playing || !((song.rec >> bzriff.trk) & 1u)))   /* (stopped, or disarmed elsewhere) */
+        bz_riff_stop();
+    bz_scene_pass_tx();
+    if (bz_sc_ready)
+        bz_scene_apply();
     if (bz_rel) {
         bz_rel = 0;
         perf_k[0] = perf_k[2] = perf_k[3] = 0;    /* (COLOR to the middle, THROW off, DEPTH full) */
@@ -1373,7 +1554,7 @@ static void bz_ui_pass(void)
         ui.force = 1;
     }
     if (bzu.cc_seq != bz_cc_seq) {
-        static uint8_t keyc[11], knob[5] = {255, 255, 255, 255, 255};
+        static uint8_t keyc[11], knob[8] = {255, 255, 255, 255, 255, 255, 255, 255};
         uint32_t i;
         bzu.cc_seq = bz_cc_seq;
         if (bz_cc[12]) {                            /* 0.11.1: RAIL's bar (CC 32), taken once */
@@ -1420,6 +1601,15 @@ static void bz_ui_pass(void)
                     ui.force = 1;
                 }
                 knob[i] = (uint8_t)v;
+            }
+        for (i = 5; i < 8u; i++)                    /* 0.18: RAIL's EQ knobs (CC 55 56 57): LOW MID HIGH (fx.c), 64 flat,
+                                                     * 0 KILL, 127 +6 dB; first noted */
+            if (((bz_cc_knob >> i) & 1u) && bz_cc[30u + i] != knob[i]) {
+                if (knob[i] != 255u) {
+                    bz_eq_v[i - 5u] = (int8_t)clamp((int32_t)bz_cc[30u + i] * 65 / 127 - 32, -32, 32);
+                    ui.force = 1;
+                }
+                knob[i] = bz_cc[30u + i];
             }
         if (((bz_cc_knob >> 4) & 1u) && bz_cc[34] != knob[4]) {   /* 0.13: RAIL's ROLL RATE (CC 54), first noted */
             if (knob[4] != 255u)
@@ -1833,6 +2023,7 @@ static uint32_t bz_fn_state(uint32_t f, uint32_t k)
     case BZF_BOOST: return dv_boost ? BZS_FILL : BZS_IDLE;
     case BZF_DECKS: return bzd_follow ? BZS_FILL : BZS_IDLE;
     case BZF_SNAP: return BZS_IDLE;
+    case BZF_SCENE: return BZS_IDLE;
     default: return BZS_DIM;
     }
 }

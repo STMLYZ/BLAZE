@@ -439,8 +439,12 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
             rd_key((d2 & 63u) - 1u, d2 < 64u);
             return;
         }
+        if (d1 >= 38u && d1 <= 40u) {                 /* 0.18: a SCENE from RAIL (38 its length, 39 a byte, 40 the sum) */
+            bz_scene_rx(d1, d2);
+            return;
+        }
         bz_cc[d1 - 20u] = (uint8_t)d2;
-        if (d1 >= 50u && d1 <= 54u)
+        if (d1 >= 50u && d1 <= 57u)                   /* (0.18: 55..57 the EQ's LOW MID HIGH) */
             bz_cc_knob |= (uint8_t)(1u << (d1 - 50u));
         bz_cc_seq++;
         return;

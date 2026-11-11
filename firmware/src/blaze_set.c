@@ -236,6 +236,13 @@ static void bzd_key_now(void)                           /* KEY NOW: the other de
 static void bz_deck_poll(void)
 {
     uint32_t lead;
+    if (bzs_sh && !bz_shift_held()) {                   /* 0.18: SET's OCT+ let go: a tap (no knob with it): the octave */
+        if (bzs_sh == 1u && ui.home && home_set() && song.octave < 3) {
+            song.octave++;
+            ui.force = 1;
+        }
+        bzs_sh = 0;
+    }
     if (!bzd_follow || !bzw_live())
         return;
     /* the key */
@@ -283,6 +290,7 @@ static void bz_set_knob(uint32_t k, int32_t s)
 {
     uint32_t i;
     if (bz_shift_held() && k < 3u) {                    /* 0.17b: SHIFT + K1 K2 K3: the DJ EQ, LOW MID HIGH (fx.c) */
+        bzs_sh = 2;
         bz_eq_v[k] = (int8_t)clamp(bz_eq_v[k] + s, -32, 32);
         ui.force = 1;
         return;

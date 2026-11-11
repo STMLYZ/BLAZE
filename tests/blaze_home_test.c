@@ -385,7 +385,10 @@ int main(void)
     song.sel = 0;
     press(B_OCTDN);                                      /* (0.17: PLAY first) */
     ok = bz_play && !strncmp(bz_head(), "[ENV] PLAY", 10);
-    press(B_OCTDN);
+    bz_play_close();                                     /* (0.18: KEYS is GO's: not on OCT-) */
+    bz_ktrk = (uint8_t)bz_keys_track();
+    bz_keys = 1;
+    frame();
     ok = ok && bz_keys && !bz_play && bz_ktrk == 0u && !strncmp(bz_head(), "[ENV] KEYS", 10);
     v0 = vage;
     key_down(wk(0)); key_down(wk(2)); key_down(wk(7));
@@ -401,11 +404,10 @@ int main(void)
     ok = trk[0].p[P_AMODE] == 1 && trk[0].p[P_AHOLD] == 1 && trk[0].p[P_ARATE] == 3 && bz_ktrk == 0u;
     bad += check("  black keys: ARP on, LATCH on, 1/32; T4 (DRUM) refused", ok);
     press(B_OCTDN);
-    ok = !bz_keys && bz_chord;
+    ok = !bz_keys && !bz_chord && !bz_play;
+    bz_chord = 1;
     press(B_OCTDN);
-    ok &= bz_loops;
-    press(B_OCTDN);
-    bad += check("  OCT- again: CHORD, LOOPS, then back to BLAZE", ok && !bz_keys && !bz_chord && !bz_loops);
+    bad += check("  OCT- from KEYS, from CHORD (0.18: GO's pages): back to BLAZE", ok && !bz_keys && !bz_chord && !bz_loops);
     btn_up(B_ENV);
     frame();
 
@@ -548,18 +550,12 @@ int main(void)
     press(B_OCTDN);
     ok = bz_play && !bz_keys;                            /* (0.17: PLAY first) */
     press(B_OCTDN);
-    ok &= bz_keys && !bz_chord && !bz_play;
-    press(B_OCTDN);
-    ok &= !bz_keys && bz_chord && !strncmp(bz_head(), "[ENV] CHORD", 11);
-    press(B_OCTDN);
-    ok &= !bz_keys && !bz_chord && bz_loops && !strncmp(bz_head(), "[ENV] LOOPS", 11);
+    ok &= !bz_keys && !bz_chord && !bz_play && bz_loops && !strncmp(bz_head(), "[ENV] LOOPS", 11);
     press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && !bz_loops && bz_slice && !strncmp(bz_head(), "[ENV] SLICE", 11);
     press(B_OCTDN);
-    ok &= !bz_slice && bz_rb;
-    press(B_OCTDN);
     ok &= !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb;
-    bad += check("UI: OCT- steps BLAZE -> PLAY -> KEYS -> CHORD -> LOOPS -> SLICE -> REKORDBOX -> BLAZE", ok);
+    bad += check("UI: OCT- steps BLAZE -> PLAY -> LOOPS -> SLICE -> BLAZE (0.18)", ok);
     bz_cfg[BZC_MAGIC_I] = 0;
     bz_cfg_apply();
     key_down(wk(BZ_RISER));
@@ -985,8 +981,8 @@ int main(void)
     home_reset();
     {
         uint32_t mo, v1, pk[8], np = 0, i;
-        bz_slice = 1;
-        bz_keys_toggle();
+        bz_slice = 0;
+        bz_rb = 1;                                  /* (0.18: GO's page) */
         ok = bz_rb && !bz_slice && !strncmp(bz_head(), "[ENV] REKORDBOX", 15);
         usb.config = 1;
         for (i = 0; i < 8u; i++)

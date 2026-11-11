@@ -100,7 +100,7 @@ int main(void)
             stab += c == CAT_STAB;
         }
     printf("sound pack: %u presets\n", n);
-    bad += check("every BLAZE preset sounds (a chord held a second), below full scale", n == 29u && !quiet && !loud);
+    bad += check("every BLAZE preset sounds (a chord held a second), below full scale", n == 32u && !quiet && !loud);
     bad += check("every BLAZE preset has its category; STAB has RAVE STAB, HOUSE STAB, ORGAN STAB", !nocat && stab == 3u);
     {   /* SUPERSAW: UNISON, its detune and spread from BZ_PX; the next preset loads without them */
         track_t *t = &trk[0];

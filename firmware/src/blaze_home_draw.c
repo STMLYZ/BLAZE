@@ -225,12 +225,26 @@ static void layer_play_map(void)
             bzx.lock = (uint8_t)((pl_latch >> i) & 1u);
         } else {
             static const char *const L[8] = {"FILL", "BUILD", "DROP", "BOOST", "QUANT", "OCT-", "OCT+", "HOLD"};
+            static const char *const LS[4] = {"RIFF", "UNDO", "BARS 4", "SCENE"};   /* (0.18: SHIFT + black 4..7) */
             lab = L[i - 3u];
+            if (bz_shift() && i < 7u) {
+                lab = LS[i - 3u];
+                if (i == 5u) {
+                    str_cpy(nm, "BARS ", sizeof nm);
+                    fmt_int(nm + 5, bzriff.bars);
+                    lab = nm;
+                }
+            }
             c = i < 6u ? ux.btr : i == 6u ? ux.btr : i == 10u ? T_ACCENT : T_MID;
             how = i == 6u ? (dv_boost ? RLC_FILL : RLC_IDLE) : i == 7u ? (pl_quant ? RLC_FILL : RLC_IDLE)
                 : i == 8u ? (bz_koct < 0 ? RLC_TINT : RLC_IDLE) : i == 9u ? (bz_koct > 0 ? RLC_TINT : RLC_IDLE)
                 : i == 10u ? (pl_hold ? RLC_FILL : RLC_IDLE)
                 : i == 3u ? (bz_build && bz_b_fill ? RLC_FILL : RLC_IDLE) : RLC_IDLE;
+            if (bz_shift() && i < 7u) {
+                c = i == 6u ? T_THEME : T_ACCENT;
+                how = i == 3u && bzriff.on ? RLC_FILL : i == 4u && !bzriff.has ? RLC_DIM : RLC_IDLE;
+            } else if (i == 3u && bzriff.on)
+                how = RLC_TINT;                         /* (a riff recording: FILL's key says so) */
         }
         bzk_cell(BZX(i % 4u), y, h, lab, c, how, BZK_B, i + 1u);
     }
@@ -415,6 +429,7 @@ static const char *bz_fn_label(uint32_t f, char *nm)
     case BZF_BOOST: return "BOOST";
     case BZF_DECKS: return "DECKS";
     case BZF_SNAP: return "SNAP";
+    case BZF_SCENE: return "SCENE";
     default: return "-";
     }
 }

@@ -34,7 +34,7 @@ static const char *const PRESET_CAT[16] = {
     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
-    "DDDD" "DDDD",               /* (BLAZE 0.15: HARD, TRANCE, BLOG, HOUSE KIT) 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
+    "DDDD" "DDDD" "DDD",         /* (BLAZE 0.18: 09, RAVE, ROLL KIT; 0.15: HARD, TRANCE, BLOG, HOUSE KIT) 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
     "FFFF" "F",                  /* (BLAZE 0.15: RISER) 11 NOISE: WIND, RAIN, ARCADE, METAL */
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */

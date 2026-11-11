@@ -259,12 +259,151 @@ int main(void)
             if (j) highk = peak; else lowk = peak;
         }
         bz_eq_v[0] = bz_eq_v[1] = bz_eq_v[2] = 0;
+        for (i = 0; i < 80u && bz_eq_run; i++) {        /* 0.18: back at 0: the gains glide home, it fades out, then off */
+            uint32_t q;
+            for (q = 0; q < n; q++) { mix_l[q] = mix_r[q] = 1000; wet[q] = 0; }
+            bz_eq_block(n);
+        }
+        ok &= !bz_eq_run && i > 8u && i < 80u;
         ok &= lowk < 40000 / 12 && highk > 40000 * 9 / 10;
         printf("  (60 Hz at 40000: KILL LOW leaves %d, KILL HIGH %d)\n", (int)lowk, (int)highk);
         bz_play_open();
         ok &= trk[bz_ktrk % NTRK].p[P_ATDST] == 11 && trk[bz_ktrk % NTRK].p[P_ATSNS] > 0;
         bz_play_close();
         bad += check("SET + SHIFT: the DJ EQ (KILL LOW, HIGH); PLAY: the lead's pressure to VIBRATO", ok);
+    }
+    /* 0.18: SET's OCT+ tapped: the octave (held with a knob: SHIFT, no octave); PLAY's vibrato only while it is open;
+     * RAIL's EQ knobs (CC 55..57, the first value noted) */
+    {
+        track_t *lt;
+        ui_power_on();
+        frame();
+        ui_home_view = HV_SET; go_home(); frame();
+        song.octave = 0;
+        press(B_OCTUP); frame();
+        ok = song.octave == 1;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; host_pressed |= 1u << panel.btn[B_OCTUP]; frame();
+        bz_set_knob(1, -3);
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame(); frame();
+        ok &= song.octave == 1 && bz_eq_v[1] == -3;
+        press(B_OCTDN); frame();
+        ok &= song.octave == 0;
+        bz_eq_v[1] = 0;
+        ui_home_view = HV_SCOPE;
+        bad += check("SET (0.18): OCT+ tapped: the octave up; held with a knob: the EQ, no octave; OCT- down", ok);
+        bz_play_open();
+        lt = &trk[bz_ktrk % NTRK];
+        ok = lt->p[P_ATDST] == 11 && lt->p[P_ATAMT] == 3;
+        bz_play_close();
+        ok &= lt->p[P_ATDST] == 0 && lt->p[P_ATAMT] == TP[P_ATAMT].def && lt->p[P_ATSNS] == TP[P_ATSNS].def;
+        lt->p[P_ATDST] = 2; lt->p[P_ATAMT] = 20;        /* (its own routing: PLAY leaves it) */
+        bz_play_open(); bz_play_close();
+        ok &= lt->p[P_ATDST] == 2 && lt->p[P_ATAMT] == 20;
+        lt->p[P_ATDST] = 0; lt->p[P_ATAMT] = TP[P_ATAMT].def;
+        bad += check("PLAY (0.18): the vibrato routing only while PLAY is open; a track's own routing is left", ok);
+        go_key(wk(0));                                  /* (BLAZE's page: its pass takes RAIL's CCs) */
+        midi_event(0xB0u, 15u, 55u, 64u); frame();
+        ok = bz_eq_v[0] == 0;
+        midi_event(0xB0u, 15u, 55u, 0u); frame();
+        ok &= bz_eq_v[0] == -32;
+        midi_event(0xB0u, 15u, 57u, 100u); frame();
+        midi_event(0xB0u, 15u, 57u, 127u); frame();
+        ok &= bz_eq_v[2] == 32;
+        midi_event(0xB0u, 15u, 55u, 64u); midi_event(0xB0u, 15u, 57u, 64u); frame();
+        ok &= bz_eq_v[0] == 0 && bz_eq_v[2] == 0;
+        bad += check("RAIL's EQ knobs (0.18): CC 55 LOW 0 = KILL, CC 57 HIGH 127 = +6 dB, 64 flat; the first value noted", ok);
+    }
+    /* 0.18 RIFF CAPTURE: the lead's pattern emptied, 4 bars of 1/16, the track armed; a lead note lands in a step;
+     * again: disarmed, the riff stays; UNDO: the pattern as it was */
+    {
+        track_t *lt;
+        step_t was[NSTEP];
+        uint32_t i, n = 0;
+        int16_t len, div;
+        ui_power_on();
+        frame();
+        go_key(wk(1));
+        lt = &trk[bz_ktrk % NTRK];
+        lt->step[3].n = 1; lt->step[3].note[0] = 60; lt->step[3].time = ST_NOTE;
+        lt->p[P_SLEN] = 12;
+        memcpy(was, lt->step, sizeof was);
+        len = lt->p[P_SLEN]; div = lt->p[P_SDIV];
+        bz_riff_toggle();
+        ok = !bzriff.on && !song.rec;                   /* (stopped: no) */
+        song.playing = 1;
+        bz_riff_toggle();
+        ok &= bzriff.on && ((song.rec >> (bz_ktrk % NTRK)) & 1u) && lt->p[P_SLEN] == 64 && lt->p[P_SDIV] == 2 &&
+              !lt->step[3].n && !click_wanted();
+        key_down(wk(8)); key_up(wk(8));
+        for (i = 0; i < NSTEP; i++)
+            n += lt->step[i].n != 0;
+        ok &= n == 1u;
+        bz_riff_toggle();
+        ok &= !bzriff.on && !song.rec && bzriff.has;
+        for (i = 0, n = 0; i < NSTEP; i++)
+            n += lt->step[i].n != 0;
+        ok &= n == 1u;
+        bz_riff_undo();
+        ok &= !memcmp(was, lt->step, sizeof was) && lt->p[P_SLEN] == len && lt->p[P_SDIV] == div && !bzriff.has;
+        bz_riff_bars(); ok &= bzriff.bars == 1u;
+        bz_riff_bars(); bz_riff_bars(); ok &= bzriff.bars == 4u;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; frame();
+        key_down(bk(3)); key_up(bk(3)); frame();        /* SHIFT + black 4: the key */
+        ok &= bzriff.on;
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+        bz_play_close();
+        ok &= !bzriff.on && !song.rec;
+        bz_riff_undo();
+        song.playing = 0;
+        bad += check("RIFF CAPTURE (0.18): 4 bars emptied and armed, a lead note recorded, kept when ended; UNDO; BARS; "
+                     "SHIFT + black 4; leaving PLAY ends it", ok);
+    }
+    /* 0.18 SCENES: SAVE SCENE sends BZ_SC_N bytes on CC 44 45 46; the same bytes back on CC 38 39 40 set the
+     * sounds, levels, mutes, sends, the kit and BOOST; a wrong sum: nothing */
+    {
+        uint8_t sc[BZ_SC_N + 2u];
+        uint32_t i, n = 0, mo, sum = 0;
+        track_t *d;
+        ui_power_on();
+        frame();
+        usb.config = 1;
+        d = rl_track();
+        set_engine_of(&trk[0], 0); apply_preset_to(&trk[0], 3);
+        trk[0].p[P_LEVEL] = 77; trk[1].p[P_MUTE] = 1; trk[0].p[P_REV] = 55;
+        if (drum_track(d)) d->p[P_E0] = DK_RAVE;
+        dv_boost = BZ_BOOST_LANES;
+        mo = mo_w;
+        bz_scene_save();
+        for (i = 0; i < 200u && (bz_sc_txn || bz_tx_r != bz_tx_w); i++) {
+            bz_scene_pass_tx();
+            home_block(CTL, CTL);
+        }
+        for (; mo != mo_w; mo++) {
+            uint32_t pk = midi_out_q[mo % MQ], cc = pk >> 16 & 127u, v = pk >> 24 & 127u;
+            if ((pk >> 8 & 255u) == 0xBFu && cc >= 44u && cc <= 46u && n < sizeof sc)
+                sc[n++] = (uint8_t)(cc == 45u ? v : cc == 44u ? v : v), sum += cc == 45u ? v : 0u;
+        }
+        ok = n == BZ_SC_N + 2u && sc[0] == BZ_SC_N && sc[BZ_SC_N + 1u] == (sum & 127u) && sc[1] == 1u;
+        apply_preset_to(&trk[0], 0);                    /* another state */
+        trk[0].p[P_LEVEL] = 100; trk[1].p[P_MUTE] = 0; trk[0].p[P_REV] = 0;
+        if (drum_track(d)) d->p[P_E0] = DK_STD;
+        dv_boost = 0;
+        midi_event(0xB0u, 15u, 38u, BZ_SC_N);
+        for (i = 0; i < BZ_SC_N; i++)
+            midi_event(0xB0u, 15u, 39u, sc[1u + i]);
+        midi_event(0xB0u, 15u, 40u, (sum + 1u) & 127u); /* (a wrong sum) */
+        go_key(wk(0)); frame();
+        ok &= !bz_sc_ready && trk[0].p[P_LEVEL] == 100;
+        midi_event(0xB0u, 15u, 38u, BZ_SC_N);
+        for (i = 0; i < BZ_SC_N; i++)
+            midi_event(0xB0u, 15u, 39u, sc[1u + i]);
+        midi_event(0xB0u, 15u, 40u, sum & 127u);
+        frame();
+        ok &= trk[0].preset == 3u && trk[0].p[P_LEVEL] == 77 && trk[1].p[P_MUTE] == 1 && trk[0].p[P_REV] == 55 &&
+              dv_boost == BZ_BOOST_LANES && (!drum_track(d) || d->p[P_E0] == DK_RAVE);
+        trk[1].p[P_MUTE] = 0; dv_boost = 0; usb.config = 0;
+        bad += check("SCENES (0.18): SAVE SCENE out on CC 44 45 46; back on CC 38 39 40: preset, LEVEL, MUTE, REV, KIT, "
+                     "BOOST; a wrong sum: nothing", ok);
     }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;

@@ -968,23 +968,35 @@ static __attribute__((noinline)) void scope_take_mix(uint32_t n)
  * MID and HIGH the second's lowpass and (inverted) highpass of the first's (inverted) highpass. At unity they sum
  * flat (an allpass): within 0.2 dB. KILL: LOW -25 dB at 60 Hz, HIGH -28 dB at 10 kHz, MID -15 dB at 1 kHz (as a DJ
  * mixer's 2nd-order isolator). Each band -32 (KILL) .. 0 .. +32 (+6 dB), not saved. All three at 0: not called (the
- * mix as it was, bit for bit). It folds the FX return (wet) into each side at the master's >> 2, the filters' states
+ * mix as it was, bit for bit; 0.18: it fades in and out over 256 samples and the gains glide, 64 a block, so
+ * neither a band's first step nor a kill clicks). It folds the FX return (wet) into each side at the master's >> 2, the filters' states
  * 2^8 above it (64-bit products, as fm6_core.c's), so the master's sum after it is the same with wet at 0 */
 static volatile int8_t bz_eq_v[3];                      /* LOW MID HIGH */
 static int32_t bz_eq_s[8];                              /* each side: the 250 Hz filter's two states, the 2.5 kHz's */
-static uint8_t bz_eq_run;                               /* (off: the states start from silence) */
+static uint8_t bz_eq_run;                               /* running (0.18: on from a band's first step until all three
+                                                         * are back at 0 and it has faded out: no click either way) */
+static int16_t bz_eq_g[3];                              /* the bands' gains now (Q12): to their values 64 a block */
+static int16_t bz_eq_m;                                 /* dry -> the EQ, 0..256: a step a sample */
 static const int32_t BZ_EQ_C[2][3] = {{16195162, 288458, 5138}, {12049096, 2168861, 390399}};   /* a1 a2 a3, Q24 */
 static __attribute__((noinline)) void bz_eq_block(uint32_t n)
 {
     uint32_t i, c, f;
-    int32_t gl = 4096 + bz_eq_v[0] * 128, gm = 4096 + bz_eq_v[1] * 128, gh = 4096 + bz_eq_v[2] * 128;
-    if (!bz_eq_run)
+    int32_t flat = 1, m = 0;
+    if (!bz_eq_run) {                                   /* from silence, at unity, all dry: it fades in */
         for (i = 0; i < 8u; i++)
             bz_eq_s[i] = 0;
+        bz_eq_g[0] = bz_eq_g[1] = bz_eq_g[2] = 4096;
+        bz_eq_m = 0;
+    }
+    for (i = 0; i < 3u; i++) {
+        bz_eq_g[i] = (int16_t)(bz_eq_g[i] + clamp(4096 + bz_eq_v[i] * 128 - bz_eq_g[i], -64, 64));
+        flat &= bz_eq_g[i] == 4096;
+    }
     for (c = 0; c < 2u; c++) {
         int32_t *x = c ? mix_r : mix_l, *st = &bz_eq_s[4u * c];
+        m = bz_eq_m;
         for (i = 0; i < n; i++) {
-            int32_t v = ((x[i] + wet[i]) >> 2) * 256, lp[2], hp[2];
+            int32_t u = (x[i] + wet[i]) >> 2, v = u * 256, lp[2], hp[2], y;
             for (f = 0; f < 2u; f++) {                  /* (f 1 takes f 0's highpass, inverted) */
                 const int32_t *k = BZ_EQ_C[f];
                 int32_t *s1 = &st[2u * f], *s2 = &st[2u * f + 1u], v3 = v - *s2, v1, v2;
@@ -996,12 +1008,15 @@ static __attribute__((noinline)) void bz_eq_block(uint32_t n)
                 hp[f] = v - 2 * v1 - v2;
                 v = -hp[f];
             }
-            x[i] = (int32_t)(((int64_t)lp[0] * gl + (int64_t)lp[1] * gm - (int64_t)hp[1] * gh) >> 20) * 4;
+            y = (int32_t)(((int64_t)lp[0] * bz_eq_g[0] + (int64_t)lp[1] * bz_eq_g[1] - (int64_t)hp[1] * bz_eq_g[2]) >> 20);
+            m += flat ? (m > 0 ? -1 : 0) : (m < 256 ? 1 : 0);
+            x[i] = (u + (((y - u) * m) >> 8)) * 4;
         }
     }
+    bz_eq_m = (int16_t)m;
     for (i = 0; i < n; i++)
         wet[i] = 0;
-    bz_eq_run = 1;
+    bz_eq_run = (uint8_t)(!flat || m > 0);
 }
 
 /* the master with the FX layer's effects between its level and master_out (perform.c) */
@@ -1122,10 +1137,8 @@ static void mix_block(int32_t *out, uint32_t n)
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
     bz_cap_mix(mix_l, mix_r, wet, n);                   /* BLAZE 0.11: LOOP CAPTURE records / plays here */
-    if (bz_eq_v[0] | bz_eq_v[1] | bz_eq_v[2])           /* BLAZE 0.17b: the DJ EQ */
+    if (bz_eq_v[0] | bz_eq_v[1] | bz_eq_v[2] | bz_eq_run)   /* BLAZE 0.17b: the DJ EQ (0.18: until it has faded out) */
         bz_eq_block(n);
-    else
-        bz_eq_run = 0;
     if (scope_mix)
         scope_take_mix(n);
     if (perf) {

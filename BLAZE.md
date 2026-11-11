@@ -606,3 +606,45 @@ On the SET view OCT+ no longer moves the octave (OCT− still does).
 about a semitone deep, at the track's LFO RATE), unless that track's pressure already goes somewhere. Pressure is
 read on the keys of the analog rows only (notes 0..19): of PLAY's lead keys, white 8..12 (F G A B C); the top four
 are not.
+
+## 0.18 — a shorter cycle, RIFF CAPTURE, scenes, the EQ from RAIL, three kits
+
+**OCT− cycle**: BLAZE → PLAY → LOOPS → SLICE → BLAZE. KEYS, CHORD and RB MIDI are on GO only (HOME held: white 4,
+white 5, white 16); OCT− from any of them goes back to BLAZE.
+
+**RIFF CAPTURE** (PLAY, SHIFT held):
+
+| SHIFT + | |
+|---|---|
+| black 4 **RIFF** | start: the lead track's pattern is emptied, set to BARS of 1/16, and what the lead keys play is recorded into it (on the steps, held notes as ties) while it loops (keep playing over the loop to add notes). Again: recording stops, the riff plays on. Once more: a fresh capture (emptied again; UNDO then goes back to the riff before it) |
+| black 5 **UNDO** | the pattern, its LEN and DIV as they were before the capture |
+| black 6 **BARS** | 1 → 2 → 4 (not while recording) |
+| black 7 **SCENE** | SAVE SCENE (below) |
+
+The transport must be running. No metronome click while it records. Leaving PLAY ends the recording (the riff
+stays). The notes are stored as played: they do not follow a later key change.
+
+**Scenes** (RAIL v14): SAVE SCENE (PLAY: SHIFT + black 7; BLAZE: SHIFT + black 9) sends the FM-1's state to RAIL,
+which keeps it with the SET's current song and sends it back whenever the set moves to that song. A scene: each
+track's engine and preset, LEVEL, MUTE, the four sends (DIST CHO DLY REV), the DRUM track's KIT, BOOST. Loading
+one changes a track's sound only when its engine or preset differs (as loading that preset; edits to the same preset
+stay); a track playing a user preset keeps its sound. 35 bytes on channel 16: FM-1 → RAIL CC 44 (length), 45 (bytes),
+46 (sum & 127); RAIL → FM-1 CC 38, 39, 40. Needs the USB link.
+
+**The EQ from RAIL**: channel 16 CC 55 / 56 / 57 = LOW / MID / HIGH (64 flat, 0 KILL, 127 +6 dB; a knob's first value
+only noted). RAIL v14: EQ LOW / MID / HIGH knobs, TEMPO −0.25 / +0.25 pads (TEMPO FINE is gone).
+
+**0.17b's fixes**: on SET, OCT+ tapped raises the octave again (held with a knob it is SHIFT); the EQ fades in and
+out and its gains glide, so a band's first step, a kill, or coming back to 0 does not click; PLAY's vibrato routing
+is put back when PLAY closes.
+
+**Three kits** (DRUM KIT 12 13 14; presets 09 KIT, RAVE KIT, ROLL KIT), the snares and hats first. Data on the same
+voices: no more CPU.
+
+| Kit | Snare | Clap | Hats | BELL lane |
+|---|---|---|---|---|
+| **09** | shells 180 / 330 Hz gliding down, noise at 5 kHz, a bright spike (0.14 s) | 4 hits 11 ms apart, a tail | a 5.5–12 kHz metal cluster + noise: closed 0.08 s, open 0.45 s | ride, 2.1 s |
+| **RAVE** | rim-snare: a short 330 Hz shell, a hard spike (0.07 s) | clap-snare: 2 hits 6 ms apart under bright noise | closed: a shaker (noise at 7 kHz, a 6 ms rise); open: 09's, 0.27 s | cowbell |
+| **ROLL** | roll snare: long wide noise over a faint 200 Hz shell, a soft spike (0.21 s) | 4 hits, a long tail (0.6 s) | 09's, closed shorter (0.06 s), open longer (0.6 s) | ride |
+
+Voiced against measurements (decay, spectral centroid, level matched to the other kits), not by ear.

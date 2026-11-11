@@ -76,7 +76,7 @@ enum {
 };
 /* a lane of a model kit as a type: the kit (1..DV_NKIT) in the high 4 bits, the lane in the low 3 (Felucca's own
  * types: 0 above). Its run (the DVT_* it plays through) is the kit's (DV_KIT) */
-#define DV_NKIT 8                                        /* (1.5.6, #216: DEEP TIGHT PERC after 77) */
+#define DV_NKIT 11                                       /* (1.5.6, #216: DEEP TIGHT PERC after 77; BLAZE 0.18: 09 RAVE ROLL) */
 #define DV_KITOF(t) ((uint32_t)(t) >> 4)
 #define DV_KTYPE(kit, lane) ((uint8_t)(((kit) << 4) | (lane)))
 
@@ -142,7 +142,7 @@ static const struct {
 #define DV_P16(hz_p16) pitch_inc(clamp((hz_p16), 0, 2047))
 /* the metal source's ratios (Q12). Hats: the six-square cluster of the classic analog hats (205.3, 304.4,
  * 369.6, 522.7, 540, 800 Hz over 205.3); the cymbal: inharmonic, picked by ear */
-static const uint16_t DV_METAL_R[7][6] = {
+static const uint16_t DV_METAL_R[8][6] = {
     {4096, 6073, 7374, 10428, 10774, 15961},
     {4096, 5800, 6560, 7530, 8810, 10650},
     /* the model kits' (a ratio 0: that square stands still, a constant the band-passes take away) */
@@ -151,6 +151,7 @@ static const uint16_t DV_METAL_R[7][6] = {
     {4096, 12254, 17607, 21692, 25765, 43372},           /* 55 bell: 720 Hz .. 7.6 kHz, wide apart */
     {4096, 4695, 5646, 10855, 13031, 15117},             /* 77: two triads of pulses, 3.7 .. 13.5 kHz */
     {0, 0, 0, 0, 0, 0},                                  /* 66: none (its metal is noise through a narrow band) */
+    {4096, 4737, 5477, 6466, 7649, 8930},                /* BLAZE 0.18, 09: six squares 5.5 .. 12 kHz, none a multiple */
 };
 
 /* The model kits (KIT 80 10 66 55 77 in eng_drum.c): every lane a kit's own voice, built on the runs above
@@ -187,7 +188,7 @@ typedef struct {
     int16_t v[13];
 } dv_kit_t;
 /* the accent per kit: + (x / 16384) per accent step (75: +4 dB at full, as Felucca's own) */
-static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40, 80, 60, 70};
+static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40, 80, 60, 70, 70, 80, 60};
 static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
     {   /* 80 */
         /* deep sine, a small drop, long decay */
@@ -329,6 +330,62 @@ static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
         {DVT_CLAVE, 32, 1568, 149, 2131, {84, 28000, 10000, 6348, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
         /* 66's bell: sines 830 / 613 Hz */
         {DVT_RIM, 40, 1280, 60, 3629, {-84, 30000, 7500, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+    },
+    /* BLAZE 0.18: three kits of their own numbers (the same runs: data only), the snares and the hats first.
+     * Voiced against measurements (tests/drum_test.c: decay, centroid, level), not by ear */
+    {   /* 09: a house / techno kit */
+        /* 55 Hz swept from an octave up, a click, tau 16 ms x DECAY */
+        {DVT_PUNCH, 60, 531, 160, 3533, {190, 110, 96, 1400, 400, 1478, 2200, 5200, 0, 0, 0, 0, 0}},
+        /* shells 180 / 330 Hz gliding down 5 semitones, noise around 5 kHz, a high-passed spike */
+        {DVT_SNARE, 40, 856, 200, 4688, {213, 80, 120, 40, 20000, 14000, 1777, 8192, 30, 20000, 30000, 16000, 1828}},
+        /* band 1.1 kHz, 4 teeth 11 ms apart, a tail */
+        {DVT_CLAP, 48, 1360, 380, 10453, {0, 5120, 1750, 5000, 6000, 30000, 40, 480, 4, 0, 0, 0, 0}},
+        /* the 5.5 .. 12 kHz cluster and noise, band 9 kHz, high-pass 5.5 kHz: a metallic edge */
+        {DVT_HATC, 45, 1804, 75, 2524, {1940, 6144, 1804, 2042, 5000, 20000, 14000, 3, 7, 0, 0, 0, 0}},
+        /* the same, open */
+        {DVT_HATO, 63, 1804, 320, 2832, {1940, 6144, 1850, 2042, 1500, 20000, 14000, 3, 7, 0, 0, 0, 0}},
+        /* a punchy tom 143 Hz */
+        {DVT_TOM, 53, 800, 260, 3400, {40, 150, 1523, 3000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 600 + 1780 Hz into a clip */
+        {DVT_RIM, 32, 1190, 14, 5200, {300, 20000, 26000, 20000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* the ride on BELL: the cluster through 10 kHz and 5.2 kHz, a ping, a long ring */
+        {DVT_CYM, 53, 1804, 2400, 6085, {1960, 4096, 1790, 4096, 20000, 22000, 40, 22000, 6000, 7, 0, 0, 0}},
+    },
+    {   /* RAVE: hard and tight */
+        /* 59 Hz, a fast deep sweep, hard drive */
+        {DVT_PUNCH, 60, 547, 220, 2700, {260, 80, 120, 2400, 1200, 1500, 2600, 12000, 0, 0, 0, 0, 0}},
+        /* the rim-snare: a short 330 Hz shell, a hard bright spike, tau 6 ms x DECAY */
+        {DVT_SNARE, 40, 1024, 60, 6027, {150, 40, 60, 90, 14000, 16000, 1850, 8192, 20, 30000, 26000, 30000, 1900}},
+        /* the clap-snare: band 2 kHz, 2 teeth 6 ms apart under bright noise */
+        {DVT_CLAP, 48, 1523, 300, 7552, {0, 7000, 1800, 14000, 9000, 30000, 30, 265, 2, 0, 0, 0, 0}},
+        /* the shaker: noise in a band at 7 kHz, a 6 ms rise */
+        {DVT_HATC, 45, 1880, 130, 11194, {1880, 3000, 1800, 2042, 0, 0, 9000, 60, 6, 0, 0, 0, 0}},
+        /* 09's open hat, shorter */
+        {DVT_HATO, 63, 1804, 190, 3607, {1940, 6144, 1850, 2042, 1500, 20000, 14000, 3, 7, 0, 0, 0, 0}},
+        /* 55's low tom 150 Hz */
+        {DVT_TOM, 53, 824, 179, 4091, {21, 600, 1523, 9000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 66's rim: 1.5 kHz */
+        {DVT_RIM, 32, 1441, 13, 8636, {304, 26000, 1000, 4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 80's bell: squares 540 / 800 Hz */
+        {DVT_BELL, 50, 1161, 252, 2697, {109, 129, 3413, 30000, 45, 0, 0, 0, 0, 0, 0, 0, 0}},
+    },
+    {   /* ROLL: a trance kit */
+        /* 57 Hz, a long body */
+        {DVT_PUNCH, 60, 540, 260, 2832, {150, 140, 60, 900, 0, 1400, 2000, 4500, 0, 0, 0, 0, 0}},
+        /* the roll snare: a faint 200 Hz shell under long wide noise, a soft spike (rolls run smooth) */
+        {DVT_SNARE, 40, 886, 280, 6733, {0, 30, 150, 30, 0, 7000, 1700, 10240, 40, 12000, 32767, 8000, 1828}},
+        /* 4 teeth 9 ms apart, a long tail */
+        {DVT_CLAP, 48, 1380, 700, 6731, {0, 6000, 1700, 6000, 12000, 30000, 45, 400, 4, 0, 0, 0, 0}},
+        /* 09's closed hat, shorter */
+        {DVT_HATC, 45, 1804, 55, 2612, {1940, 6144, 1900, 2042, 6000, 20000, 14000, 3, 7, 0, 0, 0, 0}},
+        /* 09's open hat, longer */
+        {DVT_HATO, 63, 1804, 420, 2553, {1940, 6144, 1850, 2042, 1500, 20000, 14000, 3, 7, 0, 0, 0, 0}},
+        /* 77's tom 140 Hz */
+        {DVT_TOM, 53, 797, 377, 2858, {20, 180, 1523, 2500, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 80's rim */
+        {DVT_RIM, 32, 1113, 12, 4599, {360, 12000, 30000, 32000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* 09's ride on BELL */
+        {DVT_CYM, 53, 1804, 2400, 6085, {1960, 4096, 1790, 4096, 20000, 22000, 40, 22000, 6000, 7, 0, 0, 0}},
     },
 };
 

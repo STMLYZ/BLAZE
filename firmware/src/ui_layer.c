@@ -87,11 +87,11 @@ typedef char ly_init_fits[LY_CLEAN < 16u ? 1 : -1];   /* (a white key: F3 .. G5)
 static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_OCTDN, "ALL OFF"}};
 static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
-static const khint_t BZ_PLAY_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "KEYS"}, {KC_OCTUP, "SHIFT"}};   /* (0.17 PLAY) */
-static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "CHORD"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
-static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "LOOPS"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
+static const khint_t BZ_PLAY_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "LOOPS"}, {KC_OCTUP, "SHIFT"}};   /* (0.17 PLAY; 0.18: LOOPS next) */
+static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
+static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
 static const khint_t BZ_LOOPS_FOOT[3] = {{KC_KEYS, "LAYERS"}, {KC_OCTDN, "SLICE"}, {0, 0}};   /* (BLAZE LOOPS) */
-static const khint_t BZ_SLICE_FOOT[3] = {{KC_KEYS, "SLICES"}, {KC_OCTDN, "RKBX"}, {0, 0}};   /* (BLAZE SLICE, 0.8) */
+static const khint_t BZ_SLICE_FOOT[3] = {{KC_KEYS, "SLICES"}, {KC_OCTDN, "BLAZE"}, {0, 0}};   /* (BLAZE SLICE, 0.8) */
 static const khint_t BZ_RB_FOOT[3] = {{KC_KEYS, "MIDI OUT"}, {KC_OCTDN, "BLAZE"}, {0, 0}};   /* (REKORDBOX, 0.9) */
 static const khint_t BZ_SHLOCK_FOOT[3] = {{KC_KEYS, "PADS FX"}, {KC_OCTDN, "PLAY"}, {KC_OCTUP, "OFF"}};   /* (0.11.1: SHIFT LOCK; "UNLOCK" does not fit) */
 static const khint_t EU_FOOT[3] = {{KC_OCTUP, "APPLY"}, {KC_OCTDN, "CANCEL"}, {0, 0}};   /* (SEQ TOOLS' EUCLID open) */
