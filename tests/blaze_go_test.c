@@ -22,7 +22,7 @@ static uint32_t bk(uint32_t place)
     return 0;
 }
 static void home_down(void) { fm1_in.buttons |= 1u << panel.btn[B_HOME]; host_pressed |= 1u << panel.btn[B_HOME]; frame(); }
-static void home_up(void) { fm1_in.buttons &= ~(1u << panel.btn[B_HOME]); frame(); frame(); }
+static void home_up(void) { fm1_in.buttons &= ~(1u << panel.btn[B_HOME]); frames(500); }   /* (0.18.1: GO's HOME debounce, a jump's quiet) */
 /* HOME down, key k pressed and let go, HOME let go */
 static void go_key(uint32_t k)
 {
@@ -404,6 +404,26 @@ int main(void)
         trk[1].p[P_MUTE] = 0; dv_boost = 0; usb.config = 0;
         bad += check("SCENES (0.18): SAVE SCENE out on CC 44 45 46; back on CC 38 39 40: preset, LEVEL, MUTE, REV, KIT, "
                      "BOOST; a wrong sum: nothing", ok);
+    }
+    /* 0.18.1: HOME's contact flickering (open a few scans while the key is down, or bouncing as it is let go) is not a
+     * HOME tap: the page GO went to stays (it went back to HOME on the hardware) */
+    {
+        int g;
+        ok = 1;
+        for (g = 0; g < 2; g++) {
+            ui_power_on(); frame(); frames(10);
+            fm1_in.buttons |= 1u << panel.btn[B_HOME]; host_pressed |= 1u << panel.btn[B_HOME]; frames(400);
+            key_down(wk(8)); frame();
+            if (!g) { fm1_in.buttons &= ~(1u << panel.btn[B_HOME]); frame(); frame(); fm1_in.buttons |= 1u << panel.btn[B_HOME]; frame(); }
+            key_up(wk(8)); frame();
+            fm1_in.buttons &= ~(1u << panel.btn[B_HOME]); frame();
+            if (g) { fm1_in.buttons |= 1u << panel.btn[B_HOME]; frame(); fm1_in.buttons &= ~(1u << panel.btn[B_HOME]); frame(); }
+            frames(500);
+            ok &= !ui.home && !ui.menu && str_eq(cur_page()->title, "PRESETS");
+        }
+        press(B_HOME); frames(100);
+        ok &= ui.home;                                  /* (a plain tap later: HOME, as before) */
+        bad += check("GO (0.18.1): HOME flickering with the key down, or bouncing as let go: the page stays; a later tap: HOME", ok);
     }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;

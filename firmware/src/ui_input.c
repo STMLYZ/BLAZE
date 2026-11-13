@@ -1557,7 +1557,8 @@ static void ui_input(void)
         ui_message("KEPT");
     }
     go_poll(now);                                       /* BLAZE 0.15 GO: HOME held, the map; let go: the MENU (blaze_go.c) */
-    home = btn_hold(&ui.home_t0, B_HOME, now, ui.menu || go_hold_ok());   /* (held: in the menu, leaves it; where
+    home = go_home_filter(btn_hold(&ui.home_t0, B_HOME, now, ui.menu || go_hold_ok()), now);   /* (BLAZE 0.18.1: no
+                                                         * HOME tap from its flicker in or after a GO; held: in the menu, leaves it; where
                                                          * the map can't show, opens it at 0.7 s as always) */
     rec = btn_hold(&ui.rec_t0, B_REC, now, 0);          /* (a tap; held, the REC layer: ui_layer.c) */
     save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */

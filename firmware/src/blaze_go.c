@@ -31,7 +31,16 @@ static const go_t GO_B[11] = {
 static struct {
     uint8_t down, ok, shown, used;
     uint32_t t0;
+    uint32_t t_up, t_jump;             /* 0.18.1: HOME last let go; the last jump (fm1_ticks; 0: none) */
 } go;
+/* 0.18.1: HOME's contact flickers on the hardware (open for longer than the BSP's 9 ms release debounce while a key
+ * is pressed with it, or bouncing as it is let go). A flicker read as a release then a press made HOME's last release
+ * a tap: back to HOME after every jump. Now HOME (for GO and its tap and hold: go_home_db) is let go only once it has
+ * been up GO_GLITCH_MS when a key is down with it or it has jumped (go_poll), no HOME tap counts while a GO hold
+ * that showed the map or jumped is on, nor within GO_QUIET_MS of a jump. A plain HOME tap: as before, at once */
+#define GO_GLITCH_MS 60u
+#define GO_QUIET_MS 400u
+#define GO_MS(ms) ((ms) * 1000u * FM1_TICKS_PER_US)
 
 static int go_shown(void) { return go.shown && go.ok; }
 static int go_armed(void) { return go.down && go.ok; }  /* (ui_layer.c layer_masks: the keys are the map's) */
@@ -124,23 +133,54 @@ static void go_to(const go_t *g)
         break;
     }
     ui_say("GO: ", g->label);
+    go.t_jump = fm1_ticks() | 1u;
+    go.shown = 0;                                       /* (0.18.1: the map goes at once: the page shows under HOME) */
     ui.force = 1;
+}
+
+/* ui_input.c, after HOME's btn_hold: a tap (or a hold) of HOME within GO_QUIET_MS of a jump is HOME's flicker */
+static uint32_t go_home_filter(uint32_t home, uint32_t now)
+{
+    if ((go.down && (go.used || go.shown)) ||           /* (a flicker inside a GO hold: not a tap) */
+        (go.t_jump && now - go.t_jump < GO_MS(GO_QUIET_MS))) {
+        if (ui.home_t0)
+            ui.home_t0 |= 2u;
+        return BT_NONE;
+    }
+    go.t_jump = 0;
+    return home;
 }
 
 /* ui_input.c, every pass before HOME's tap and hold are read: HOME down (its edge), the map once held, the release */
 static void go_poll(uint32_t now)                      /* now: fm1_ticks(), as btn_hold's */
 {
-    int dn = (int)((fm1_in.buttons >> panel.btn[B_HOME]) & 1u);
+    static uint32_t up_t;                               /* (0.18.1: HOME seen open since, | 1; 0: closed) */
+    int dn;
+    if ((fm1_in.buttons >> panel.btn[B_HOME]) & 1u) {
+        go_home_db = 1;
+        up_t = 0;
+    } else if (go_home_db && !(go.down && (go.used || fm1_in.notes))) {
+        go_home_db = 0;                                 /* (no key in this hold: let go at once, as always) */
+    } else if (go_home_db) {
+        if (!up_t)
+            up_t = now | 1u;
+        else if (now - up_t >= GO_MS(GO_GLITCH_MS))
+            go_home_db = 0;
+    }
+    dn = go_home_db;
     if (dn && !go.down) {
         go.down = 1;
         go.t0 = now;
         go.used = go.shown = 0;
         go.ok = (uint8_t)(!ui.menu && !ui.confirm && !name_on() && !ui.uboot && !layer_held());
-    } else if (dn && go.ok && !go.shown && now - go.t0 >= GO_SHOW_MS * 1000u * FM1_TICKS_PER_US) {
+    } else if (dn && go.ok && !go.shown && !go.used && now - go.t0 >= GO_SHOW_MS * 1000u * FM1_TICKS_PER_US) {
         go.shown = 1;
         ui.force = 1;
     } else if (!dn && go.down) {
         go.down = 0;
+        go.t_up = now | 1u;
+        if (go.t_jump)
+            go.t_jump = now | 1u;                       /* (quiet from the release on) */
         if (go.ok && go.shown && !go.used) {            /* held, no key: the MENU (no tap: HOME stays where it is) */
             ui.home_t0 |= 2u;
             go_menu();
