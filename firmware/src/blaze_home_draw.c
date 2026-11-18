@@ -509,11 +509,16 @@ static uint32_t bz_key_of(uint32_t black, uint32_t p)
             return k;
     return 0;
 }
+static void layer_stack_map(void);                  /* (0.20 STACK: blaze_stack_draw.c) */
 static void layer_blaze(void)
 {
     track_t *t = rl_track();
     uint32_t i, fx = perf_kill ? 0u : perf_held | perf_latched, ok = perf_avail(), pe;
     int drum = drum_track(t), ext = song.g[G_CLOCK] != 0;
+    if (bz_stack) {                                     /* 0.20 */
+        layer_stack_map();
+        return;
+    }
     if (bz_play) {                                      /* 0.17 */
         layer_play_map();
         return;
@@ -582,6 +587,7 @@ static void bz_rk_card(int held)
         draw_column(3, "RATE", RL_RATE_CELL[bz_rk_rate % RL_NRATE], "", VAL(3u), n > 1u ? (int32_t)(p * 1000u / (n - 1u)) : 1000,
                     ICON_RATE);
 }
+static void stk_cards(void);                        /* (0.20 STACK: blaze_stack_draw.c) */
 static void bz_cards(void)
 {
     track_t *t = rl_track();
@@ -589,6 +595,10 @@ static void bz_cards(void)
     const char *unit;
     int32_t m = perf_k[0];
     uint32_t l = bz_held_lane();
+    if (bz_stack) {
+        stk_cards();
+        return;
+    }
     if (bz_riser_held()) {                              /* RISER held: its sound */
         draw_column(0, "TYPE", BZR_NAME[bz_rs_type % BZR_NTYPE], "", VAL(0u), bz_rs_type * 1000 / (BZR_NTYPE - 1),
                     ICON_NOISE);

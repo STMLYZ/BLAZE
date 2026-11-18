@@ -687,3 +687,33 @@ per-drum TUNE / DECAY as holding the pad on BLAZE).
 **SCL**: hold SCL + a key: that root for **every melodic track** (the selected one too); the drum track not.
 **OCT+** tapped: MAJOR ↔ MINOR for all of them. **OCT+ held + a key**: the selected track only. OCT−: all put back.
 The key is said in names and Camelot.
+
+## 0.20 — STACK (build a loop layer by layer, then arrange it), PAGES SIMPLE
+
+**STACK** — GO black 1 (STEP moved to black 9; INSERT stays on FX's pages). OCT− leaves for BLAZE.
+
+*BUILD*, one layer at a time: **DRUMS → BASS → CHORDS → LEAD** (each its own track: DRUMS the drum track, the
+others the remaining three in order). NEXT (black 10) and BACK (black 9) move between them at any time.
+
+| | DRUMS | BASS / CHORDS / LEAD |
+|---|---|---|
+| White 1–16 | the loop's steps for the drum picked (K4: the next 16) | play the layer's track in key; recorded into its loop while it plays |
+| Black 1–8 | the drum: KICK SNARE CLAP HAT OPEN TOM RIM BELL | 1 OCT−, 2 OCT+, 3 REC on / off |
+| Black 11 | CLEAR the version shown (SHIFT: the drum picked only) | CLEAR |
+| K1 K2 K3 K4 | BARS (1 2 4, every layer), SOUND, LEVEL, steps shown | BARS, SOUND, LEVEL, OCTAVE |
+
+**SHIFT + NEXT**: the layer's **B** version (starts as a copy of A; edit what differs). **SHIFT + BACK**: its A again.
+B versions need loops of 1 or 2 bars (A and B share the track's 64 steps). After LEAD, NEXT opens ARRANGE.
+
+*ARRANGE*: the white keys are a grid — 4 rows (DRUMS BASS CHORDS LEAD) × 4 sections (black 5: sections 5–8). A tap
+cycles a cell **OFF → A → B**. Black 1–4: the shown sections' lengths (4 8 16 32 bars). Black 6 or **SHIFT + SELECT**:
+a template — **CLUB** (intro 16, build 8, drop 16, break 8, drop 16 with B, outro 16), **DJ TOOL** (32 bars of drums
+first and last), **LOOP**. SHIFT + black 7 clears it. **Black 11 plays the song from the top** (again: stop); it
+stops at its end and puts the mutes and A versions back. K1: tempo.
+
+Kept with the project: the B versions are the second half of each track's steps, the arrangement is the project's
+song (marked STACK's — SONG's PLAY plays it too). Entering STACK sets the four tracks to BARS × 16 steps of 1/16.
+
+**PAGES SIMPLE**: on GO (HOME held), **OCT+** hides the deep pages (ENV DEST, LFO 2, LFO DEST, MOD, INSERT 2, LANES 2,
+OPERATOR 2, OP ENVs, OP LEVEL, VOICE 2–3, ARP 2, DETAIL, AUTOMATION, PHRASES) from the families' rounds; OCT+ again:
+all. Kept. Felucca's own per-page hints are MENU > SYSTEM > HELP ON.

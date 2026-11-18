@@ -125,6 +125,14 @@ static const char *const BZ_KEYS_NAME[7] = {"ARP", "LATCH", "1/8", "1/16", "1/32
 /* SHIFT: OCT+ held; 0.11.1 SHIFT LOCK: OCT+ double-tapped on BLAZE's own page keeps it on (one tap: off; leaving the
  * page: off), so its keys (BACKSPIN, DROP, CAPTURE, ...) are one press each. The knobs are SHIFT's too while locked */
 static uint8_t bz_shlock;
+static void stk_key(uint32_t k);                    /* (0.20 STACK: blaze_stack_ui.c) */
+static void stk_knob(uint32_t k, int32_t s);
+static int stk_select(int32_t s);
+static const char *stk_head(void);
+static void stk_led(uint32_t k, uint32_t *on, uint32_t *can);
+static uint32_t stk_sig(void);
+static void stk_pass(void);
+static void stk_close(void);
 static int bz_shift_held(void) { return ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) != 0u; }
 static int bz_shift(void) { return bz_shlock || bz_shift_held(); }
 #define BZ_SHL_TAP_MS 300u                          /* a tap: let go within this, nothing pressed meanwhile */
@@ -579,7 +587,8 @@ static int bz_select_turn(int32_t s)
 {
     int32_t d;
     char m[24];
-    if (rf_select(s))                               /* (0.19 ROLL FX: SHIFT + SELECT the genre, its page the bank) */
+    if (rf_select(s) || stk_select(s))              /* (0.19 ROLL FX: SHIFT + SELECT the genre, its page the bank; 0.20 STACK's
+                                                     * templates) */
         return 1;
     if (!song.g[G_CLOCK] || !bz_ev_on)
         return 0;
@@ -993,7 +1002,9 @@ static void bz_play_close(void)
 static void bz_keys_toggle(void)                    /* (OCT-: BLAZE -> PLAY -> LOOPS -> SLICE -> BLAZE; 0.18: KEYS, CHORD
                                                      * and RB MIDI are GO's (blaze_go.c); from them: BLAZE) */
 {
-    if (!bz_play && !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
+    if (bz_stack) {                                 /* (0.20 STACK, a GO page: BLAZE) */
+        stk_close();
+    } else if (!bz_play && !bz_keys && !bz_chord && !bz_loops && !bz_slice && !bz_rb) {
         bz_play_open();
     } else if (bz_play) {
         bz_play_close();
@@ -1269,6 +1280,10 @@ static void bz_ui_key(uint32_t k)
         ui.force = 1;
         return;
     }
+    if (bz_stack) {                                 /* 0.20 STACK */
+        stk_key(k);
+        return;
+    }
     if ((bz_chord || bz_slice) && bz_shift() && !key_black(k) && p == 12u) {   /* 0.14: SHIFT + white 13: CAPTURE */
         bz_req = 7u;                                /* (the ISR's: as RAIL's CC 36 7) */
         ui_message(bz_cap == BZC_SOLO || bz_cap == BZC_MIX ? "CAPTURE: NEXT STAGE" : "CAPTURE: FROM THE NEXT BAR");
@@ -1515,6 +1530,7 @@ static void bz_scene_apply(void)
 /* each pass: RELEASE's knobs, RAIL's key, RISER's 16 said */
 static void bz_ui_pass(void)
 {
+    stk_pass();                                     /* (0.20 STACK: its song's start and end) */
     static uint8_t rs, cfg;
     if (!cfg) {
         cfg = 1;
@@ -1694,6 +1710,10 @@ static void bz_knob(uint32_t k, int32_t s)
     track_t *t = rl_track(), *kt = &trk[bz_ktrk % NTRK];
     uint32_t l = bz_held_lane();
     int16_t *vp;
+    if (bz_stack) {                                 /* (0.20 STACK) */
+        stk_knob(k, s);
+        return;
+    }
     if (bz_build_held()) {                          /* 0.12 BUILD held: DRUM CURVE SWELL WITH, kept */
         uint8_t *c = bz_cfg3;
         int32_t d = s > 0 ? 1 : -1;
@@ -2046,6 +2066,10 @@ static uint32_t bz_keys_n(const track_t *t)
 static void bz_led(uint32_t k, uint32_t *on, uint32_t *can)
 {
     uint32_t p = key_place(k);
+    if (bz_stack) {                                 /* 0.20 STACK */
+        stk_led(k, on, can);
+        return;
+    }
     if (bz_rb) {                                    /* 0.9 REKORDBOX: every key can; held: lit; DECK 2: lit */
         *can = !key_black(k) || p < 11u;
         *on = key_black(k) && p == BZ_RB_DECK_KEY ? bz_rb_deck != 0u : (bz_rb_down >> k) & 1u;
@@ -2125,6 +2149,8 @@ static const char *bz_head(void)
     static char h[28];
     uint32_t b, cam;
     char nm[16];
+    if (bz_stack)                                   /* (0.20) */
+        return stk_head();
     str_cpy(h, bz_play ? (pl_hold ? "[ENV] PLAY HOLD" : bz_shift() ? "[ENV] PLAY SHIFT" : "[ENV] PLAY")
                : bz_keys ? (bz_shift() ? "[ENV] KEYS SHIFT" : "[ENV] KEYS") : bz_chord ? "[ENV] CHORD" : bz_loops ? "[ENV] LOOPS" : bz_slice ? (bz_shift() ? "[ENV] SLICE SHIFT" : "[ENV] SLICE") : bz_rb ? "[ENV] REKORDBOX" : bz_build_held() ? "[ENV] BUILD SETUP" : bz_drop_held() ? "[ENV] DROP SETUP" : bz_riser_held() ? "[ENV] RISER SOUND"
                : bz_eo_held() ? "[ENV] ECHO OUT" : bz_held_lane() < NLANE ? "[ENV] BLAZE DRUM"
@@ -2161,6 +2187,8 @@ static uint32_t bz_sig(void)
     const track_t *kt = bz_key_track(), *k2 = &trk[bz_ktrk % NTRK];
     uint32_t beat, h, i;
     int32_t bar = bz_phrase(&beat);
+    if (bz_stack)                                   /* (0.20 STACK: its own) */
+        return stk_sig() + (uint32_t)bz_shift() * 7u + fm1_in.notes * 3u;
     h = (uint32_t)rl_extra * 31u + (uint32_t)rlu.fl * 131u + (uint32_t)rl_rates * 7919u + (uint32_t)rl_live4 * 977u +
         (perf_held | perf_latched) * 13u + bz_build * 5u + bz_build_rate * 11u + bz_riser * 3u +
         rlu.nk * 17u + (uint32_t)song.g[G_CLOCK] * 19u + (uint32_t)drum_track(t) * 23u + (uint32_t)t->p[P_E0] * 29u +

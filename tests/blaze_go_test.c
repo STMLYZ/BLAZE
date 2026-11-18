@@ -562,6 +562,98 @@ int main(void)
         fm1_in.buttons &= ~(1u << panel.btn[B_SCL]); frame(); frames(3);
         bad += check("SCL (0.19): a key every melodic track's root; OCT+ MAJOR / MINOR; OCT+ held + key one track; OCT- back", ok);
     }
+    /* 0.20 STACK: GO black 1; DRUMS: SNARE on black 2, white 1 a step; NEXT: BASS plays in key (and arms its track);
+     * SHIFT + NEXT its B (a copy), cleared, SHIFT + BACK: A as it was; NEXT to ARRANGE: the CLUB song in the project's
+     * song, marked; black 11 plays it: the layers muted and B swapped in by section, at the end stopped, all put back */
+    {
+        track_t *dt, *bt;
+        uint32_t i, j, n16, okA, okB, sec1 = 0, sec2 = 0;
+        step_t a0;
+        ui_power_on(); frame(); frames(10);
+        memset(&chain_config, 0, sizeof chain_config);
+        go_key(bk(0));
+        ok = bz_stack && stk.layer == STL_DRUMS && layer_open() == LAYER_BLAZE;
+        dt = &trk[stk_trk[0]];
+        ok &= drum_track(dt) && dt->p[P_SLEN] == stk_L && dt->p[P_SDIV] == 2;
+        key_down(bk(1)); key_up(bk(1)); frame();       /* SNARE */
+        stk_aud = 0;
+        key_down(wk(0)); key_up(wk(0)); frame();       /* step 1 */
+        ok &= stk.lane == 1u && ((step_lanes(&dt->step[0]) >> 1) & 1u) && stk_aud == 2u;
+        bad += check("STACK (0.20): GO black 1; DRUMS: a drum on black 2, a step on white 1 (heard)", ok);
+        key_down(bk(9)); key_up(bk(9)); frame();       /* NEXT: BASS */
+        bt = &trk[stk_trk[1]];
+        ok = stk.layer == STL_BASS && stk_keys_play && bz_ktrk == stk_trk[1] && ((song.rec >> stk_trk[1]) & 1u);
+        key_down(wk(4)); frame();
+        ok &= voices() > 0u;
+        key_up(wk(4)); frame();
+        bt->step[0].n = 1; bt->step[0].note[0] = 40; bt->step[0].time = ST_NOTE;
+        a0 = bt->step[0];
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; frame();
+        key_down(bk(9)); key_up(bk(9)); frame();       /* SHIFT + NEXT: its B */
+        okB = ((stk.hasb >> STL_BASS) & 1u) && ((stk_front >> stk_trk[1]) & 1u) && bt->step[0].note[0] == 40;
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+        key_down(bk(10)); key_up(bk(10)); frame();     /* CLEAR the B */
+        okB &= !bt->step[0].n;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; frame();
+        key_down(bk(8)); key_up(bk(8)); frame();       /* SHIFT + BACK: A */
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+        okA = !((stk_front >> stk_trk[1]) & 1u) && !memcmp(&bt->step[0], &a0, sizeof a0) && !bt->step[stk_L].n;
+        ok &= okA && okB;
+        bad += check("STACK (0.20): BASS plays in key, armed; SHIFT + NEXT its B (a copy), cleared; SHIFT + BACK: A kept", ok);
+        bz_shlock = 0;                                  /* (OCT+ twice above: SHIFT LOCK; off) */
+        for (i = 0; i < 3u; i++) { key_down(bk(9)); key_up(bk(9)); frame(); }   /* CHORDS LEAD ARRANGE */
+        ok = stk.stage == STK_ARRANGE && !stk_keys_play && chain_config.rsv[0] == STK_MAGIC && chain_config.count == 6u &&
+             !song.rec;
+        key_down(wk(1)); key_up(wk(1)); frame();       /* DRM in section 2: A -> OFF? (it is A: B none -> OFF) */
+        ok &= stk.cell[1][0] == CHAIN_SILENT;
+        key_down(wk(1)); key_up(wk(1)); frame();       /* .. back on: A */
+        ok &= stk.cell[1][0] == 0u && chain_config.row[1].slot[stk_trk[0]] == 0u;
+        bad += check("STACK (0.20): ARRANGE: the CLUB song in the project's song (marked), a tap OFF / A", ok);
+        /* play it: section 1 DRUMS only, section 2 DRUMS + BASS; the end stops; mutes and A back */
+        stk.sbars[0] = 4; stk.sbars[1] = 4; stk_store();
+        for (j = 2; j < STK_ROWS; j++) { stk.sbars[j] = 0; }
+        stk_store();
+        key_down(bk(10)); key_up(bk(10)); frame();
+        ok = stk_run && song.playing + transport_req > 0u;
+        n16 = 0;
+        for (i = 0; i < 300000u && (stk_run || song.playing); i++) {
+            events_block(CTL);
+            if (stk_row == 0u && trk[stk_trk[1]].p[P_MUTE]) sec1 = 1;
+            if (stk_row == 1u && !trk[stk_trk[1]].p[P_MUTE] && !trk[stk_trk[0]].p[P_MUTE]) sec2 = 1;
+            if ((i & 63u) == 0u) frame();
+        }
+        frame(); frame();
+        ok &= sec1 && sec2 && !stk_run && !song.playing && !stk_front;
+        for (j = 0; j < NTRK; j++) ok &= !trk[j].p[P_MUTE];
+        printf("  (STACK song: section 1 bass muted %u, section 2 both on %u, ended %u)\n", sec1, sec2, !stk_run);
+        bad += check("STACK (0.20): its song plays: section 1 DRUMS, section 2 + BASS; the end stops, the mutes and A back", ok);
+        key_down(bk(8)); key_up(bk(8)); frame();       /* BACK: BUILD */
+        press(B_OCTDN); frame();                        /* OCT-: BLAZE */
+        ok = !bz_stack && !stk_keys_play && !song.rec;
+        memset(&chain_config, 0, sizeof chain_config);
+        bad += check("STACK (0.20): BACK to BUILD, OCT- leaves for BLAZE (nothing left armed)", ok);
+    }
+    /* 0.20 PAGES SIMPLE: HOME held + OCT+ hides the deep pages (LFO 2, DETAIL ..), not a family's first; again: all.
+     * The octave stays, HOME's release no menu */
+    {
+        uint32_t i, lfo2 = NPAGES, lfo = NPAGES;
+        int8_t oct;
+        ui_power_on(); frame(); frames(10);
+        for (i = 0; i < NPAGES; i++) {
+            if (str_eq(PAGES[i].title, "LFO 2")) lfo2 = i;
+            if (str_eq(PAGES[i].title, "LFO")) lfo = i;
+        }
+        oct = song.octave;
+        home_down(); frames(30);
+        press(B_OCTUP); frame();
+        home_up();
+        ok = BZ_SIMPLE == BZ_SIMPLE_ON && !page_visible(lfo2) && page_visible(lfo) && song.octave == oct && !ui.menu;
+        home_down(); frames(30);
+        press(B_OCTUP); frame();
+        home_up();
+        ok &= BZ_SIMPLE != BZ_SIMPLE_ON && page_visible(lfo2) && !ui.menu;
+        bad += check("PAGES SIMPLE (0.20): HOME + OCT+ hides LFO 2 (LFO stays), again all; no octave, no menu", ok);
+    }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;
 }

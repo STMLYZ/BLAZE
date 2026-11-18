@@ -58,6 +58,7 @@ static volatile uint8_t rl_pp_rate[NLANE];     /* main / ISR: the lane's rate + 
 static volatile uint8_t rl_pp_fx[NLANE];       /* main / ISR: the lane's effect (BLAZE's BZ_FX index) + 1 (0: none) */
 static volatile uint16_t rl_pp;                /* ISR: pads rolling at their lane's own rate */
 static volatile uint8_t rl_ev_out;             /* main: 0.13 BLAZE opened: each hit's velocity to PHOSPHOR (ch16 CC 49) */
+static volatile uint8_t stk_aud;               /* main: 0.20 STACK: a drum step set on: its lane + 1 sounds (roll_block) */
 /* 0.11 ROLL SHAPE (SHIFT + black 4 in BLAZE): the velocities along a roll. FLAT as played; ACCENT 2 / 4 every 2nd /
  * 4th hit full, the rest at half; FADE down to 30 % over its first bar (then on at that) */
 enum { RLS_FLAT, RLS_ACC2, RLS_ACC4, RLS_FADE, RLS_N };
@@ -527,6 +528,10 @@ static __attribute__((noinline)) void roll_key_press(uint32_t k, int down)
 static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* (out of events_block: target_budget.py) */
 {
     uint32_t l, r, hits = 0, both = 0, p, held, fper = 0;
+    if (stk_aud) {                               /* 0.20 STACK: the step set on, heard */
+        rl_hit((stk_aud - 1u) % NLANE, 100u);
+        stk_aud = 0;
+    }
     for (l = 0; l < NLANE; l++)
         if (rl_offt[l]) {
             if (rl_offt[l] <= n)

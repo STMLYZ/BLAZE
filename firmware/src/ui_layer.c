@@ -89,6 +89,7 @@ static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAUL
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
 static const khint_t RL_READY_FOOT[3] = {{KC_KEYS, "READY"}, {KC_OCTDN, "FX"}, {KC_OCTUP, "GROOVE"}};   /* (BLAZE 0.19) */
 static const khint_t RL_FX_FOOT[3] = {{KC_KEYS, "ROLL"}, {KC_OCTDN, "ROLL"}, {KC_OCTUP, "GROOVE"}};
+static const khint_t BZ_STACK_FOOT[3] = {{KC_KEYS, "STACK"}, {KC_OCTDN, "BLAZE"}, {KC_OCTUP, "SHIFT"}};   /* (0.20) */
 static const khint_t BZ_PLAY_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "LOOPS"}, {KC_OCTUP, "SHIFT"}};   /* (0.17 PLAY; 0.18: LOOPS next) */
 static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
 static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
@@ -666,6 +667,7 @@ static uint32_t eqa_sig(void)
 
 #include "blaze_roll_ui.c"                         /* BLAZE: ROLL's TAP NUDGE knobs LEDs */
 #include "blaze_home_ui.c"                         /* BLAZE: the home layer's, the key from RAIL */
+#include "blaze_stack_ui.c"                        /* BLAZE 0.20: STACK, the loop builder and its song */
 
 /* BLAZE 0.19: SCL's keys and OCT+ for every melodic track at once (as RAIL's key: blaze_home_ui.c bz_key_apply);
  * OCT+ held with a key: the selected track only (Felucca's SCL). The key said in names and Camelot */
@@ -1283,6 +1285,7 @@ static void layer_rec(void)
 
 #include "blaze_roll_draw.c"                       /* BLAZE: ROLL's map and cards */
 #include "blaze_home_draw.c"                       /* BLAZE: the home map and cards */
+#include "blaze_stack_draw.c"                      /* BLAZE 0.20: STACK's map and cards */
 #include "blaze_set.c"                             /* BLAZE 0.15: HOME's SET view, the decks from rail-bridge */
 #include "blaze_go.c"                              /* BLAZE 0.15: GO, the launcher (HOME held) */
 
@@ -1414,7 +1417,7 @@ static void draw_layer(void)
         const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : l == LAYER_SEQ && eu.on ? EU_FOOT :
                             l == LAYER_ROLL && rl_ready ? RL_READY_FOOT : l == LAYER_ROLL && rl_fxpage ? RL_FX_FOOT :
-                            l == LAYER_BLAZE && bz_play ? BZ_PLAY_FOOT : l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT : l == LAYER_BLAZE && bz_slice ? BZ_SLICE_FOOT : l == LAYER_BLAZE && bz_rb ? BZ_RB_FOOT : l == LAYER_BLAZE && bz_shlock ? BZ_SHLOCK_FOOT :
+                            l == LAYER_BLAZE && bz_stack ? BZ_STACK_FOOT : l == LAYER_BLAZE && bz_play ? BZ_PLAY_FOOT : l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT : l == LAYER_BLAZE && bz_slice ? BZ_SLICE_FOOT : l == LAYER_BLAZE && bz_rb ? BZ_RB_FOOT : l == LAYER_BLAZE && bz_shlock ? BZ_SHLOCK_FOOT :
                             LAYERS[l].foot;
         int h = help_on() && help_row(l == LAYER_SEQ && eu.on ? H_EUCLID : HELP_LAYER[l], 21);   /* 1.5, HELP ON: a
                                                          * second row, what this one does not say */

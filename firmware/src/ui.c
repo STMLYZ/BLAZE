@@ -434,6 +434,8 @@ static uint32_t go_keys(uint32_t lkeys);
 static void bz_set_cards(void);                       /* BLAZE 0.17: SET's knobs (blaze_set.c) */
 static void bz_set_knob(uint32_t k, int32_t s);
 static uint32_t go_home_filter(uint32_t home, uint32_t now);   /* (blaze_go.c) */
+static int go_armed(void);
+static void go_simple_toggle(void);
 static int16_t scl_was[NTRK][2];                    /* BLAZE 0.19: each track's ROOT and SCALE when SCL opened (ui_layer.c) */
 static uint8_t scl_sh;                              /* .. OCT+ held for a key: its release no MAJOR / MINOR */
 static uint8_t go_home_db;                          /* HOME down for GO, its flickers held over (blaze_go.c go_poll) */
@@ -446,8 +448,27 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never). SLICES:
  * a SLICE track's (ui_slice.c); LANES / LANES 2 a DRUM track's (its lane levels); FILTER an ANALOG track's; OPERATOR, OP ENV, OPERATOR 2 an FM6
  * track's (its patch's operators, ui_fm6op.c) */
+/* BLAZE 0.20 PAGES SIMPLE (GO: HOME held + OCT+): the deep pages left out of the families' rounds (each family's first
+ * page stays); kept in the settings (a byte of the DRUM favourites row: blaze_home_ui.c bz_cfg2[5]) */
+#define BZ_SIMPLE (favorites.factory[ENGI_DRUM][21])
+#define BZ_SIMPLE_ON 0x5Au
+static int bz_simple_hidden(uint32_t i)
+{
+    static const char *const H[] = {"ENV DEST", "LFO 2", "LFO DEST", "MOD", "INSERT 2", "LANES 2", "OPERATOR 2",
+                                    "OP1 ENV", "OP2 ENV", "OP3 ENV", "OP4 ENV", "OP LEVEL", "VOICE 2", "VOICE 3",
+                                    "ARP 2", "DETAIL", "AUTOMATION", "PHRASES"};
+    uint32_t k;
+    if (BZ_SIMPLE != BZ_SIMPLE_ON)
+        return 0;
+    for (k = 0; k < sizeof H / sizeof H[0]; k++)
+        if (str_eq(PAGES[i].title, H[k]))
+            return 1;
+    return 0;
+}
 static int page_visible(uint32_t i)
 {
+    if (bz_simple_hidden(i))
+        return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -510,9 +531,15 @@ static int transport_busy(void)
     fm1_irq_on();
     return busy;
 }
+static void stk_play(void);                         /* (BLAZE 0.20 STACK: blaze_stack_ui.c) */
 static void chain_play_ui(void)
 {
-    uint32_t rc = chain_prepare();
+    uint32_t rc;
+    if (chain_config.rsv[0] == 0xA7u) {             /* (BLAZE 0.20: STACK's song: it plays it) */
+        stk_play();
+        return;
+    }
+    rc = chain_prepare();
     if (!rc) {
         ui.force = 1;
     } else if (rc >= 3u) {

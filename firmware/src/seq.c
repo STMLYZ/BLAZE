@@ -811,6 +811,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 #include "blaze_roll.c"                          /* BLAZE: the ROLL layer's sound side */
 #include "blaze_home.c"                          /* BLAZE: the home layer's (ENV held) */
 #include "blaze_chord.c"                         /* BLAZE: its CHORD */
+#include "blaze_stack.c"                         /* BLAZE 0.20: STACK's arrangement */
 #include "blaze_loops.c"                         /* BLAZE: its LOOPS, DUCK */
 #include "blaze_slice.c"                         /* BLAZE: its SLICE (0.8) */
 static uint32_t kb_roll;                         /* the keys pressed in the ROLL layer (their release goes there too) */
@@ -825,7 +826,7 @@ static void key_off(uint32_t k, track_t *t);
 static __attribute__((noinline)) void kb_bz_note(uint32_t k)
 {
     kb_trk[k] = (uint8_t)(bz_ktrk % NTRK);
-    kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], bz_play ? key_place(k) - 7u : key_place(k));
+    kb_note[k] = (uint8_t)bz_key_note(&trk[kb_trk[k]], bz_play && !stk_keys_play ? key_place(k) - 7u : key_place(k));
     if (bz_play && pl_quant && song.playing && clk_pos != CLK_START && clk_pos * 2u >= div_samples(2)) {
         kb_qpend |= 1u << k;                  /* (0.17 QUANTIZE: past a 1/16's middle: on the next one, pl_tick) */
         return;
@@ -930,7 +931,7 @@ static __attribute__((noinline)) void kb_key(uint32_t k, uint32_t down, uint32_t
             kb_note[k] = KB_SILENT;
             return;
         }
-        if (lay && home && !key_black(k) && (bz_keys || (bz_play && key_place(k) >= 7u))) {   /* BLAZE KEYS: the key
+        if (lay && home && !key_black(k) && (bz_keys || (bz_play && key_place(k) >= 7u) || stk_keys_play)) {   /* BLAZE KEYS: the key
                                               * plays the KEYS track's scale (0.17 PLAY: white 8..16, from its 1st) */
             kb_bz_note(k);
             return;
@@ -1622,6 +1623,8 @@ static void events_block(uint32_t n)
     if (aud_req)
         seq_audition();                               /* (STEP PREVIEW: a step sounds, stopped) */
     chain_tick(clock_mode && chain.running ? midi_seq_preview(&trk[chain.clk], seq_n) : seq_n);
+    if (stk_run)
+        stk_block(seq_n);                             /* BLAZE 0.20 STACK: a section's change, before its first step */
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], seq_n);
     roll_block(n, clock_mode && song.playing ? seq_n : n);   /* BLAZE ROLL: on the sequencer's time */

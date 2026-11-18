@@ -1781,6 +1781,11 @@ static void ui_input(void)
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if (act_cols() || layer_set_open() || ui.ml.on)   /* action pages: enter / back (below); SET layers: OCT-; */
                 break;                                  /* MIDI LEARN: clear / done (below) */
+            if (go_armed()) {                           /* BLAZE 0.20: HOME held + OCT+: PAGES SIMPLE / ALL */
+                if (b == B_OCTUP)
+                    go_simple_toggle();
+                break;
+            }
             if (b == B_OCTUP && ui.home && home_set() && !((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u)) {
                 bzs_sh = 1;                             /* BLAZE 0.17b: the SET view: OCT+ held is SHIFT (the EQ); 0.18: */
                 break;                                  /* let go with no knob turned: the octave up (bz_set_pass) */

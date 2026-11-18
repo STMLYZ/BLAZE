@@ -21,10 +21,10 @@ static const go_t GO_W[16] = {
     {"PRESETS", GO_PAGE, 0, "PRESETS"}, {"EDIT", GO_PAGE, 0, "EDIT 1"}, {"FILTER", GO_PAGE, 0, "FILTER"},
     {"ENV", GO_PAGE, 0, "ENV"}, {"LFO", GO_PAGE, 0, "LFO"}, {"FX", GO_PAGE, 0, "FX"}, {"ARP", GO_PAGE, 0, "ARP"},
     {"RB MIDI", GO_BLAZE, 5, 0}};   /* (0.17: PLAY in, MOD out: EDIT's pages reach it) */
-static const go_t GO_B[11] = {
-    {"STEP", GO_PAGE, 0, "STEP"}, {"SONG", GO_PAGE, 0, "SONG"}, {"AUTO", GO_PAGE, 0, "AUTOMATION"},
+static const go_t GO_B[11] = {   /* (0.20: STACK first, STEP where INSERT was: FX's pages reach INSERT) */
+    {"STACK", GO_BLAZE, 7, 0}, {"SONG", GO_PAGE, 0, "SONG"}, {"AUTO", GO_PAGE, 0, "AUTOMATION"},
     {"MIXER", GO_PAGE, 0, "MIXER"}, {"PROJECT", GO_PAGE, 0, "PROJECT"}, {"USER", GO_PAGE, 0, "USER"},
-    {"CLOCK", GO_PAGE, 0, "CLOCK"}, {"SCALE", GO_PAGE, 0, "SCL"}, {"INSERT", GO_PAGE, 0, "INSERT"},
+    {"CLOCK", GO_PAGE, 0, "CLOCK"}, {"SCALE", GO_PAGE, 0, "SCL"}, {"STEP", GO_PAGE, 0, "STEP"},
     {"TOOLS", GO_PAGE, 0, "TOOLS"}, {"MENU", GO_MENU, 0, 0}};
 #define GO_SHOW_MS 250u                                 /* HOME held this long: the map */
 
@@ -43,6 +43,16 @@ static struct {
 #define GO_MS(ms) ((ms) * 1000u * FM1_TICKS_PER_US)
 
 static int go_shown(void) { return go.shown && go.ok; }
+/* 0.20: HOME held + OCT+: PAGES SIMPLE <-> ALL (ui.c bz_simple_hidden) */
+static void go_simple_toggle(void)
+{
+    BZ_SIMPLE = BZ_SIMPLE == BZ_SIMPLE_ON ? 0u : BZ_SIMPLE_ON;
+    settings_later();
+    go.used = 1;
+    ui.home_t0 |= 2u;
+    ui_message(BZ_SIMPLE == BZ_SIMPLE_ON ? "PAGES SIMPLE: THE DEEP ONES HIDDEN" : "PAGES: ALL");
+    ui.force = 1;
+}
 static int go_armed(void) { return go.down && go.ok; }  /* (ui_layer.c layer_masks: the keys are the map's) */
 static int go_hold_ok(void) { return go.down && !go.ok; }   /* (HOME held where the map is not: the menu at 0.7 s) */
 
@@ -95,8 +105,11 @@ static void go_to(const go_t *g)
     case GO_BLAZE:
         if (bz_play)
             bz_play_close();
+        stk_close();
         bz_keys = bz_chord = bz_loops = bz_slice = bz_rb = 0;
-        if (g->arg == 6u) {
+        if (g->arg == 7u) {                             /* (0.20 STACK) */
+            stk_open();
+        } else if (g->arg == 6u) {
             bz_play_open();
         } else if (g->arg == 1u) {
             bz_ktrk = (uint8_t)bz_keys_track();
@@ -215,9 +228,9 @@ static int go_here(const go_t *g)
 {
     switch (g->kind) {
     case GO_BLAZE:
-        return ui.lock == LAYER_BLAZE && (g->arg == 6u ? bz_play : g->arg == 1u ? bz_keys : g->arg == 2u ? bz_chord : g->arg == 3u ? bz_loops
+        return ui.lock == LAYER_BLAZE && (g->arg == 7u ? bz_stack : g->arg == 6u ? bz_play : g->arg == 1u ? bz_keys : g->arg == 2u ? bz_chord : g->arg == 3u ? bz_loops
                                           : g->arg == 4u ? bz_slice : g->arg == 5u ? bz_rb
-                                          : !(bz_play || bz_keys || bz_chord || bz_loops || bz_slice || bz_rb));
+                                          : !(bz_stack || bz_play || bz_keys || bz_chord || bz_loops || bz_slice || bz_rb));
     case GO_ROLL:
         return ui.lock == LAYER_ROLL;
     case GO_SET:
@@ -240,14 +253,15 @@ static void go_draw(void)
 {
     static uint32_t sig;
     uint32_t i, s = (uint32_t)ui.lock * 31u + ui.page * 7u + ui.home * 3u + (uint32_t)bz_keys + bz_chord * 2u +
-                    bz_loops * 4u + bz_slice * 8u + bz_rb * 16u + ux.gen * 977u;
+                    bz_loops * 4u + bz_slice * 8u + bz_rb * 16u + ux.gen * 977u + bz_stack * 32u + bz_play * 64u;
     if (!ui.force && s == sig)
         return;
     sig = s;
     cv_begin(240, Y_GRAPH - H_HEAD, T_BG);              /* the strip: what this is */
     cv_rrect(3, 4, 234, Y_GRAPH - H_HEAD - 8, 5, T_SURF, T_BG);
     cv_text_on(12, 4 + CAP_IN(M, 22), &AF_M, "GO TO", T_THEME, T_SURF);
-    cv_text_on(12, 26 + CAP_IN(S, 16), &AF_S, "PRESS A KEY.  LET GO: MENU", T_MID, T_SURF);
+    cv_text_on(12, 26 + CAP_IN(S, 16), &AF_S, BZ_SIMPLE == BZ_SIMPLE_ON ? "KEY: GO  LET GO: MENU  OCT+: ALL"
+               : "KEY: GO  LET GO: MENU  OCT+: SIMPLE", T_MID, T_SURF);
     cv_blit(0, H_HEAD);
     cv_begin(240, H_GRAPH, T_BG);
     cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);

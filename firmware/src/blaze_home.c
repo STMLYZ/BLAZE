@@ -122,6 +122,8 @@ static volatile uint8_t bz_keys;               /* main: the layer is KEYS (OCT-)
  * 1/32 (SHIFT: the next drum), 4 FILL on that drum, 5 BUILD 4, 6 DROP, 7 BOOST, 8 QUANTIZE (the lead notes on the
  * 1/16), 9 / 10 OCT- / OCT+ (the lead notes), 11 HOLD (the next chord or roll stays on until pressed again) */
 static volatile uint8_t bz_play;               /* main: the layer is PLAY */
+static volatile uint8_t bz_stack;              /* main: 0.20 the layer is STACK (blaze_stack.c) */
+static volatile uint8_t stk_keys_play;         /* main: .. its white keys play the layer's track (a melodic layer) */
 static volatile uint8_t pl_hold;               /* ISR: HOLD armed */
 static volatile uint8_t pl_quant;              /* main: QUANTIZE the lead notes */
 static volatile uint8_t pl_chord;              /* ISR: the chord key held (1..7; 0 none) */
@@ -941,6 +943,8 @@ static __attribute__((noinline)) void home_key_press(uint32_t k, int down)
         play_key(k, p, down);
         return;
     }
+    if (bz_stack)                                /* 0.20 STACK: the main loop's (its notes: seq.c) */
+        return;
     if (bz_chord) {                              /* CHORD: a white key latches a chord (the black ones: the main loop's) */
         if (!key_black(k) && down && !(bz_shift_on && p == 12u))   /* (0.14 SHIFT + white 13: CAPTURE, the main loop's) */
             bz_chord_key(p);
