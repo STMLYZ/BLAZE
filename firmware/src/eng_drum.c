@@ -124,6 +124,10 @@ static uint32_t drum_swaps(const track_t *t)
  * when an old DIGITAL sound converts, which sets them again); valid while P_FM4_LEVEL holds BZ_LANE_MAGIC (a sound or
  * project from before: 127 there, so its lanes play as designed) */
 static volatile uint8_t bz_kick;                       /* BLAZE: a kick struck (blaze_home.c DUCK clears it) */
+/* BLAZE 0.19 ROLL FX (blaze_roll.c rf_hit): a roll's lanes pitched up (1/16 semitones) and shortened while it rolls,
+ * on top of everything else; 0 when no roll runs */
+static volatile int16_t rf_tune[8];
+static volatile int8_t rf_dec[8];
 #define BZ_LANE_TUNE P_FM1_ATK
 #define BZ_LANE_DECAY (P_FM1_ATK + 8)
 #define BZ_LANE_MARK P_FM4_LEVEL
@@ -304,11 +308,13 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             lt = p[BZ_LANE_TUNE + ln] - 64;
             ld = p[BZ_LANE_DECAY + ln] - 64;
         }
+        lt = lt * 3 + rf_tune[ln];                       /* (0.19 ROLL FX: in the tune's own 1/16 semitones) */
+        ld += rf_dec[ln];
         k.decay = (uint8_t)clamp(k.decay + p[P_E3] - 64 + ld, 0, 127);
         k.tone = (uint8_t)clamp(k.tone + p[P_E2] - 64, 0, 127);
         k.extra = (uint8_t)clamp(k.extra + p[P_E4] - 64, 0, 127);
         k.accent = (uint8_t)clamp(acc >> 9, 0, 127);     /* (Q16 -> 0..127) */
-        k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64 + lt) * 3);   /* +-12 semitones, a lane +-12 more */
+        k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64) * 3 + lt);   /* +-12 semitones, a lane +-12 more */
     }
     if (((const uint32_t *)&k)[0] != ((const uint32_t *)&L->key)[0] ||
         ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1]) {

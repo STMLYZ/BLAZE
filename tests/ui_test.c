@@ -6570,6 +6570,7 @@ static int lk_same(uint32_t l)                      /* nothing changed but the l
         for (j = 0; j < P_COUNT; j++) {
             int own = (l == LAYER_GLO && j == P_LEVEL) ||
                       (l == LAYER_SCL && i == 0u && (j == P_ROOT || j == P_SCALE || j == P_CHRD || j == P_VOIC)) ||
+                      (l == LAYER_SCL && j == P_ROOT) ||   /* (BLAZE 0.19: SCL's key roots every melodic track) */
                       (l == LAYER_EDIT && i == 0u && (j < P_AMODE || j > P_AORDER));   /* (a load keeps the ARP) */
             if (lk_p[i][j] != trk[i].p[j] && !own)
                 return 0;

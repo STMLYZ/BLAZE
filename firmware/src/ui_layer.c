@@ -87,6 +87,8 @@ typedef char ly_init_fits[LY_CLEAN < 16u ? 1 : -1];   /* (a white key: F3 .. G5)
 static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_OCTDN, "ALL OFF"}};
 static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
+static const khint_t RL_READY_FOOT[3] = {{KC_KEYS, "READY"}, {KC_OCTDN, "FX"}, {KC_OCTUP, "GROOVE"}};   /* (BLAZE 0.19) */
+static const khint_t RL_FX_FOOT[3] = {{KC_KEYS, "ROLL"}, {KC_OCTDN, "ROLL"}, {KC_OCTUP, "GROOVE"}};
 static const khint_t BZ_PLAY_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "LOOPS"}, {KC_OCTUP, "SHIFT"}};   /* (0.17 PLAY; 0.18: LOOPS next) */
 static const khint_t BZ_KEYS_FOOT[3] = {{KC_KEYS, "PLAY"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "ARP"}};   /* (BLAZE KEYS: ALGO the arp's MODE) */
 static const khint_t BZ_CHORD_FOOT[3] = {{KC_KEYS, "CHORDS"}, {KC_OCTDN, "BLAZE"}, {KC_ALGO, "GATE"}};   /* (BLAZE CHORD) */
@@ -166,6 +168,10 @@ static void layer_masks(void)
     home_mask = m & ly_bit(LAYER_BLAZE);                /* BLAZE: ENV's keys are BLAZE's (blaze_home.c) */
     kb_lock = (uint8_t)(m && ui.lock ? 1u | (ui.lock == LAYER_FX ? 2u : 0u) | (ui.lock == LAYER_ROLL ? 4u : 0u) |
                                            (ui.lock == LAYER_BLAZE ? 8u : 0u) : 0u);   /* (no button held: the ISR's) */
+    if (go_armed()) {                                   /* (BLAZE 0.19: HOME down: the keys are GO's, not the locked */
+        kb_lock = (uint8_t)(m ? 1u : 0u);               /* layer's: plain layer keys, the main loop's) */
+        perf_mask = roll_mask = home_mask = 0;
+    }
 }
 
 /* a layer button pressed (its edge) while none is armed: it is now, a dead one where no layer opens */
@@ -282,6 +288,11 @@ static void layer_opened(uint32_t l)
     memcpy(lys.mute, drum_mute, sizeof lys.mute);
     if (l == LAYER_REC)
         lys.v[0] = ui_rec_prefs;
+    for (k = 0; l == LAYER_SCL && k < NTRK; k++) {      /* BLAZE 0.19: SCL sets every melodic track: all of them back */
+        scl_was[k][0] = trk[k].p[P_ROOT];
+        scl_was[k][1] = trk[k].p[P_SCALE];
+    }
+    scl_sh = 0;
 }
 
 /* the armed button: 0, or the layer whose button was tapped (let go) */
@@ -656,6 +667,48 @@ static uint32_t eqa_sig(void)
 #include "blaze_roll_ui.c"                         /* BLAZE: ROLL's TAP NUDGE knobs LEDs */
 #include "blaze_home_ui.c"                         /* BLAZE: the home layer's, the key from RAIL */
 
+/* BLAZE 0.19: SCL's keys and OCT+ for every melodic track at once (as RAIL's key: blaze_home_ui.c bz_key_apply);
+ * OCT+ held with a key: the selected track only (Felucca's SCL). The key said in names and Camelot */
+static void scl_say(void)
+{
+    uint32_t b, cam;
+    char nm[16], m[28];
+    cam = bz_camelot(&b, nm, sizeof nm);
+    if (!cam) {
+        ui_message("KEY: NOT MAJOR OR MINOR");
+        return;
+    }
+    str_cpy(m, nm, sizeof m);
+    str_cpy(m + str_len(m), "  ", sizeof m - str_len(m));
+    fmt_int(m + str_len(m), (int32_t)cam);
+    str_cpy(m + str_len(m), b ? "B" : "A", sizeof m - str_len(m));
+    ui_say("KEY ", m);
+}
+static void scl_root(uint32_t r)
+{
+    uint32_t i;
+    if ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) {  /* (SHIFT: this track) */
+        scl_sh = 1;
+        TSEL->p[P_ROOT] = (int16_t)r;
+        ui.force = 1;
+        return;
+    }
+    for (i = 0; i < NTRK; i++)
+        if (bz_notes_track(&trk[i]) || &trk[i] == TSEL)   /* (the selected one as always, every melodic one too) */
+            trk[i].p[P_ROOT] = (int16_t)r;              /* (the scale as it is: OCT+ MAJOR / MINOR) */
+    scl_say();
+    ui.force = 1;
+}
+static void scl_flip(void)
+{
+    uint32_t i, maj = TSEL->p[P_SCALE] != 1;            /* (the selected track's: MAJOR -> MINOR, else MAJOR) */
+    for (i = 0; i < NTRK; i++)
+        if (bz_notes_track(&trk[i]))
+            trk[i].p[P_SCALE] = (int16_t)(maj ? 1 : 2);
+    scl_say();
+    ui.force = 1;
+}
+
 /* a key pressed in layer l (k: 0 = F3 .. 26 = G5) */
 static void layer_key(uint32_t l, uint32_t k)
 {
@@ -684,7 +737,7 @@ static void layer_key(uint32_t l, uint32_t k)
             lys.fill |= 1u << k;                        /* E4: FILL while held (layer_keys) */
         }
     } else if (l == LAYER_SCL) {
-        TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
+        scl_root((k + 5u) % 12u);                       /* the key's note name (F3 = F); BLAZE 0.19: every melodic track */
     } else if (l == LAYER_EDIT && !key_black(k)) {
         if (p < NENG_SHOWN && p < LY_INIT)
             edit_load(eng_vis(p), 0);
@@ -875,8 +928,18 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
                 trk[lys.trk % NTRK].p[P_ROOT + k] = lys.v[k];
             trk[lys.trk % NTRK].p[P_CHRD] = lys.v[4];
             trk[lys.trk % NTRK].p[P_VOIC] = lys.v[5];
+            for (k = 0; lys.l == LAYER_SCL && k < NTRK; k++) {   /* (BLAZE 0.19: every track SCL set) */
+                trk[k].p[P_ROOT] = scl_was[k][0];
+                trk[k].p[P_SCALE] = scl_was[k][1];
+            }
             ui_message("SCALE PUT BACK");
         }
+    }
+    if ((mine & 2u) && lys.l == LAYER_SCL) {            /* BLAZE 0.19: OCT+ tapped: MAJOR <-> MINOR, every melodic track */
+        if (scl_sh)
+            scl_sh = 0;                                 /* (OCT+ was SHIFT for a key: one track's root) */
+        else
+            scl_flip();
     }
     lys.oct &= (uint8_t)(((fm1_in.buttons >> dn) & 1u) | ((fm1_in.buttons >> up) & 1u) << 1);
     return oct & ~mine;
@@ -1350,6 +1413,7 @@ static void draw_layer(void)
         cv_begin(240, H_FOOT, T_BG);
         const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : l == LAYER_SEQ && eu.on ? EU_FOOT :
+                            l == LAYER_ROLL && rl_ready ? RL_READY_FOOT : l == LAYER_ROLL && rl_fxpage ? RL_FX_FOOT :
                             l == LAYER_BLAZE && bz_play ? BZ_PLAY_FOOT : l == LAYER_BLAZE && bz_keys ? BZ_KEYS_FOOT : l == LAYER_BLAZE && bz_chord ? BZ_CHORD_FOOT : l == LAYER_BLAZE && bz_loops ? BZ_LOOPS_FOOT : l == LAYER_BLAZE && bz_slice ? BZ_SLICE_FOOT : l == LAYER_BLAZE && bz_rb ? BZ_RB_FOOT : l == LAYER_BLAZE && bz_shlock ? BZ_SHLOCK_FOOT :
                             LAYERS[l].foot;
         int h = help_on() && help_row(l == LAYER_SEQ && eu.on ? H_EUCLID : HELP_LAYER[l], 21);   /* 1.5, HELP ON: a

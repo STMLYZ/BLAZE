@@ -80,6 +80,9 @@ static uint32_t rd_n[16], rd_dn[16];           /* ISR: samples to its next hit; 
  * once HOLD armed them (pl_latch); one at a time (another rate takes over). Hits on the rate's grid, as READY's */
 static void rl_hit(uint32_t p, uint32_t vel);
 static uint32_t rl_wait(uint32_t r);
+static void rf_hit(uint32_t p, uint32_t vel, uint32_t period);   /* (0.19 ROLL FX: below) */
+static uint32_t rf_swing(uint32_t period, uint32_t b);
+static uint32_t rf_par;                        /* ISR: SWING's parity: bits 0..6 the rates, 8..23 READY's keys, 24 PLAY's */
 static const uint8_t PL_RATE[3] = {2, 4, 6};    /* (RL_DIV's index: 1/8, 1/16, 1/32) */
 static volatile uint8_t pl_lane = 1;           /* main / ISR: the drum (SNARE CLAP HAT OPEN TOM RIM: 1..6) */
 static volatile uint8_t pl_on, pl_latch;       /* ISR: the rate rolling (bit 0..2), latched */
@@ -101,9 +104,10 @@ static void pl_roll(uint32_t r, int down, int latch)
     pl_latch = latch ? b : 0u;
     pl_vel = (uint8_t)kb_vel;
     pl_n = rl_wait(PL_RATE[r]);
+    rf_par &= ~(1u << 24);
     if (!pl_n) {
-        rl_hit(pl_lane % NLANE, pl_vel);
-        pl_n = div_samples(RL_DIV[PL_RATE[r]]);
+        rf_hit(pl_lane % NLANE, pl_vel, div_samples(RL_DIV[PL_RATE[r]]));
+        pl_n = rf_swing(div_samples(RL_DIV[PL_RATE[r]]), 1u << 24);
     }
 }
 
@@ -113,9 +117,9 @@ static __attribute__((noinline)) void pl_block(uint32_t adv)   /* (out of roll_b
     if (!period)
         period = 1;
     if (pl_n < adv) {
-        rl_hit(pl_lane % NLANE, pl_vel);
+        rf_hit(pl_lane % NLANE, pl_vel, period);
         while (pl_n < adv)
-            pl_n += period;
+            pl_n += rf_swing(period, 1u << 24);
     }
     pl_n -= adv;
 }
@@ -190,6 +194,126 @@ static uint32_t rl_wait(uint32_t r)
     return pos ? g - pos : 0u;
 }
 
+/* ---- 0.19 ROLL FX: what a roll does as it goes (ROLL's third page: blaze_roll_ui.c rf_*; SHIFT + SELECT a genre's).
+ * Over LENGTH bars from its first hit: PITCH semitones up, VELOCITY from that much softer, BRIGHT and REVERB up (the
+ * main loop: the drum track's TONE and REV send), DECAY shorter the faster it rolls, SWING every second hit late,
+ * FLAM a second softer hit just after, CLAP a clap with every snare. GAP: silent from LENGTH's last beat; STUTTER:
+ * that beat at 1/64. Every roll: ROLL's rates, BLAZE's pads, READY ROLLS, PLAY's, the pad presets. Off (rf_on 0):
+ * the rolls as before. noinline: out of the audio ISR's loops (target_budget) ---- */
+enum { RF_PITCH, RF_VEL, RF_BRIGHT, RF_LEN, RF_SWING, RF_DEC, RF_FLAM, RF_REV, RF_GAP, RF_STUT, RF_CLAP, RF_N };
+static volatile uint8_t rf_v[RF_N];            /* main: the settings */
+static volatile uint8_t rf_on;                 /* main: any of them on */
+static const uint8_t RF_BARS[5] = {1u, 2u, 4u, 8u, 16u};
+static const uint16_t RF_FLAM_S[4] = {0u, 530u, 880u, 1320u};   /* 12, 20, 30 ms */
+static volatile uint32_t rf_age;               /* ISR (the main loop reads): sequencer samples since the roll began */
+static volatile uint8_t rf_run;                /* ISR: a roll runs (rf_age counts) */
+static uint8_t rf_lanes;                       /* ISR: the lanes it has hit (STUTTER plays them) */
+static uint32_t rf_flt[NLANE];                 /* ISR: samples to that lane's flam (0: none) */
+static uint8_t rf_flv[NLANE], rf_flp[NLANE];
+static uint32_t rf_stn;                        /* ISR: samples to the next stutter hit */
+static uint32_t rf_len(void)
+{
+    uint32_t b = beat_samples();
+    return 4u * (b ? b : 1u) * RF_BARS[rf_v[RF_LEN] % 5u];
+}
+static uint32_t rf_prog(void)                  /* how far along LENGTH, 0..1024 */
+{
+    uint32_t q = rf_len() >> 10;
+    q = q ? rf_age / q : 1024u;
+    return q > 1024u ? 1024u : q;
+}
+/* the next hit's distance after one: SWING, the second of each pair late (bit b of rf_par: which of the pair) */
+static __attribute__((noinline)) uint32_t rf_swing(uint32_t period, uint32_t b)
+{
+    uint32_t sw = rf_on ? rf_v[RF_SWING] : 0u;
+    if (!sw)
+        return period;
+    rf_par ^= b;
+    return rf_par & b ? period * (100u + sw) / 100u : period * (100u - sw) / 100u;
+}
+/* a roll's hit: pad p (accented row: p >= NLANE) at vel, its rate's period (DECAY's) */
+static __attribute__((noinline)) void rf_hit(uint32_t p, uint32_t vel, uint32_t period)
+{
+    uint32_t l = p % NLANE, prog, len, beat, d, b;
+    if (!rf_on) {
+        rl_hit(p, vel);
+        return;
+    }
+    rf_run = 1;
+    len = rf_len();
+    beat = beat_samples();
+    rf_lanes |= (uint8_t)(1u << l);
+    if ((rf_v[RF_GAP] || rf_v[RF_STUT]) && rf_age + beat >= len && (rf_v[RF_GAP] || rf_age < len))
+        return;                                  /* (the last beat: silent, or the stutter's; GAP: silent on) */
+    prog = rf_prog();
+    rf_tune[l] = (int16_t)(rf_v[RF_PITCH] * 16u * prog >> 10);
+    d = rf_v[RF_DEC] % 4u;
+    b = beat ? beat : 1u;
+    rf_dec[l] = (int8_t)(period && period * 8u <= b ? -14 * (int32_t)d : period && period * 4u <= b ? -8 * (int32_t)d
+                       : period && period * 2u <= b ? -3 * (int32_t)d : 0);
+    if (rf_v[RF_VEL])
+        vel = vel * (100u - rf_v[RF_VEL] * (1024u - prog) / 1024u) / 100u;
+    if (p >= NLANE && rf_v[RF_VEL]) {            /* (the accented row: full, then the rise) */
+        vel = 127u * (100u - rf_v[RF_VEL] * (1024u - prog) / 1024u) / 100u;
+        p = l;
+    }
+    rl_hit(p, vel);
+    if (rf_v[RF_CLAP] && l == DV_SNARE) {        /* CLAP: one with every snare */
+        rf_tune[DV_CLAP] = rf_tune[l];
+        rf_dec[DV_CLAP] = rf_dec[l];
+        rl_hit(DV_CLAP, vel * 4u / 5u);
+    }
+    if (rf_v[RF_FLAM] % 4u) {
+        rf_flt[l] = RF_FLAM_S[rf_v[RF_FLAM] % 4u];
+        rf_flv[l] = (uint8_t)(vel * 3u / 5u);
+        rf_flp[l] = (uint8_t)l;
+    }
+}
+/* every block (roll_block): the roll's clock, its flams and stutter; none running: the pitch and decay put back */
+static __attribute__((noinline)) void rf_block(uint32_t n, uint32_t adv, int active)
+{
+    uint32_t l, len, beat;
+    for (l = 0; l < NLANE; l++)
+        if (rf_flt[l]) {
+            if (rf_flt[l] <= n) {
+                rf_flt[l] = 0;
+                if (!(rf_v[RF_GAP] && rf_age + beat_samples() >= rf_len()))   /* (none into GAP's silence) */
+                    rl_hit(rf_flp[l], rf_flv[l] ? rf_flv[l] : 1u);
+            } else
+                rf_flt[l] -= n;
+        }
+    if (!active) {
+        if (rf_run || rf_age) {
+            rf_run = 0;
+            rf_age = 0;
+            rf_lanes = 0;
+            rf_stn = 0;
+            rf_par = 0;
+            for (l = 0; l < NLANE; l++)
+                rf_tune[l] = rf_dec[l] = 0;
+        }
+        return;
+    }
+    if (!rf_run)
+        return;
+    len = rf_len();
+    beat = beat_samples();
+    if (rf_v[RF_STUT] && rf_age + beat >= len && rf_age < len) {   /* STUTTER: the last beat at 1/64 */
+        uint32_t per = div_samples(3) / 2u;
+        if (!per)
+            per = 1;
+        if (rf_stn < adv) {
+            for (l = 0; l < NLANE; l++)
+                if ((rf_lanes >> l) & 1u)
+                    rl_hit(l, 70u + 57u * (rf_age + beat - len) / (beat ? beat : 1u));   /* (70 up to 127) */
+            while (rf_stn < adv)
+                rf_stn += per;
+        }
+        rf_stn -= adv;
+    }
+    rf_age += adv;
+}
+
 /* the rates that run now: every one held (GROOVE), or the newest (LAST); one that starts running is put on its grid */
 static void rl_rerun(void)
 {
@@ -206,8 +330,10 @@ static void rl_rerun(void)
         rl_hitn = 0;                             /* (0.11 SHAPE: from its first hit) */
     }
     for (r = 0; r < RL_NRATE; r++)
-        if (((want >> r) & 1u) && !((rl_runs >> r) & 1u))
+        if (((want >> r) & 1u) && !((rl_runs >> r) & 1u)) {
             rl_next[r] = rl_wait(r);
+            rf_par &= ~(1u << r);                /* (0.19 SWING: from its first) */
+        }
     rl_runs = (uint8_t)want;
     rl_rolling = (uint8_t)(want != 0u);
 }
@@ -280,17 +406,24 @@ static void rl_pp_key(uint32_t p, uint32_t r1, int down)
     }
     rl_ppn[p] = rl_wait(r1 - 1u);
     if (!rl_ppn[p]) {
-        rl_hit(p, rl_vel[p]);                    /* (on the grid now, or stopped: a hit at once, then the rate) */
+        rf_hit(p, rl_vel[p], div_samples(RL_DIV[r1 - 1u]));   /* (on the grid now, or stopped: a hit at once, then the
+                                                 * rate) */
         rl_ppn[p] = div_samples(RL_DIV[r1 - 1u]);
     }
     rl_pp = (uint16_t)(rl_pp | b);
 }
 
 /* 0.14 READY ROLLS: white key p down / up */
+static volatile uint8_t rd_hit_all;            /* main / ISR: 0.19 HIT: every READY key one hit (PADS's key on READY) */
 static void rd_key(uint32_t p, int down)
 {
     uint16_t b = (uint16_t)(1u << p);
     uint32_t q, r1 = rd_rate[p] % 7u ? rd_rate[p] % 7u : 4u;
+    if (rd_hit_all || rd_rate[p] == 7u) {        /* 0.19 HIT (the page's, or the key's own RATE): once, now */
+        if (down)
+            rl_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_acc[p] ? 127u : kb_vel);
+        return;
+    }
     if (!down) {
         if (rd_x & b) {                          /* (its press stopped it) */
             rd_x = (uint16_t)(rd_x & ~b);
@@ -317,9 +450,10 @@ static void rd_key(uint32_t p, int down)
     rd_dn[p] = fm1_ms;
     rd_latch = (uint16_t)(rd_latch & ~b);
     rd_n[p] = rl_wait(r1);                       /* (r1: ROLL's rate, 1 1/4 .. 6 1/32, RL_DIV's index) */
+    rf_par &= ~(1u << (8u + p));
     if (!rd_n[p]) {
-        rl_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p]);
-        rd_n[p] = div_samples(RL_DIV[r1]);
+        rf_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p], div_samples(RL_DIV[r1]));
+        rd_n[p] = rf_swing(div_samples(RL_DIV[r1]), 1u << (8u + p));
     }
     rd_on = (uint16_t)(rd_on | b);
 }
@@ -346,7 +480,12 @@ static __attribute__((noinline)) void roll_key_press(uint32_t k, int down)
     if (key_black(k)) {
         if (p < RL_NRATE)
             rl_rate(p, down);
-        else if (p == RLK_PADS && down) {
+        else if (p == RLK_PADS && rl_ready) {    /* 0.19: on READY, HIT: every key one hit (rolling ones stop) */
+            if (down) {
+                rd_hit_all = (uint8_t)!rd_hit_all;
+                rd_on = rd_latch = 0;
+            }
+        } else if (p == RLK_PADS && down) {
             rl_pick = 1;
             rl_picked = 0;
         } else if (p == RLK_PADS) {
@@ -387,7 +526,7 @@ static __attribute__((noinline)) void roll_key_press(uint32_t k, int down)
 /* every block: n samples of real time (the note-offs), adv of the sequencer's (the rates) */
 static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* (out of events_block: target_budget.py) */
 {
-    uint32_t l, r, hits = 0, both = 0, p, held;
+    uint32_t l, r, hits = 0, both = 0, p, held, fper = 0;
     for (l = 0; l < NLANE; l++)
         if (rl_offt[l]) {
             if (rl_offt[l] <= n)
@@ -404,7 +543,7 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
                     continue;
                 }
                 if (rl_ppn[p] < adv) {
-                    rl_hit(p, rl_vel[p]);
+                    rf_hit(p, rl_vel[p], period);
                     while (rl_ppn[p] < adv)
                         rl_ppn[p] += period;
                 }
@@ -419,12 +558,14 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
                 if (!period)
                     period = 1;
                 if (rd_n[p] < adv) {
-                    rl_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p]);
+                    rf_hit(rd_lane[p] % NLANE + (rd_acc[p] ? NLANE : 0u), rd_vel[p], period);
                     while (rd_n[p] < adv)
-                        rd_n[p] += period;
+                        rd_n[p] += rf_swing(period, 1u << (8u + p));
                 }
                 rd_n[p] -= adv;
             }
+    if (rf_on || rf_run)                         /* 0.19 ROLL FX: its clock, flams, stutter */
+        rf_block(n, adv, (rl_runs | rd_on | pl_on | rl_pp) != 0u);
     if (!rl_runs)
         return;
     for (r = 0; r < RL_NRATE; r++) {
@@ -438,8 +579,10 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
             if (hits)
                 both = 1;                        /* (a hit another rate makes too: accented) */
             hits = 1;
+            if (!fper || period < fper)
+                fper = period;
             while (rl_next[r] < adv)
-                rl_next[r] += period;
+                rl_next[r] += rf_swing(period, 1u << r);
         }
         rl_next[r] -= adv;
     }
@@ -459,7 +602,7 @@ static __attribute__((noinline)) void roll_block(uint32_t n, uint32_t adv)   /* 
         for (p = 0; p < 16u; p++)
             if ((held >> p) & 1u) {
                 uint32_t v = rl_vel[p] * swell / 100u;
-                rl_hit(p, both ? v + 24u : v);
+                rf_hit(p, both ? v + 24u : v, fper);
             }
     }
 }

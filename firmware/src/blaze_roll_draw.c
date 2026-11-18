@@ -260,6 +260,8 @@ static void layer_roll(void)
             static const char *const N[3] = {"TAP", "SLOWER", "FASTER"};
             bzk_cell(x, y, RLD_BH, N[i - RLK_TAP], T_MID, ext ? RLC_DIM : rl_nudging(i) ? RLC_FILL : RLC_IDLE, BZK_B,
                      i + 1u);
+        } else if (i == RLK_PADS && rl_ready) {         /* 0.19: READY's HIT (every key one hit) */
+            bzk_cell(x, y, RLD_BH, "HIT", T_THEME, rd_hit_all ? RLC_FILL : RLC_IDLE, BZK_B, i + 1u);
         } else if (i == RLK_PADS) {
             bzk_cell(x, y, RLD_BH, "PADS", T_MID, rl_pick || rl_padmode != RL_PADS16 ? RLC_FILL : RLC_IDLE, BZK_B,
                      i + 1u);
@@ -275,6 +277,20 @@ static void rl_cards(void)
     char val[12];
     const char *unit;
     int32_t bpm = song.g[G_BPM];
+    if (rl_fxpage) {                                    /* 0.19 ROLL FX: the bank's four (bank 3's KNOB 4: the genre) */
+        uint32_t k;
+        for (k = 0; k < 4u; k++) {
+            uint32_t f = RF_BANK[rfu.bank % 3u][k];
+            if (f >= RF_N) {
+                draw_column(k, "GENRE", RFG_CARD[rfu.genre % RFG_N], "", VAL(k), rfu.genre * 1000 / (RFG_N - 1u), ICON_NONE);
+                continue;
+            }
+            rf_fmt(f, val, &unit);
+            draw_column(k, RF_NAME[f], val, unit, rf_v[f] || f == RF_LEN ? VAL(k) : T_DIM,
+                        rf_v[f] * 1000 / RF_MAX[f], ICON_NONE);
+        }
+        return;
+    }
     fmt_int(val, bpm);
     draw_column(0, "BPM", val, song.g[G_CLOCK] ? "EXT" : "INT", song.g[G_CLOCK] ? T_DIM : VAL(0u),
                 (bpm - GP[G_BPM].min) * 1000 / (GP[G_BPM].max - GP[G_BPM].min), ICON_TEMPO);

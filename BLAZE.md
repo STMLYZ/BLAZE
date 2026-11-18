@@ -648,3 +648,42 @@ voices: no more CPU.
 | **ROLL** | roll snare: long wide noise over a faint 200 Hz shell, a soft spike (0.21 s) | 4 hits, a long tail (0.6 s) | 09's, closed shorter (0.06 s), open longer (0.6 s) | ride |
 
 Voiced against measurements (decay, spectral centroid, level matched to the other kits), not by ear.
+
+## 0.19 — GO fixed, ROLL FX, READY HIT, SCL for every track
+
+**GO** (two bugs, both fixed): HOME's contact flickers on the hardware while a key is pressed with it (or bounces as it
+is let go), and the flicker read as a HOME tap: back to HOME after every jump. Now HOME is held over a flicker (60 ms)
+when a key is down with it, and no HOME tap counts within 400 ms of a jump. Second: GO's jump to BLAZE's pages and
+ROLL locked the layer without arming it, so the layer never opened (the page switched unseen). The map now closes the
+moment a key is pressed, and GO works over a locked layer (HOME's keys are the map's, not the layer's).
+
+**ROLL FX** (ROLL's third page: OCT− steps ROLL → READY → FX → ROLL). What every roll does as it goes: ROLL's rates,
+BLAZE's pads, READY ROLLS, PLAY's rolls, pad presets. The keys play pads and rates as on ROLL, so you hear it.
+
+| Bank (SELECT) | K1 | K2 | K3 | K4 |
+|---|---|---|---|---|
+| **RISE** | PITCH 0–12 semitones up over LENGTH | VELOCITY: starts that much softer, full at the end | BRIGHT: the drum track's TONE up | LENGTH 1 2 4 8 16 bars |
+| **FEEL** | SWING 0–50 % (every 2nd hit late) | DECAY: shorter the faster it rolls (LOW MID HIGH) | FLAM: a softer 2nd hit 12 / 20 / 30 ms after | REVERB: the drum track's REV send up |
+| **END** | GAP: silent from LENGTH's last beat on | STUTTER: that beat at 1/64 | CLAP: a clap with every snare | GENRE |
+
+**SHIFT + SELECT** (OCT+ held) on any ROLL page: the genre. Any knob edit makes it CUSTOM. Kept in the settings.
+
+| Genre | Pitch | Velocity | Bright | Length | Swing | Decay | Flam | Reverb | Gap | Stutter | Clap |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| OFF | – | – | – | 2 | – | – | – | – | – | – | – |
+| TRANCE | 12 | 70 | 40 | 8 | – | MID | LOW | 40 | – | – | on |
+| HARDSTYLE | 12 | 60 | 40 | 4 | – | MID | MID | 40 | on | – | on |
+| HARD TECHNO | 3 | – | – | 4 | – | MID | – | 15 | – | – | – |
+| ELECTRO | 5 | 30 | – | 2 | 15 | MID | MID | – | – | on | – |
+| HOUSE | – | 50 | 30 | 4 | 20 | LOW | – | 25 | – | – | – |
+
+LENGTH counts from the roll's first hit; the roll holds at the top after it (GAP: silent until let go). The pitch and
+decay go back when no roll runs; TONE and REV go back to what they were. Starting points, not measured from tracks.
+
+**READY ROLLS**: black 11 (PADS on ROLL) is **HIT**: every key one hit, no roll (rolling ones stop). A key's own RATE
+(hold it + K2) goes past 1/32 to **HIT**. Hold a key + **K4**: that drum's TUNE; **SHIFT + K4**: its DECAY (the same
+per-drum TUNE / DECAY as holding the pad on BLAZE).
+
+**SCL**: hold SCL + a key: that root for **every melodic track** (the selected one too); the drum track not.
+**OCT+** tapped: MAJOR ↔ MINOR for all of them. **OCT+ held + a key**: the selected track only. OCT−: all put back.
+The key is said in names and Camelot.

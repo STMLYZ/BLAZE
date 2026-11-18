@@ -579,6 +579,8 @@ static int bz_select_turn(int32_t s)
 {
     int32_t d;
     char m[24];
+    if (rf_select(s))                               /* (0.19 ROLL FX: SHIFT + SELECT the genre, its page the bank) */
+        return 1;
     if (!song.g[G_CLOCK] || !bz_ev_on)
         return 0;
     d = accel(EN_SELECT, s, 200);                   /* (tenths: a detent 0.1, fast 1 and more) */

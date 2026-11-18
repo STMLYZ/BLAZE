@@ -77,6 +77,8 @@ static int bzgo_page(const char *s)
 /* layer l locked open over the page shown (as a double tap of its button locks it, #83) */
 static void go_lock(uint32_t l)
 {
+    ui.ly = (uint8_t)l;                                 /* (0.19: the layer armed too: without it the lock never opened,
+                                                         * BLAZE's pages and ROLL switched unseen) */
     ui.lock = (uint8_t)l;
     ui.ly_t0 = (fm1_ticks() & ~15u) | 1u | LY_OPEN;
     ui.force = 1;
@@ -172,7 +174,8 @@ static void go_poll(uint32_t now)                      /* now: fm1_ticks(), as b
         go.down = 1;
         go.t0 = now;
         go.used = go.shown = 0;
-        go.ok = (uint8_t)(!ui.menu && !ui.confirm && !name_on() && !ui.uboot && !layer_held());
+        go.ok = (uint8_t)(!ui.menu && !ui.confirm && !name_on() && !ui.uboot &&   /* (0.19: a layer locked open is */
+                          !(ui.ly && (fm1_in.buttons & ly_bit(ui.ly))));   /* no hold: GO over it; its button down is) */
     } else if (dn && go.ok && !go.shown && !go.used && now - go.t0 >= GO_SHOW_MS * 1000u * FM1_TICKS_PER_US) {
         go.shown = 1;
         ui.force = 1;

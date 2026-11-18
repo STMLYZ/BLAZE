@@ -434,6 +434,8 @@ static uint32_t go_keys(uint32_t lkeys);
 static void bz_set_cards(void);                       /* BLAZE 0.17: SET's knobs (blaze_set.c) */
 static void bz_set_knob(uint32_t k, int32_t s);
 static uint32_t go_home_filter(uint32_t home, uint32_t now);   /* (blaze_go.c) */
+static int16_t scl_was[NTRK][2];                    /* BLAZE 0.19: each track's ROOT and SCALE when SCL opened (ui_layer.c) */
+static uint8_t scl_sh;                              /* .. OCT+ held for a key: its release no MAJOR / MINOR */
 static uint8_t go_home_db;                          /* HOME down for GO, its flickers held over (blaze_go.c go_poll) */
 static uint8_t bzs_sh;                              /* SET: OCT+ down: 1 not used yet, 2 a knob turned with it */
 static const char *layer_head(void);

@@ -64,10 +64,10 @@ int main(void)
     frames(50);
     ok = !ui.menu;
     go_key(wk(3));                                      /* white 4: KEYS (0.17) */
-    ok &= ui.lock == LAYER_BLAZE && bz_keys && !ui.menu && !voices();
+    ok &= ui.lock == LAYER_BLAZE && layer_open() == LAYER_BLAZE && ui.layer == LAYER_BLAZE && bz_keys && !ui.menu && !voices();
     bad += check("GO: HOME + white 4: BLAZE's KEYS, locked open; the key sounded nothing; HOME's release no menu", ok);
     go_key(wk(2));                                      /* white 3: ROLL (0.17) */
-    ok = ui.lock == LAYER_ROLL;
+    ok = ui.lock == LAYER_ROLL && layer_open() == LAYER_ROLL && ui.layer == LAYER_ROLL;   /* (0.19: open, shown) */
     go_key(bk(3));                                      /* black 4: MIXER */
     ok &= !ui.lock && !ui.home && str_eq(cur_page()->title, "MIXER");
     bad += check("GO: white 3 ROLL (BLAZE's lock closed), black 4 MIXER (ROLL's closed)", ok);
@@ -424,6 +424,143 @@ int main(void)
         press(B_HOME); frames(100);
         ok &= ui.home;                                  /* (a plain tap later: HOME, as before) */
         bad += check("GO (0.18.1): HOME flickering with the key down, or bouncing as let go: the page stays; a later tap: HOME", ok);
+    }
+    /* 0.19 READY ROLLS: PADS's key on READY is HIT (every key one hit, no roll); a key's own RATE past 1/32 is HIT;
+     * a key held + KNOB 4 its drum's TUNE, SHIFT + KNOB 4 its DECAY (the drum's own: BLAZE's pads' too) */
+    {
+        track_t *d;
+        uint32_t i, fl;
+        ui_power_on(); frame(); frames(10);
+        go_key(wk(2));                                  /* ROLL */
+        rl_ready = rl_fxpage = 0;
+        press(B_OCTDN); frame();                        /* READY */
+        d = rl_track();
+        ok = rl_ready && drum_track(d) && !rd_hit_all;
+        key_down(bk(10)); key_up(bk(10)); frame();
+        ok &= rd_hit_all;
+        rl_flash = 0;
+        key_down(wk(0)); frame();
+        fl = rl_flash | rlu.fl;
+        for (i = 0; i < 40u; i++) home_block(CTL, CTL);
+        key_up(wk(0)); frame();
+        ok &= fl != 0u && !rd_on && !rd_latch;
+        key_down(bk(10)); key_up(bk(10)); frame();
+        ok &= !rd_hit_all;
+        rd_rate[1] = 7;                                 /* (key 2's own RATE: HIT) */
+        key_down(wk(1)); frame();
+        ok &= !rd_on;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];
+        rd_knob(3, 1);                                  /* SHIFT + KNOB 4: its DECAY */
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        rd_knob(3, 1); rd_knob(3, 1);                   /* KNOB 4: its TUNE */
+        key_up(wk(1)); frame();
+        ok &= d->p[BZ_LANE_MARK] == BZ_LANE_MAGIC && d->p[BZ_LANE_TUNE + rd_lane[1] % NLANE] == 66 &&
+              d->p[BZ_LANE_DECAY + rd_lane[1] % NLANE] == 65;
+        rd_cfg_apply();
+        bad += check("READY (0.19): HIT on PADS's key, a key's RATE HIT, KNOB 4 TUNE, SHIFT + KNOB 4 DECAY", ok);
+    }
+    /* 0.19 ROLL FX: TRANCE on a snare roll: the pitch climbs to 12 semitones over LENGTH, the velocity from soft to full,
+     * a clap with every snare, TONE and REV up; let go, all back. HARDSTYLE's GAP: nothing in LENGTH's last beat */
+    {
+        track_t *d;
+        uint32_t i, ad, len, beat, v0 = 0, v1 = 0, claps = 0, gap_hits = 0;
+        int16_t tune_mid = 0, tune_end = 0, tone0, rev0;
+        ui_power_on(); frame(); frames(10);
+        go_key(wk(2));
+        d = rl_track();
+        tone0 = d->p[P_E0 + 2]; rev0 = d->p[P_REV];
+        rl_ready = rl_fxpage = 0;
+        press(B_OCTDN); frame(); press(B_OCTDN); frame();   /* ROLL -> READY -> FX */
+        ok = rl_fxpage && !rl_ready;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP];
+        rf_select(1);                                   /* SHIFT + SELECT: TRANCE */
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
+        frame();
+        ok &= rfu.genre == RFG_TRANCE && rf_on && rf_v[RF_PITCH] == 12 && rl_groove == 1;   /* (OCT+'s release: no GROOVE) */
+        song.playing = 0;
+        rd_lane[0] = 1; rd_rate[0] = 4; rd_acc[0] = 0; /* (a SNARE 1/16 READY roll, from the ISR) */
+        rd_key(0, 1);
+        len = rf_len(); beat = beat_samples();
+        for (ad = 0; ad < len + beat; ad += CTL) {
+            rl_flash = 0;
+            roll_block(CTL, CTL);
+            if (rl_flash & 4u) claps++;
+            if (!v0 && rl_vel_last) v0 = rl_vel_last;
+            if (ad < len / 2u + CTL && ad >= len / 2u) tune_mid = rf_tune[1];
+            if (ad + 2u * CTL >= len) { tune_end = rf_tune[1]; v1 = rl_vel_last > v1 ? rl_vel_last : v1; }
+            if (ad % 4096u < CTL) rf_pass();
+        }
+        rf_pass();
+        ok &= tune_mid > 80 && tune_mid < 112 && tune_end == 192 && v0 < v1 && claps > 8u &&
+              d->p[P_E0 + 2] > tone0 && d->p[P_REV] > rev0;
+        printf("  (TRANCE: tune at half %d, at the end %d; velocity %u -> %u; claps %u)\n", tune_mid, tune_end, v0, v1, claps);
+        rd_on = rd_latch = 0;
+        roll_block(CTL, CTL);
+        rf_pass();
+        ok &= !rf_run && rf_tune[1] == 0 && d->p[P_E0 + 2] == tone0 && d->p[P_REV] == rev0;
+        bad += check("ROLL FX (0.19): TRANCE climbs 12 semitones over LENGTH, soft to full, a clap a snare, TONE and REV up, "
+                     "all back after", ok);
+        rf_genre(RFG_HARDSTYLE);
+        rd_key(0, 1);
+        len = rf_len(); beat = beat_samples();
+        for (ad = 0; ad < len + beat; ad += CTL) {
+            rl_flash = 0;
+            roll_block(CTL, CTL);
+            if (ad >= len - beat + CTL && rl_flash) gap_hits++;
+        }
+        rd_on = rd_latch = 0; roll_block(CTL, CTL);
+        ok = gap_hits == 0u;
+        /* SWING: HOUSE's 20 % on a 1/16 roll: the hits 1.2 and 0.8 of a 1/16 apart in turn */
+        rf_genre(RFG_HOUSE);
+        {
+            uint32_t t = 0, last = 0, gaps[6], ng = 0, per = div_samples(RL_DIV[4]);
+            rl_flash = 0;
+            rd_key(0, 1);
+            for (; ng < 6u && t < 40u * per; t += 1u) {
+                roll_block(1, 1);
+                if (rl_flash & 3u) { if (last) gaps[ng++] = t - last; last = t; rl_flash = 0; }
+            }
+            rd_on = rd_latch = 0; roll_block(1, 1);
+            ok &= ng == 6u && gaps[0] != gaps[1] && gaps[0] == gaps[2] && gaps[1] == gaps[3] &&
+                  gaps[0] + gaps[1] >= 2u * per - 2u && gaps[0] + gaps[1] <= 2u * per + 2u;
+            printf("  (HOUSE swing on 1/16 = %u samples: %u %u %u %u)\n", per, gaps[0], gaps[1], gaps[2], gaps[3]);
+        }
+        /* kept: the settings back after a power cycle of the UI's copy */
+        rf_v[RF_PITCH] = 0;
+        rf_load();
+        ok &= rfu.genre == RFG_HOUSE && rf_v[RF_SWING] == 20 && rf_v[RF_VEL] == 50;
+        rf_genre(RFG_OFF);
+        ok &= !rf_on;
+        bad += check("ROLL FX (0.19): HARDSTYLE's GAP silent in the last beat; HOUSE's SWING; the genre kept; OFF off", ok);
+    }
+    /* 0.19 SCL: a key sets every melodic track's root (the DRUM track not); OCT+ tapped MAJOR <-> MINOR; OCT+ held + a
+     * key: the selected track only; OCT- puts all of them back */
+    {
+        uint32_t i, mel = 0, okr = 1;
+        int16_t r0[NTRK], s0[NTRK];
+        ui_power_on(); frame(); frames(10);
+        for (i = 0; i < NTRK; i++) { r0[i] = trk[i].p[P_ROOT]; s0[i] = trk[i].p[P_SCALE]; }
+        fm1_in.buttons |= 1u << panel.btn[B_SCL]; host_pressed |= 1u << panel.btn[B_SCL]; frame(); frames(3);
+        key_down(wk(4)); key_up(wk(4)); frame();        /* white 5: C (F G A B C) */
+        for (i = 0; i < NTRK; i++)
+            if (bz_notes_track(&trk[i])) { mel++; okr &= trk[i].p[P_ROOT] == 0; }
+        ok = mel >= 2u && okr;
+        press(B_OCTUP); frame();
+        okr = 1;
+        for (i = 0; i < NTRK; i++)
+            if (bz_notes_track(&trk[i])) okr &= trk[i].p[P_SCALE] == (TSEL->p[P_SCALE]);
+        ok &= okr;
+        fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; host_pressed |= 1u << panel.btn[B_OCTUP]; frame();
+        key_down(wk(0)); key_up(wk(0)); frame();        /* SHIFT + F: this track only */
+        fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+        okr = TSEL->p[P_ROOT] == 5;
+        for (i = 0; i < NTRK; i++)
+            if (&trk[i] != TSEL && bz_notes_track(&trk[i])) okr &= trk[i].p[P_ROOT] == 0;
+        ok &= okr;
+        press(B_OCTDN); frame();                        /* OCT-: put back */
+        for (i = 0; i < NTRK; i++) ok &= trk[i].p[P_ROOT] == r0[i] && trk[i].p[P_SCALE] == s0[i];
+        fm1_in.buttons &= ~(1u << panel.btn[B_SCL]); frame(); frames(3);
+        bad += check("SCL (0.19): a key every melodic track's root; OCT+ MAJOR / MINOR; OCT+ held + key one track; OCT- back", ok);
     }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;
