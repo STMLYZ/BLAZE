@@ -372,6 +372,7 @@ static void head_group(void)
     GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
     cv_text(x + 4, HEAD_MY, &AF_M, b, T_THEME);
 }
+static uint32_t bz_hold_prog(void);                  /* (BLAZE 0.20: below) */
 static void draw_head(void)
 {
     static int16_t metro_x = -1;                       /* the metronome's ink as drawn (-1: hidden), its beat */
@@ -387,7 +388,8 @@ static void draw_head(void)
                    (uint32_t)seq_counting() * 7u + (ui_prefs & PREF_BPM_LOCK) * 4099u +
                    (uint32_t)batt_shown() * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) +
                    (slot ? str_hash(11u, sl) : 0u) + (uint32_t)midi_lit(song.sel) * 15485863u +   /* (1.5.5) */
-                   (cpu_pct() / 5u) * 1299709u;       /* (0.15: the CPU meter, in 5 % steps) */
+                   (cpu_pct() / 5u) * 1299709u +      /* (0.15: the CPU meter, in 5 % steps) */
+                   bz_hold_prog() * 15485867u;        /* (BLAZE 0.20, PAGES SIMPLE: SAVE's hold filling) */
     int msg = ui.msg_t || ui.layer;
     int centre = !msg || ui.bpm_t || ui.layer == LAYER_GLO;   /* the BPM being changed: it stays, the message right */
     int32_t rx = HEAD_REC_X;
@@ -462,6 +464,8 @@ static void draw_head(void)
         head_group();
     if (!(msg && centre))                              /* (0.15: the CPU meter left of it; its number when hot) */
         draw_cpu(draw_battery(HEAD_BAT_X) - 4, !msg && !chain.running && !song.octave);
+    if (bz_hold_prog())                                /* BLAZE 0.20: SAVE held, UNDO coming: a bar fills the header's foot */
+        cv_rect(0, H_HEAD - 3, 240 * (int32_t)bz_hold_prog() / 16, 3, T_ACCENT);
     cv_blit(0, Y_HEAD);
 }
 /* LINE: 1 px dividers in the BG gaps between the strips, not around them: under the header, above and
@@ -614,6 +618,38 @@ static uint32_t span_face(uint32_t c, const card_span_t *sp, const char *label)
 #define LG_VB 49                                        /* the value's band: L capitals rows 49..69 */
 #define LG_UY 73                                        /* the unit's line (S capitals rows 76..84) */
 #define LG_GY 92                                        /* the gauge, 3 px */
+/* BLAZE 0.20, PAGES SIMPLE on (ui.c BZ_SIMPLE): SAVE held fills a bar under the header to its UNDO (0.7 s), 1..16;
+ * 0: none */
+static uint32_t bz_hold_prog(void)
+{
+    uint32_t e;
+    if (BZ_SIMPLE != BZ_SIMPLE_ON || !ui.save_t0 || (ui.save_t0 & 2u) || ui.menu || ui.confirm || name_on() ||
+        !((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u))
+        return 0;
+    e = (fm1_ticks() - (ui.save_t0 & ~3u)) / (44u * 1000u * FM1_TICKS_PER_US);   /* (700 ms / 16) */
+    return e < 1u ? 1u : e > 16u ? 16u : e;
+}
+/* .. and the cards' short labels as words where the card has room */
+static const char *bz_long_label(const char *l)
+{
+    static const char *const W[][2] = {
+        {"DECY", "DECAY"}, {"DCAY", "DECAY"}, {"DEC", "DECAY"}, {"ATK", "ATTACK"}, {"REL", "RELEASE"},
+        {"CUT", "CUTOFF"}, {"RES", "RESO"}, {"DRV", "DRIVE"}, {"FDBK", "FEEDBACK"}, {"FB", "FEEDBACK"},
+        {"DTUN", "DETUNE"}, {"PTCH", "PITCH"}, {"SPRD", "SPREAD"}, {"DENS", "DENSITY"}, {"BRIT", "BRIGHT"},
+        {"BRTH", "BREATH"}, {"VOWL", "VOWEL"}, {"HARM", "HARMONICS"}, {"STRC", "STRUCTURE"}, {"EXC", "EXCITE"},
+        {"ACC", "ACCENT"}, {"DLY", "DELAY"}, {"REV", "REVERB"}, {"CHRD", "CHORD"}, {"OCT", "OCTAVE"},
+        {"POS", "POSITION"}, {"ROT", "ROTATE"}, {"MRAT", "MOD RATE"}, {"MLVL", "MOD LEVEL"}, {"SLCE", "SLICE"},
+        {"SUST", "SUSTAIN"}, {"SUS", "SUSTAIN"}, {"LVL", "LEVEL"}, {"ENV", "ENVELOPE"}, {"ALG", "ALGORITHM"},
+        {"SR", "RATE"}, {"DIV", "DIVIDE"}, {"FREQ", "FREQUENCY"}, {"AMT", "AMOUNT"}, {"DEP", "DEPTH"}};
+    uint32_t k;
+    if (BZ_SIMPLE != BZ_SIMPLE_ON)
+        return l;
+    for (k = 0; k < sizeof W / sizeof W[0]; k++)
+        if (str_eq(l, W[k][0]))
+            return text_w(&AF_S, W[k][1]) <= COL_W - 24 ? W[k][1] : l;
+    return l;
+}
+
 static void draw_column_tall(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
                              uint32_t icon, int hot, int mot, int32_t kid, const card_span_t *sp)
 {
@@ -710,6 +746,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     uint32_t n, kn;
     int32_t kid = kc_tag(val, &kn);
     card_span_t sp = card_span;                         /* (#251: what the knob shows, this card only) */
+    label = bz_long_label(label);                       /* (BLAZE 0.20, PAGES SIMPLE: words) */
     card_span.fn = 0;
     fmt_named = 0;                                      /* (params.c: a name, for this card only) */
     card_mot_next = 0;                                  /* (the same: MOTION, this card only) */

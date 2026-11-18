@@ -654,6 +654,30 @@ int main(void)
         ok &= BZ_SIMPLE != BZ_SIMPLE_ON && page_visible(lfo2) && !ui.menu;
         bad += check("PAGES SIMPLE (0.20): HOME + OCT+ hides LFO 2 (LFO stays), again all; no octave, no menu", ok);
     }
+    /* 0.20: HOME held + OCT-: UNDO (a preset load back); PAGES SIMPLE: card words (DECY -> DECAY), SAVE held fills a
+     * bar to its UNDO */
+    {
+        uint32_t pr0;
+        ui_power_on(); frame(); frames(10);
+        pr0 = TSEL->preset;
+        bzgo_page("PRESETS"); frame();
+        eng_list_step(1); frame();
+        ok = TSEL->preset != pr0;
+        home_down(); frames(30);
+        press(B_OCTDN); frame();
+        home_up();
+        ok &= TSEL->preset == pr0 && !ui.menu && ui.home == 0;
+        BZ_SIMPLE = BZ_SIMPLE_ON;
+        ok &= str_eq(bz_long_label("DECY"), "DECAY") && str_eq(bz_long_label("TUNE"), "TUNE");
+        fm1_in.buttons |= 1u << panel.btn[B_SAVE]; host_pressed |= 1u << panel.btn[B_SAVE]; frame();
+        for (pr0 = 0; pr0 < 400u && bz_hold_prog() < 4u; pr0++) frame();
+        ok &= bz_hold_prog() >= 4u && bz_hold_prog() < 16u;
+        fm1_in.buttons &= ~(1u << panel.btn[B_SAVE]); frame(); frame();
+        ok &= !bz_hold_prog();
+        BZ_SIMPLE = 0;
+        ok &= str_eq(bz_long_label("DECY"), "DECY");
+        bad += check("GO (0.20): HOME + OCT- UNDO; SIMPLE: card words, SAVE's hold bar; ALL: as before", ok);
+    }
     printf("%s\n", bad ? "BLAZE GO: FAILED" : "BLAZE GO: all ok");
     return bad != 0;
 }

@@ -717,3 +717,12 @@ song (marked STACK's — SONG's PLAY plays it too). Entering STACK sets the four
 **PAGES SIMPLE**: on GO (HOME held), **OCT+** hides the deep pages (ENV DEST, LFO 2, LFO DEST, MOD, INSERT 2, LANES 2,
 OPERATOR 2, OP ENVs, OP LEVEL, VOICE 2–3, ARP 2, DETAIL, AUTOMATION, PHRASES) from the families' rounds; OCT+ again:
 all. Kept. Felucca's own per-page hints are MENU > SYSTEM > HELP ON.
+
+## 0.20.1 — UNDO on GO, PAGES SIMPLE words and hold bar
+
+- **HOME held + OCT−: UNDO** (the same as SAVE held: the last sound or pattern load back). The GO map says so.
+- **PAGES SIMPLE** (HOME held + OCT+) now also writes the cards' short labels as words where they fit (DECY → DECAY,
+  ATK → ATTACK, CUT → CUTOFF, FDBK → FEEDBACK …), and holding SAVE fills a bar under the header until its UNDO fires.
+- Already there in Felucca, so not rebuilt: the footer names the engine, the track, the sound and the page (a
+  breadcrumb); MENU > SYSTEM > HELP ON shows each page's hint for ~2 s after entering it; EDIT 1 is each engine's own
+  main page (the "SOUND page").

@@ -43,6 +43,17 @@ static struct {
 #define GO_MS(ms) ((ms) * 1000u * FM1_TICKS_PER_US)
 
 static int go_shown(void) { return go.shown && go.ok; }
+/* 0.20: HOME held + OCT-: UNDO (SAVE held's: the last sound or pattern load back, ui.c undo_swap) */
+static void go_undo(void)
+{
+    go.used = 1;
+    ui.home_t0 |= 2u;
+    if (chain_busy())
+        ui_message("STOP TO UNDO");
+    else
+        undo_swap();
+    ui.force = 1;
+}
 /* 0.20: HOME held + OCT+: PAGES SIMPLE <-> ALL (ui.c bz_simple_hidden) */
 static void go_simple_toggle(void)
 {
@@ -260,8 +271,8 @@ static void go_draw(void)
     cv_begin(240, Y_GRAPH - H_HEAD, T_BG);              /* the strip: what this is */
     cv_rrect(3, 4, 234, Y_GRAPH - H_HEAD - 8, 5, T_SURF, T_BG);
     cv_text_on(12, 4 + CAP_IN(M, 22), &AF_M, "GO TO", T_THEME, T_SURF);
-    cv_text_on(12, 26 + CAP_IN(S, 16), &AF_S, BZ_SIMPLE == BZ_SIMPLE_ON ? "KEY: GO  LET GO: MENU  OCT+: ALL"
-               : "KEY: GO  LET GO: MENU  OCT+: SIMPLE", T_MID, T_SURF);
+    cv_text_on(12, 26 + CAP_IN(S, 16), &AF_S, BZ_SIMPLE == BZ_SIMPLE_ON ? "LET GO: MENU  OCT- UNDO  OCT+ ALL"
+               : "LET GO: MENU  OCT- UNDO  OCT+ SIMPLE", T_MID, T_SURF);
     cv_blit(0, H_HEAD);
     cv_begin(240, H_GRAPH, T_BG);
     cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);
